@@ -412,6 +412,7 @@ export interface AttendanceFeedPost {
   kantorNama: string;
   kantorAlamat: string;
   lokasiAktualAlamat: string | null;
+  lokasiAlamatLookupDone: boolean;
   tanggal: string;
   urutanSesi: number;
   namaSesi: string;
