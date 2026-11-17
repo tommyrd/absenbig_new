@@ -81,7 +81,8 @@ function loadAuthUserById(userId: number): (AuthUser & { tokenVersion: number })
               COALESCE(k.jabatan, 'Pemilik Sistem') as jabatan,
               COALESCE(k.no_hp, u.no_hp, '') as no_hp,
               COALESCE(k.kantor_id, 0) as kantor_id, COALESCE(k.bidang_id, 0) as bidang_id, k.aktif as emp_aktif,
-              k.foto_profil_path, k.foto_profil_updated_at,
+              COALESCE(k.foto_profil_path, u.foto_profil_path) as foto_profil_path,
+              COALESCE(k.foto_profil_updated_at, u.foto_profil_updated_at) as foto_profil_updated_at,
               COALESCE(kt.nama, 'Akun Sistem') as kantor_nama,
               COALESCE(kt.lat, 0) as kantor_lat, COALESCE(kt.lng, 0) as kantor_lng,
               COALESCE(kt.radius_meter, 0) as kantor_radius,
@@ -3184,6 +3185,51 @@ export function registerApiRoutes(app: Express) {
   );
 
   app.get(
+    '/api/v1/avatars/pengguna/:userId',
+    requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'),
+    (req: Request, res: Response) => {
+      const userId = Number(req.params.userId);
+      const row = db
+        .prepare(
+          `SELECT COALESCE(NULLIF(nama_tampilan, ''), username) as nama_lengkap,
+                  foto_profil_path, role
+           FROM pengguna
+           WHERE id = ?`
+        )
+        .get(userId) as
+        | { nama_lengkap: string; foto_profil_path: string | null; role: string }
+        | undefined;
+
+      if (!row) {
+        res.status(404).end();
+        return;
+      }
+
+      if (row.foto_profil_path) {
+        const safeFile = path.basename(row.foto_profil_path);
+        const fullPath = path.join(getAvatarsDir(), safeFile);
+        if (fs.existsSync(fullPath)) {
+          const ext = path.extname(safeFile).toLowerCase();
+          const mime =
+            ext === '.png' ? 'image/png' :
+            ext === '.webp' ? 'image/webp' : 'image/jpeg';
+          res.setHeader('Content-Type', mime);
+          res.setHeader('X-Content-Type-Options', 'nosniff');
+          res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
+          res.setHeader('Cache-Control', 'no-cache');
+          fs.createReadStream(fullPath).pipe(res);
+          return;
+        }
+      }
+
+      res.setHeader('Content-Type', 'image/svg+xml');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.send(buildDefaultAvatarSvg(row.nama_lengkap, row.role));
+    }
+  );
+
+  app.get(
     '/api/v1/avatars/registration/:regId',
     requireRole('SUPERADMIN'),
     (req: Request, res: Response) => {
@@ -3232,19 +3278,63 @@ export function registerApiRoutes(app: Express) {
 
   app.put(
     '/api/v1/profile/photo',
-    requireRole('KARYAWAN', 'ADMIN'),
+    requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'),
     (req: AuthenticatedRequest, res: Response) => {
       const user = req.authUser!;
-      if (user.karyawan_id === null) {
-        res.status(403).json({ error: 'Akun Superadmin tidak memiliki foto profil pegawai.' });
-        return;
-      }
-      const employeeId = user.karyawan_id;
       const { fotoBase64, removePhoto } = req.body as {
         fotoBase64?: string | null;
         removePhoto?: boolean;
       };
 
+      if (user.karyawan_id === null) {
+        const existingUser = db
+          .prepare(`SELECT foto_profil_path FROM pengguna WHERE id = ?`)
+          .get(user.id) as { foto_profil_path: string | null } | undefined;
+        if (!existingUser) {
+          res.status(404).json({ error: 'Akun pengguna tidak ditemukan.' });
+          return;
+        }
+
+        const nowIso = getWibIsoString();
+        let nextPath: string | null = existingUser.foto_profil_path;
+        if (removePhoto) {
+          deleteAvatarFile(existingUser.foto_profil_path);
+          nextPath = null;
+        } else if (fotoBase64) {
+          try {
+            nextPath = saveAvatarBase64(fotoBase64, `user_${user.id}`);
+          } catch (err) {
+            res.status(400).json({ error: err instanceof Error ? err.message : 'Foto profil tidak valid.' });
+            return;
+          }
+          deleteAvatarFile(existingUser.foto_profil_path);
+        } else {
+          res.status(400).json({ error: 'Pilih foto profil atau opsi hapus foto.' });
+          return;
+        }
+
+        db.prepare(
+          `UPDATE pengguna SET foto_profil_path = ?, foto_profil_updated_at = ? WHERE id = ?`
+        ).run(nextPath, nowIso, user.id);
+
+        writeAuditLog(db, {
+          actor: user,
+          req,
+          modul: 'PROFIL_AKUN',
+          aksi: removePhoto ? 'REMOVE_PROFILE_PHOTO' : 'UPDATE_PROFILE_PHOTO',
+          targetEntity: 'pengguna',
+          targetId: user.id,
+          before: { has_foto_profil: Boolean(existingUser.foto_profil_path) },
+          after: { has_foto_profil: Boolean(nextPath) },
+          alasan: 'Pembaruan foto profil akun pemilik sistem',
+        });
+
+        const updatedOwner = loadAuthUserById(user.id);
+        res.json({ user: updatedOwner ? stripInternalAuthFields(updatedOwner) : null });
+        return;
+      }
+
+      const employeeId = user.karyawan_id;
       const existing = db
         .prepare(`SELECT foto_profil_path FROM karyawan WHERE id = ?`)
         .get(employeeId) as { foto_profil_path: string | null } | undefined;
@@ -3542,8 +3632,9 @@ export function registerApiRoutes(app: Express) {
                 u.role, k.kantor_id, kt.nama as kantor_nama,
                 k.bidang_id, b.nama as bidang_nama, k.tanggal_masuk,
                 u.aktif as user_aktif, k.aktif as karyawan_aktif,
-                CASE WHEN k.foto_profil_path IS NOT NULL THEN 1 ELSE 0 END as has_foto_profil,
-                k.foto_profil_updated_at, u.created_at
+                CASE WHEN COALESCE(k.foto_profil_path, u.foto_profil_path) IS NOT NULL THEN 1 ELSE 0 END as has_foto_profil,
+                COALESCE(k.foto_profil_updated_at, u.foto_profil_updated_at) as foto_profil_updated_at,
+                u.created_at
          FROM pengguna u
          LEFT JOIN karyawan k ON u.karyawan_id = k.id
          LEFT JOIN kantor kt ON k.kantor_id = kt.id
