@@ -13,7 +13,7 @@ export const SCHEMA_SQL = `
     lat REAL NOT NULL,
     lng REAL NOT NULL,
     radius_meter INTEGER NOT NULL DEFAULT 250,
-    geofence_mode TEXT NOT NULL DEFAULT 'CATAT_DENGAN_FLAG',
+    geofence_mode TEXT NOT NULL DEFAULT 'TOLAK_LUAR_RADIUS',
     zona_waktu TEXT NOT NULL DEFAULT 'Asia/Jakarta',
     aktif INTEGER NOT NULL DEFAULT 1
   );
