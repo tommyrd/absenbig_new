@@ -4,9 +4,9 @@
 
 ## 1. Cakupan Pengujian Otomatis (`npm test`)
 
-Suite berisi 21 test (13 inti + 8 production) dan dijalankan menggunakan `tsx --test tests/*.test.ts`. Perubahan terbaru menambah cakupan batas akhir sesi dan kualitas GPS. Jalankan ulang secara lokal setelah menarik commit terbaru; angka kelulusan harus berasal dari hasil perintah aktual.
+Suite berisi 22 test (14 inti + 8 production) dan dijalankan menggunakan `tsx --test tests/*.test.ts`. Perubahan terbaru menambah cakupan batas akhir sesi dan kualitas GPS. Jalankan ulang secara lokal setelah menarik commit terbaru; angka kelulusan harus berasal dari hasil perintah aktual.
 
-### A. Suite Inti Bisnis (`tests/core.test.ts` — 13 Test)
+### A. Suite Inti Bisnis (`tests/core.test.ts` — 14 Test)
 1. **Geofence Haversine distance calculation** — Perhitungan jarak meter antara koordinat GPS karyawan dan kantor.
 2. **Session time window** — Absensi hanya diizinkan sejak `jam_mulai` hingga `jam_selesai` (inklusif); setelah `jam_selesai` menjadi `EXPIRED`.
 3. **GPS accuracy margin** — Akurasi browser maksimum ±100m dan jarak + nilai akurasi harus tetap berada dalam radius kantor saat sesi wajib kantor.
@@ -40,7 +40,7 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
 |---|---|---|
 | TypeScript Check | `npm run lint` (`tsc --noEmit`) | Perlu dijalankan ulang setelah commit terbaru |
 | Frontend Bundle | `npm run build` (`vite build`) | Perlu dijalankan ulang setelah commit terbaru |
-| Automated Tests | `npm.cmd test` | Perlu dijalankan ulang; cakupan saat ini 20 test |
+| Automated Tests | `npm.cmd test` | Perlu dijalankan ulang; cakupan saat ini 22 test |
 | Production Server Boot | `NODE_ENV=production node server.ts` | Perlu UAT ulang setelah commit terbaru |
 
 ---
@@ -83,3 +83,10 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
    - Caption Sesi 1 dapat diedit dan opsional; caption sesi lanjutan dapat diedit dan tetap mengikuti kewajiban deskripsi dari kebijakan.
    - Ketika mengirim, tampilkan status loading pemeriksaan GPS dan pengunggahan/penyimpanan. Tombol kirim tidak boleh dapat ditekan dua kali.
    - Setelah API mengonfirmasi penyimpanan berhasil, kembali ke Beranda, scroll ke paling atas, tampilkan notifikasi sukses, dan pastikan posting/foto terbaru muncul di feed.
+
+9. **Browser Location Address & History Calendar (Employee):**
+   - Tekan Perbarui Lokasi; verifikasi koordinat latitude/longitude, akurasi ±meter, jarak kantor, dan tautan titik di Google Maps tampil dari posisi browser.
+   - Tanpa `GOOGLE_MAPS_GEOCODING_API_KEY`, alamat teks harus menampilkan keterangan belum dikonfigurasi dan fitur absensi tetap berjalan menggunakan koordinat browser.
+   - Dengan Google Geocoding API aktif, verifikasi alamat perkiraan tampil. Pastikan key hanya berada di environment server dan alamat hanya diminta setelah pengguna menekan Perbarui Lokasi.
+   - Kalender History memakai status resolver: hijau HADIR, merah TIDAK HADIR, amber BELUM SELESAI, dan warna khusus untuk libur/off/cuti/izin/sakit/off pengganti.
+   - Hari mendatang yang belum dievaluasi tetap netral, tanggal dapat dipilih untuk memfilter timeline, dan Admin Override diberi penanda O serta memakai hasil payroll final untuk warna.
