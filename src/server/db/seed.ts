@@ -131,18 +131,13 @@ export function seedProductionBaseline(
         ('ADM', 'Administrasi & Keuangan', 'Operasional kantor, HR, dan administrasi keuangan')
     `).run();
 
-    // 3. Superadmin Initial Account ONLY (no demo employees)
-    const empInfo = db
-      .prepare(
-        `INSERT INTO karyawan (nik, nama_lengkap, email, no_hp, kantor_id, bidang_id, jabatan, tanggal_masuk, aktif)
-         VALUES ('BG-001', ?, ?, '', 1, 3, 'Superadmin / Owner', ?, 1)`
-      )
-      .run(fullName, email, today);
-
+    // 3. Superadmin is an owner/system identity, not an employee.
     db.prepare(
-      `INSERT INTO pengguna (username, email, password_hash, role, karyawan_id, aktif, token_version, created_at)
-       VALUES (?, ?, ?, 'SUPERADMIN', ?, 1, 1, ?)`
-    ).run(username, email, hashPassword(rawPassword), Number(empInfo.lastInsertRowid), nowIso);
+      `INSERT INTO pengguna (
+         username, email, password_hash, role, karyawan_id, nama_tampilan, no_hp,
+         aktif, token_version, created_at
+       ) VALUES (?, ?, ?, 'SUPERADMIN', NULL, ?, '', 1, 1, ?)`
+    ).run(username, email, hashPassword(rawPassword), fullName, nowIso);
 
     // 4. Default Attendance Policies & Sessions
     const polInsert = db.prepare(`
@@ -244,7 +239,6 @@ export function seedDemoDataset(db: DatabaseSync): boolean {
     INSERT INTO karyawan (nik, nama_lengkap, email, no_hp, kantor_id, bidang_id, jabatan, tanggal_masuk, aktif)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
   `);
-  empInsert.run('BG-001', 'Budi Santoso', 'owner@bignet.id', '08111000001', 1, 3, 'Owner / CEO', '2021-01-10');
   empInsert.run('BG-002', 'Siti Rahmawati', 'admin@bignet.id', '08111000002', 1, 3, 'HR & Operations Admin', '2022-03-01');
   empInsert.run('BG-101', 'Andi Pratama', 'andi@bignet.id', '08121000101', 1, 1, 'Senior Field Technician', '2023-02-15');
   empInsert.run('BG-102', 'Rina Kusuma', 'rina@bignet.id', '08121000102', 1, 3, 'Finance & Payroll Staff', '2023-06-01');
@@ -253,18 +247,24 @@ export function seedDemoDataset(db: DatabaseSync): boolean {
   empInsert.run('BG-105', 'Dewi Lestari', 'dewi@bignet.id', '08121000105', 1, 2, 'NOC Analyst', '2024-04-01');
   empInsert.run('BG-106', 'Hendra Wijaya', 'hendra@bignet.id', '08121000106', 1, 1, 'Field Technician', '2024-07-01');
 
+  db.prepare(`
+    INSERT INTO pengguna (
+      username, email, password_hash, role, karyawan_id, nama_tampilan, no_hp,
+      aktif, token_version, created_at
+    ) VALUES ('superadmin', 'owner@bignet.id', ?, 'SUPERADMIN', NULL, 'Budi Santoso', '08111000001', 1, 1, ?)
+  `).run(passwordHash, nowIso);
+
   const userInsert = db.prepare(`
     INSERT INTO pengguna (username, email, password_hash, role, karyawan_id, aktif, token_version, created_at)
     VALUES (?, ?, ?, ?, ?, 1, 1, ?)
   `);
-  userInsert.run('superadmin', 'owner@bignet.id', passwordHash, 'SUPERADMIN', 1, nowIso);
-  userInsert.run('admin', 'admin@bignet.id', passwordHash, 'ADMIN', 2, nowIso);
-  userInsert.run('andi', 'andi@bignet.id', passwordHash, 'KARYAWAN', 3, nowIso);
-  userInsert.run('rina', 'rina@bignet.id', passwordHash, 'KARYAWAN', 4, nowIso);
-  userInsert.run('dimas', 'dimas@bignet.id', passwordHash, 'KARYAWAN', 5, nowIso);
-  userInsert.run('fajar', 'fajar@bignet.id', passwordHash, 'KARYAWAN', 6, nowIso);
-  userInsert.run('dewi', 'dewi@bignet.id', passwordHash, 'KARYAWAN', 7, nowIso);
-  userInsert.run('hendra', 'hendra@bignet.id', passwordHash, 'KARYAWAN', 8, nowIso);
+  userInsert.run('admin', 'admin@bignet.id', passwordHash, 'ADMIN', 1, nowIso);
+  userInsert.run('andi', 'andi@bignet.id', passwordHash, 'KARYAWAN', 2, nowIso);
+  userInsert.run('rina', 'rina@bignet.id', passwordHash, 'KARYAWAN', 3, nowIso);
+  userInsert.run('dimas', 'dimas@bignet.id', passwordHash, 'KARYAWAN', 4, nowIso);
+  userInsert.run('fajar', 'fajar@bignet.id', passwordHash, 'KARYAWAN', 5, nowIso);
+  userInsert.run('dewi', 'dewi@bignet.id', passwordHash, 'KARYAWAN', 6, nowIso);
+  userInsert.run('hendra', 'hendra@bignet.id', passwordHash, 'KARYAWAN', 7, nowIso);
 
   const polInsert = db.prepare(`
     INSERT INTO kebijakan_absensi (
@@ -277,7 +277,7 @@ export function seedDemoDataset(db: DatabaseSync): boolean {
   polInsert.run('DEFAULT', null, null, 'Kebijakan Default Perusahaan (4 Sesi)', 4, 3, 15, 1, 1, 1, 1, 0, 1, 1, '2026-01-01', nowIso);
   polInsert.run('BIDANG', 1, null, 'Kebijakan Teknisi Lapangan (3 Sesi)', 3, 2, 20, 1, 1, 1, 1, 0, 1, 1, '2026-01-01', nowIso);
   polInsert.run('BIDANG', 3, null, 'Kebijakan Administrasi Kantor (2 Sesi)', 2, 2, 10, 1, 0, 1, 1, 0, 1, 1, '2026-01-01', nowIso);
-  polInsert.run('KARYAWAN', null, 5, 'Kebijakan Khusus Lead Teknisi Bandung (4 Sesi)', 4, 3, 15, 1, 1, 1, 1, 0, 1, 1, '2026-01-01', nowIso);
+  polInsert.run('KARYAWAN', null, 4, 'Kebijakan Khusus Lead Teknisi Bandung (4 Sesi)', 4, 3, 15, 1, 1, 1, 1, 0, 1, 1, '2026-01-01', nowIso);
 
   const sesiInsert = db.prepare(`
     INSERT INTO sesi_absensi (kebijakan_id, urutan, nama, jam_mulai, jam_selesai, wajib_foto, wajib_aktivitas, aktif)
@@ -320,49 +320,49 @@ export function seedDemoDataset(db: DatabaseSync): boolean {
   const kkInfo = db.prepare(`
     INSERT INTO penugasan_kerja_khusus (
       karyawan_id, tanggal, nama_project, keterangan, jumlah_sesi, min_sesi_hadir, berhak_off_pengganti, status, created_by, created_at
-    ) VALUES (3, ?, 'Migrasi OLT & Fiber Cluster Timur', 'Maintenance inti jaringan pada hari libur', 3, 2, 1, 'SELESAI', 2, ?)
+    ) VALUES (2, ?, 'Migrasi OLT & Fiber Cluster Timur', 'Maintenance inti jaringan pada hari libur', 3, 2, 1, 'SELESAI', 2, ?)
   `).run(firstSundayPast, nowIso);
 
   db.prepare(`
     INSERT INTO hak_off_pengganti (karyawan_id, kerja_khusus_id, tanggal_kerja_sumber, nama_project, status, kadaluarsa_pada, created_at)
-    VALUES (3, ?, ?, 'Migrasi OLT & Fiber Cluster Timur', 'TERSEDIA', ?, ?)
+    VALUES (2, ?, ?, 'Migrasi OLT & Fiber Cluster Timur', 'TERSEDIA', ?, ?)
   `).run(Number(kkInfo.lastInsertRowid), firstSundayPast, `${ym}-30`, nowIso);
 
   const secondDay = pastDays[3] || `${ym}-04`;
   const kkHendra = db.prepare(`
     INSERT INTO penugasan_kerja_khusus (
       karyawan_id, tanggal, nama_project, keterangan, jumlah_sesi, min_sesi_hadir, berhak_off_pengganti, status, created_by, created_at
-    ) VALUES (8, ?, 'Backup Power BTS Utara', 'Pemasangan UPS darurat', 3, 2, 1, 'SELESAI', 2, ?)
+    ) VALUES (7, ?, 'Backup Power BTS Utara', 'Pemasangan UPS darurat', 3, 2, 1, 'SELESAI', 2, ?)
   `).run(firstSundayPast === secondDay ? (pastDays[1] || `${ym}-02`) : secondDay, nowIso);
 
   const hakHendra = db.prepare(`
     INSERT INTO hak_off_pengganti (karyawan_id, kerja_khusus_id, tanggal_kerja_sumber, nama_project, status, kadaluarsa_pada, created_at)
-    VALUES (8, ?, ?, 'Backup Power BTS Utara', 'DIPAKAI', ?, ?)
+    VALUES (7, ?, ?, 'Backup Power BTS Utara', 'DIPAKAI', ?, ?)
   `).run(Number(kkHendra.lastInsertRowid), firstSundayPast === secondDay ? (pastDays[1] || `${ym}-02`) : secondDay, `${ym}-30`, nowIso);
 
   const reqHendra = db.prepare(`
     INSERT INTO pengajuan (
       karyawan_id, jenis, tanggal_mulai, tanggal_akhir, alasan, catatan, hak_off_id, status, diproses_oleh, diproses_pada, alasan_keputusan, created_at, updated_at
-    ) VALUES (8, 'OFF_PENGGANTI', ?, ?, 'Mengambil hak off pengganti kerja hari Minggu', 'Disetujui koordinator lapangan', ?, 'APPROVED', 2, ?, 'Hak off valid dan beban kerja lapangan aman', ?, ?)
+    ) VALUES (7, 'OFF_PENGGANTI', ?, ?, 'Mengambil hak off pengganti kerja hari Minggu', 'Disetujui koordinator lapangan', ?, 'APPROVED', 2, ?, 'Hak off valid dan beban kerja lapangan aman', ?, ?)
   `).run(today, today, Number(hakHendra.lastInsertRowid), nowIso, nowIso, nowIso);
 
   db.prepare(`
     INSERT INTO penggunaan_off_pengganti (hak_off_id, pengajuan_id, karyawan_id, tanggal_off, status, created_at)
-    VALUES (?, ?, 8, ?, 'APPROVED', ?)
+    VALUES (?, ?, 7, ?, 'APPROVED', ?)
   `).run(Number(hakHendra.lastInsertRowid), Number(reqHendra.lastInsertRowid), today, nowIso);
 
   const futureDay = monthDays.find((d) => d > today) || today;
   db.prepare(`
     INSERT INTO pengajuan (
       karyawan_id, jenis, tanggal_mulai, tanggal_akhir, alasan, catatan, status, created_at, updated_at
-    ) VALUES (4, 'CUTI', ?, ?, 'Keperluan keluarga di luar kota', 'Serah terima berkas ke Siti sebelum berangkat', 'PENDING', ?, ?)
+    ) VALUES (3, 'CUTI', ?, ?, 'Keperluan keluarga di luar kota', 'Serah terima berkas ke Siti sebelum berangkat', 'PENDING', ?, ?)
   `).run(futureDay, futureDay, nowIso, nowIso);
 
   if (pastDays.length > 5) {
     db.prepare(`
       INSERT INTO pengajuan (
         karyawan_id, jenis, tanggal_mulai, tanggal_akhir, alasan, catatan, status, diproses_oleh, diproses_pada, alasan_keputusan, created_at, updated_at
-      ) VALUES (6, 'IZIN', ?, ?, 'Urusan pribadi setengah hari', '', 'REJECTED', 2, ?, 'Jadwal shift NOC sedang padat tanpa pengganti', ?, ?)
+      ) VALUES (5, 'IZIN', ?, ?, 'Urusan pribadi setengah hari', '', 'REJECTED', 2, ?, 'Jadwal shift NOC sedang padat tanpa pengganti', ?, ?)
     `).run(pastDays[4], pastDays[4], nowIso, nowIso, nowIso);
   }
 
@@ -375,12 +375,12 @@ export function seedDemoDataset(db: DatabaseSync): boolean {
   `);
 
   const employeesForSeed = [
-    { id: 3, nama: 'Andi Pratama', kantorLat: -6.2088, kantorLng: 106.8456, kantorNama: 'Kantor A', sesi: 3, policyName: 'Kebijakan Teknisi Lapangan (3 Sesi)' },
-    { id: 4, nama: 'Rina Kusuma', kantorLat: -6.2088, kantorLng: 106.8456, kantorNama: 'Kantor A', sesi: 2, policyName: 'Kebijakan Administrasi Kantor (2 Sesi)' },
-    { id: 5, nama: 'Dimas Nugroho', kantorLat: -6.9218, kantorLng: 107.6071, kantorNama: 'Kantor B', sesi: 4, policyName: 'Kebijakan Khusus Lead Teknisi Bandung (4 Sesi)' },
-    { id: 6, nama: 'Fajar Hidayat', kantorLat: -6.9218, kantorLng: 107.6071, kantorNama: 'Kantor B', sesi: 4, policyName: 'Kebijakan Default Perusahaan (4 Sesi)' },
-    { id: 7, nama: 'Dewi Lestari', kantorLat: -6.2088, kantorLng: 106.8456, kantorNama: 'Kantor A', sesi: 4, policyName: 'Kebijakan Default Perusahaan (4 Sesi)' },
-    { id: 8, nama: 'Hendra Wijaya', kantorLat: -6.2088, kantorLng: 106.8456, kantorNama: 'Kantor A', sesi: 3, policyName: 'Kebijakan Teknisi Lapangan (3 Sesi)' },
+    { id: 2, nama: 'Andi Pratama', kantorLat: -6.2088, kantorLng: 106.8456, kantorNama: 'Kantor A', sesi: 3, policyName: 'Kebijakan Teknisi Lapangan (3 Sesi)' },
+    { id: 3, nama: 'Rina Kusuma', kantorLat: -6.2088, kantorLng: 106.8456, kantorNama: 'Kantor A', sesi: 2, policyName: 'Kebijakan Administrasi Kantor (2 Sesi)' },
+    { id: 4, nama: 'Dimas Nugroho', kantorLat: -6.9218, kantorLng: 107.6071, kantorNama: 'Kantor B', sesi: 4, policyName: 'Kebijakan Khusus Lead Teknisi Bandung (4 Sesi)' },
+    { id: 5, nama: 'Fajar Hidayat', kantorLat: -6.9218, kantorLng: 107.6071, kantorNama: 'Kantor B', sesi: 4, policyName: 'Kebijakan Default Perusahaan (4 Sesi)' },
+    { id: 6, nama: 'Dewi Lestari', kantorLat: -6.2088, kantorLng: 106.8456, kantorNama: 'Kantor A', sesi: 4, policyName: 'Kebijakan Default Perusahaan (4 Sesi)' },
+    { id: 7, nama: 'Hendra Wijaya', kantorLat: -6.2088, kantorLng: 106.8456, kantorNama: 'Kantor A', sesi: 3, policyName: 'Kebijakan Teknisi Lapangan (3 Sesi)' },
   ];
 
   let missedDayForAndi: string | null = null;
@@ -389,21 +389,21 @@ export function seedDemoDataset(db: DatabaseSync): boolean {
     const isHoliday = d === holidayDate;
     for (const emp of employeesForSeed) {
       const isKantorA = emp.kantorNama === 'Kantor A';
-      const isKerjaKhususAndi = emp.id === 3 && d === firstSundayPast;
+      const isKerjaKhususAndi = emp.id === 2 && d === firstSundayPast;
       if (isHoliday && !isKerjaKhususAndi) continue;
       if (isKantorA && dow === 0 && !isKerjaKhususAndi) continue;
 
-      if (emp.id === 3 && !missedDayForAndi && dow >= 1 && dow <= 5 && d !== firstSundayPast) {
+      if (emp.id === 2 && !missedDayForAndi && dow >= 1 && dow <= 5 && d !== firstSundayPast) {
         missedDayForAndi = d;
         continue;
       }
-      if (emp.id === 6 && dow === 3 && d === pastDays[2]) {
+      if (emp.id === 5 && dow === 3 && d === pastDays[2]) {
         continue;
       }
 
       const sessionCount = !isKantorA && dow === 0 ? 2 : emp.sesi;
       const times = sessionCount === 2 ? ['08:05:12', '17:04:33'] : sessionCount === 3 ? ['08:12:40', '12:25:10', '17:05:45'] : ['08:07:19', '11:45:02', '15:14:22', '17:10:08'];
-      const late = emp.id === 6 && dow === 1;
+      const late = emp.id === 5 && dow === 1;
       for (let s = 1; s <= sessionCount; s++) {
         const t = s === 1 && late ? '09:32:10' : times[s - 1];
         const fileName = `seed_${emp.id}_${d}_s${s}.svg`;
@@ -413,7 +413,7 @@ export function seedDemoDataset(db: DatabaseSync): boolean {
           s === 1 && late ? 'TERLAMBAT' : 'TEPAT_WAKTU', s === 1 && late ? 17 : 0,
           emp.kantorLat + 0.0002, emp.kantorLng - 0.0001, 14, 38, 1,
           '10.10.1.24', 'Mozilla/5.0 (Mobile; BIGNET Web)',
-          s === 1 ? 'CHECK_IN' : s === 2 && emp.id === 3 ? 'STANDBY' : 'AKTIVITAS',
+          s === 1 ? 'CHECK_IN' : s === 2 && emp.id === 2 ? 'STANDBY' : 'AKTIVITAS',
           s === 1 ? 'Absensi masuk di area kerja' : isKerjaKhususAndi ? 'Migrasi OLT & terminasi fiber cluster timur' : 'Melaksanakan tugas operasional dan pelaporan rutin',
           filePath, checksum, JSON.stringify({ policyName: emp.policyName, jumlahSesi: sessionCount }), `${d}T${t}+07:00`
         );
@@ -445,7 +445,7 @@ export function seedDemoDataset(db: DatabaseSync): boolean {
   if (missedDayForAndi) {
     const ovInfo = db.prepare(`
       INSERT INTO override_kehadiran (karyawan_id, tanggal, hasil_awal, hasil_override, alasan, admin_id, created_at, aktif)
-      VALUES (3, ?, 'TIDAK_HADIR', 'DIHITUNG_MASUK', 'Penugasan darurat lapangan luar jaringan dengan surat tugas koordinator (HP kehabisan baterai)', 2, ?, 1)
+      VALUES (2, ?, 'TIDAK_HADIR', 'DIHITUNG_MASUK', 'Penugasan darurat lapangan luar jaringan dengan surat tugas koordinator (HP kehabisan baterai)', 2, ?, 1)
     `).run(missedDayForAndi, nowIso);
 
     db.prepare(`
@@ -457,7 +457,7 @@ export function seedDemoDataset(db: DatabaseSync): boolean {
     `).run(
       2, 'Siti Rahmawati', 'ADMIN', nowIso, '10.10.1.5', 'Mozilla/5.0 (Desktop; Admin Console)',
       'OVERRIDE_KEHADIRAN', 'CREATE_OVERRIDE', 'override_kehadiran', String(ovInfo.lastInsertRowid),
-      3, missedDayForAndi,
+      2, missedDayForAndi,
       JSON.stringify({ operationalStatus: 'TIDAK_HADIR', payrollStatus: 'TIDAK_DIHITUNG_MASUK', sessionsCompleted: 0 }),
       JSON.stringify({ payrollStatus: 'DIHITUNG_MASUK', buktiAsliDiubah: false }),
       'Penugasan darurat lapangan luar jaringan dengan surat tugas koordinator (HP kehabisan baterai)'
