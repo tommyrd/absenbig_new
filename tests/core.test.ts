@@ -14,12 +14,37 @@ import {
 } from '../src/server/services/resolver.ts';
 import { getWibDateString } from '../src/server/time.ts';
 import type { Karyawan, Role } from '../src/shared/types.ts';
+import { isGpsAccuracyAcceptable, isWithinVerifiedGeofence, MAX_GPS_ACCURACY_METERS } from '../src/shared/geofence.ts';
+import { getSessionWindowState } from '../src/shared/session-window.ts';
 
 test('Geofence Haversine distance calculation', () => {
   const distSame = haversineMeters(-6.2088, 106.8456, -6.2088, 106.8456);
   assert.equal(distSame, 0);
   const distNear = haversineMeters(-6.2088, 106.8456, -6.2095, 106.8460);
   assert.ok(distNear > 50 && distNear < 150, `Expected ~90m, got ${distNear}`);
+});
+
+test('Session attendance is allowed only inside the configured inclusive time window', () => {
+  assert.equal(getSessionWindowState(8 * 60 + 59, '09:00', '09:30'), 'NOT_STARTED');
+  assert.equal(getSessionWindowState(9 * 60, '09:00', '09:30'), 'OPEN');
+  assert.equal(getSessionWindowState(9 * 60 + 15, '09:00', '09:30'), 'OPEN');
+  assert.equal(getSessionWindowState(9 * 60 + 30, '09:00', '09:30'), 'OPEN');
+  assert.equal(getSessionWindowState(9 * 60 + 31, '09:00', '09:30'), 'EXPIRED');
+  assert.equal(getSessionWindowState(9 * 60, '09:30', '09:00'), 'INVALID');
+});
+
+test('GPS accuracy and radius uncertainty are validated conservatively', () => {
+  assert.equal(MAX_GPS_ACCURACY_METERS, 100);
+  assert.equal(isGpsAccuracyAcceptable(10), true);
+  assert.equal(isGpsAccuracyAcceptable(100), true);
+  assert.equal(isGpsAccuracyAcceptable(100.1), false);
+  assert.equal(isGpsAccuracyAcceptable(Number.NaN), false);
+  assert.equal(isGpsAccuracyAcceptable(null), false);
+
+  assert.equal(isWithinVerifiedGeofence(100, 10, 250), true);
+  assert.equal(isWithinVerifiedGeofence(200, 50, 250), true);
+  assert.equal(isWithinVerifiedGeofence(201, 50, 250), false);
+  assert.equal(isWithinVerifiedGeofence(10, 101, 250), false);
 });
 
 test('Policy Hierarchy resolves KARYAWAN > BIDANG > DEFAULT', () => {
