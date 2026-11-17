@@ -123,10 +123,10 @@ after(async () => {
 test('1. Migrations are idempotent and production baseline enforces zero demo accounts', () => {
   const db = getDb();
   const applied = getAppliedMigrations(db);
-  assert.equal(applied.length, 7);
+  assert.equal(applied.length, 8);
   assert.deepEqual(
     applied.map((m) => m.version),
-    ['001', '002', '003', '004', '005', '006', '007']
+    ['001', '002', '003', '004', '005', '006', '007', '008']
   );
 
   const attendanceColumns = db
@@ -138,6 +138,11 @@ test('1. Migrations are idempotent and production baseline enforces zero demo ac
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'absensi_lokasi_cache'")
     .get() as { name: string } | undefined;
   assert.equal(locationCache?.name, 'absensi_lokasi_cache');
+
+  const checkinOverrideTable = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'override_akses_absensi'")
+    .get() as { name: string } | undefined;
+  assert.equal(checkinOverrideTable?.name, 'override_akses_absensi');
 
   // Re-running migrations should apply 0 new steps
   const rerun = runMigrations(db);
@@ -749,6 +754,112 @@ test('6. SVG logo XSS sanitization, attendance camera-only, jam_mulai gate, geof
   assert.equal(flexibleOffsite.data.day.sessionsCompleted, 2);
   assert.equal(flexibleOffsite.data.day.sessionRecords[1].accuracy_meter, 50000);
   assert.equal(flexibleOffsite.data.day.sessionRecords[1].dalam_geofence, 0);
+
+  // Admin may reopen an expired next session once, for a short, auditable period.
+  if (currentMinuteOfDay > 0) {
+    const closedEndMinute = currentMinuteOfDay - 1;
+    const closedEndHm = `${String(Math.floor(closedEndMinute / 60)).padStart(2, '0')}:${String(closedEndMinute % 60).padStart(2, '0')}`;
+    const thirdSessionPolicy = await apiJson(`/api/v1/policies/${futurePol.data.id}`, {
+      method: 'PUT',
+      token: adminToken,
+      body: {
+        nama: 'Kebijakan Uji Override Check-in',
+        jumlah_sesi: 3,
+        min_sesi_hadir: 1,
+        toleransi_terlambat_menit: 15,
+        aturan_lokasi: 'SESI_PERTAMA_KANTOR',
+        wajib_foto_semua_sesi: 1,
+        wajib_aktivitas_sesi_lanjut: 1,
+        sesi: [
+          { urutan: 1, nama: 'Sesi 1 Open', jam_mulai: '00:00', jam_selesai: '23:59', wajib_foto: 1, wajib_aktivitas: 0, aktif: 1 },
+          { urutan: 2, nama: 'Sesi 2 Open', jam_mulai: '00:00', jam_selesai: '23:59', wajib_foto: 1, wajib_aktivitas: 1, aktif: 1 },
+          { urutan: 3, nama: 'Sesi 3 Expired', jam_mulai: '00:00', jam_selesai: closedEndHm, wajib_foto: 1, wajib_aktivitas: 1, aktif: 1 },
+        ],
+      },
+    });
+    assert.equal(thirdSessionPolicy.status, 200);
+
+    const employeeCannotGrant = await apiJson('/api/v1/admin/attendance/override-checkins', {
+      token: karyawanToken,
+    });
+    assert.equal(employeeCannotGrant.status, 403);
+
+    const expiredCandidates = await apiJson<{ items: { karyawanId: number; activeGrant: unknown }[] }>(
+      '/api/v1/admin/attendance/override-checkins',
+      { token: adminToken }
+    );
+    assert.equal(expiredCandidates.status, 200);
+    assert.ok(expiredCandidates.data.items.some((item) => item.karyawanId === karyawanId));
+
+    const grant = await apiJson<{ id: number; status: string; berlakuSampai: string }>(
+      '/api/v1/admin/attendance/override-checkins',
+      {
+        method: 'POST',
+        token: adminToken,
+        body: {
+          karyawanId,
+          alasan: 'Teknisi mengalami kendala kendaraan saat menuju kantor',
+          durasiMenit: 15,
+        },
+      }
+    );
+    assert.equal(grant.status, 201);
+    assert.equal(grant.data.status, 'AKTIF');
+
+    const duplicateGrant = await apiJson('/api/v1/admin/attendance/override-checkins', {
+      method: 'POST',
+      token: adminToken,
+      body: {
+        karyawanId,
+        alasan: 'Mencoba membuat izin kedua',
+        durasiMenit: 15,
+      },
+    });
+    assert.equal(duplicateGrant.status, 409);
+
+    const todayWithGrant = await apiJson<{ day: { checkinOverride: { active: boolean; id: number } | null } }>(
+      '/api/v1/attendance/today',
+      { token: karyawanToken }
+    );
+    assert.equal(todayWithGrant.status, 200);
+    assert.equal(todayWithGrant.data.day.checkinOverride?.active, true);
+    assert.equal(todayWithGrant.data.day.checkinOverride?.id, grant.data.id);
+
+    const lateSessionCheckin = await apiJson<{
+      ok: boolean;
+      sessionId: number;
+      day: { sessionsCompleted: number };
+    }>('/api/v1/attendance/session', {
+      method: 'POST',
+      token: karyawanToken,
+      body: {
+        urutanSesi: 3,
+        lat: -6.2,
+        lng: 106.8,
+        accuracyMeter: 10,
+        tipeAktivitas: 'STANDBY',
+        deskripsiAktivitas: 'Melanjutkan pekerjaan setelah izin check-in khusus Admin',
+        fotoBase64: SAMPLE_PNG_BASE64,
+        fotoSource: 'BROWSER_CAMERA',
+      },
+    });
+    assert.equal(lateSessionCheckin.status, 201);
+    assert.equal(lateSessionCheckin.data.day.sessionsCompleted, 3);
+
+    const usedGrant = db
+      .prepare(`SELECT status, used_session_id FROM override_akses_absensi WHERE id = ?`)
+      .get(grant.data.id) as { status: string; used_session_id: number | null };
+    assert.equal(usedGrant.status, 'DIGUNAKAN');
+    assert.equal(usedGrant.used_session_id, lateSessionCheckin.data.sessionId);
+
+    const overrideAudit = await apiJson<{ items: { aksi: string }[] }>(
+      '/api/v1/audit?modul=OVERRIDE_ABSENSI',
+      { token: superToken }
+    );
+    assert.equal(overrideAudit.status, 200);
+    assert.ok(overrideAudit.data.items.some((item) => item.aksi === 'BUKA_AKSES_CHECKIN'));
+    assert.ok(overrideAudit.data.items.some((item) => item.aksi === 'GUNAKAN_AKSES_CHECKIN'));
+  }
 
   // Feed lists the post and photo endpoint returns PNG with security headers
   const feed = await apiJson<{ posts: { id: number; namaLengkap: string; hasFoto: boolean }[] }>(
