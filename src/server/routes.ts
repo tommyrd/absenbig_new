@@ -3234,11 +3234,11 @@ export function registerApiRoutes(app: Express) {
     requireRole('KARYAWAN', 'ADMIN'),
     (req: AuthenticatedRequest, res: Response) => {
       const user = req.authUser!;
-      if (employeeId === null) {
+      if (user.karyawan_id === null) {
         res.status(403).json({ error: 'Akun Superadmin tidak memiliki foto profil pegawai.' });
         return;
       }
-      const employeeId = employeeId;
+      const employeeId = user.karyawan_id;
       const { fotoBase64, removePhoto } = req.body as {
         fotoBase64?: string | null;
         removePhoto?: boolean;
