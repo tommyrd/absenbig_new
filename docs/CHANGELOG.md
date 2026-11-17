@@ -1,5 +1,14 @@
 # Changelog — Absensi BIGNET
 
+## 2026-11-17 — Superadmin website favicon settings
+
+- Menu Pengaturan Sistem SUPERADMIN kini mendukung pratinjau, unggah, dan reset favicon website.
+- Favicon menerima PNG, SVG, atau ICO maksimal 512 KB; SVG diperiksa untuk menolak elemen/script aktif.
+- Favicon disimpan di direktori aset persisten, dimuat melalui endpoint publik khusus, serta langsung diterapkan pada ikon tab browser setelah pengaturan disimpan.
+- Pembaruan hanya dapat dilakukan SUPERADMIN dan tetap masuk ke Audit Trail Pengaturan Sistem.
+- Migrasi `009_custom_website_favicon_settings` menambahkan `favicon_path` dan `favicon_updated_at` pada `pengaturan_aplikasi`.
+
+
 ## 2026-11-17 — Admin one-time check-in override
 
 - Ditambahkan menu Admin **Izin Check-in Terlambat** untuk melihat sesi berikutnya yang sudah kedaluwarsa.
