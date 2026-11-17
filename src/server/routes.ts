@@ -76,9 +76,11 @@ function loadAuthUserById(userId: number): (AuthUser & { tokenVersion: number })
     .prepare(
       `SELECT u.id, u.username, u.email, u.role, u.karyawan_id, u.aktif as user_aktif,
               COALESCE(u.token_version, 1) as token_version,
-              COALESCE(NULLIF(u.nama_tampilan, ''), k.nama_lengkap, 'Superadmin') as nama_lengkap,
+              COALESCE(NULLIF(u.nama_tampilan, ''), k.nama_lengkap,
+                       CASE WHEN u.role = 'ADMIN' THEN 'Admin Operasional' ELSE 'Superadmin' END) as nama_lengkap,
               COALESCE(k.nik, '') as nik,
-              COALESCE(k.jabatan, 'Pemilik Sistem') as jabatan,
+              COALESCE(k.jabatan,
+                       CASE WHEN u.role = 'ADMIN' THEN 'Admin Operasional' ELSE 'Akun Pemilik Sistem' END) as jabatan,
               COALESCE(k.no_hp, u.no_hp, '') as no_hp,
               COALESCE(k.kantor_id, 0) as kantor_id, COALESCE(k.bidang_id, 0) as bidang_id, k.aktif as emp_aktif,
               COALESCE(k.foto_profil_path, u.foto_profil_path) as foto_profil_path,
@@ -92,7 +94,8 @@ function loadAuthUserById(userId: number): (AuthUser & { tokenVersion: number })
        LEFT JOIN karyawan k ON u.karyawan_id = k.id
        LEFT JOIN kantor kt ON k.kantor_id = kt.id
        LEFT JOIN bidang_kerja b ON k.bidang_id = b.id
-       WHERE u.id = ? AND u.aktif = 1 AND (u.role = 'SUPERADMIN' OR k.aktif = 1)`
+       WHERE u.id = ? AND u.aktif = 1
+          AND (u.role IN ('ADMIN','SUPERADMIN') OR (k.aktif = 1 AND COALESCE(k.is_system_archive, 0) = 0))`
     )
     .get(userId) as
     | (AuthUser & { user_aktif: number; emp_aktif: number | null; foto_profil_path: string | null; token_version: number })
@@ -350,7 +353,7 @@ export function registerApiRoutes(app: Express) {
       return;
     }
 
-    if (row.aktif !== 1 || (row.role !== 'SUPERADMIN' && row.emp_aktif !== 1)) {
+    if (row.aktif !== 1 || (row.role === 'KARYAWAN' && row.emp_aktif !== 1)) {
       res.status(403).json({ error: 'Akun Anda sedang dinonaktifkan. Hubungi Superadmin.' });
       return;
     }
@@ -744,7 +747,7 @@ export function registerApiRoutes(app: Express) {
   });
 
   // 4. Employee Today Status & Session Check-in
-  app.get('/api/v1/attendance/today', requireRole('KARYAWAN', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  app.get('/api/v1/attendance/today', requireRole('KARYAWAN'), (req: AuthenticatedRequest, res: Response) => {
     if (req.authUser!.karyawan_id === null) {
       res.status(403).json({ error: 'Akun Superadmin tidak memiliki profil pegawai atau absensi pribadi.' });
       return;
@@ -991,7 +994,7 @@ export function registerApiRoutes(app: Express) {
     }
   });
 
-  app.post('/api/v1/attendance/session', requireRole('KARYAWAN', 'ADMIN'), asyncRoute(async (req, res) => {
+  app.post('/api/v1/attendance/session', requireRole('KARYAWAN'), asyncRoute(async (req, res) => {
     const user = req.authUser!;
     const attLimit = attendanceLimiter.consume(`att:${user.id}`);
     if (!attLimit.allowed) {
@@ -1385,7 +1388,7 @@ export function registerApiRoutes(app: Express) {
     }
 
     if (targetEmpId === null) {
-      res.status(400).json({ error: 'Akun Superadmin tidak memiliki riwayat absensi pribadi. Pilih karyawan yang ingin dipantau.' });
+      res.status(400).json({ error: 'Akun Admin Operasional dan Superadmin tidak memiliki riwayat absensi pribadi. Pilih karyawan yang ingin dipantau.' });
       return;
     }
     const summary = computeMonthlySummary(db, targetEmpId, bulan);
@@ -1459,7 +1462,7 @@ export function registerApiRoutes(app: Express) {
     res.json({ items });
   });
 
-  app.post('/api/v1/requests', requireRole('KARYAWAN', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/v1/requests', requireRole('KARYAWAN'), (req: AuthenticatedRequest, res: Response) => {
     const user = req.authUser!;
     const {
       karyawanId,
@@ -1580,7 +1583,7 @@ export function registerApiRoutes(app: Express) {
     }
   });
 
-  app.put('/api/v1/requests/:id', requireRole('KARYAWAN', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  app.put('/api/v1/requests/:id', requireRole('KARYAWAN'), (req: AuthenticatedRequest, res: Response) => {
     const user = req.authUser!;
     const reqId = Number(req.params.id);
     const existing = db.prepare(`SELECT * FROM pengajuan WHERE id = ?`).get(reqId) as Pengajuan | undefined;
@@ -1634,7 +1637,7 @@ export function registerApiRoutes(app: Express) {
     res.json({ ok: true });
   });
 
-  app.post('/api/v1/requests/:id/cancel', requireRole('KARYAWAN', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/v1/requests/:id/cancel', requireRole('KARYAWAN'), (req: AuthenticatedRequest, res: Response) => {
     const user = req.authUser!;
     const reqId = Number(req.params.id);
     const { alasan } = req.body as { alasan?: string };
@@ -3275,12 +3278,12 @@ export function registerApiRoutes(app: Express) {
             actor: user,
             req,
             modul: 'PROFIL_AKUN',
-            aksi: 'UPDATE_SUPERADMIN_PROFILE',
+            aksi: 'UPDATE_STANDALONE_ACCOUNT_PROFILE',
             targetEntity: 'pengguna',
             targetId: user.id,
             before,
             after: { nama_lengkap: cleanName, email: cleanEmail, no_hp: cleanHp },
-            alasan: 'Pembaruan identitas akun Superadmin tanpa profil karyawan',
+            alasan: 'Pembaruan identitas akun non-pegawai tanpa profil karyawan',
           });
         } else {
           db.prepare(`UPDATE karyawan SET nama_lengkap = ?, email = ?, no_hp = ? WHERE id = ?`).run(
@@ -3576,7 +3579,7 @@ export function registerApiRoutes(app: Express) {
           targetId: user.id,
           before: { has_foto_profil: Boolean(existingUser.foto_profil_path) },
           after: { has_foto_profil: Boolean(nextPath) },
-          alasan: 'Pembaruan foto profil akun pemilik sistem',
+          alasan: 'Pembaruan foto profil akun non-pegawai',
         });
 
         const updatedOwner = loadAuthUserById(user.id);
@@ -3715,31 +3718,37 @@ export function registerApiRoutes(app: Express) {
         jabatan?: string;
         alasan_keputusan?: string;
       };
-
-      const finalNik = (body.nik || '').trim().toUpperCase() || generateNextNik();
       const finalRole: 'KARYAWAN' | 'ADMIN' =
         body.role === 'ADMIN' ? 'ADMIN' : body.role === 'KARYAWAN' ? 'KARYAWAN' : reg.role_diminta;
+      const finalNik = finalRole === 'KARYAWAN'
+        ? (body.nik || '').trim().toUpperCase() || generateNextNik()
+        : null;
       const finalKantor = Number(body.kantor_id) || reg.kantor_id;
       const finalBidang = Number(body.bidang_id) || reg.bidang_id;
-      const finalJabatan = (body.jabatan || '').trim() || reg.jabatan || 'Staff';
+      const finalJabatan = finalRole === 'ADMIN'
+        ? 'Admin Operasional'
+        : (body.jabatan || '').trim() || reg.jabatan || 'Staff';
       const nowIso = getWibIsoString();
       const today = getWibDateString();
 
       const dupUser = db
         .prepare(`SELECT id FROM pengguna WHERE LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?)`)
         .get(reg.username, reg.email);
-      const dupEmp = db
-        .prepare(`SELECT id FROM karyawan WHERE UPPER(nik) = ? OR LOWER(email) = LOWER(?)`)
-        .get(finalNik, reg.email);
+      const dupEmp = finalRole === 'KARYAWAN'
+        ? db.prepare(`SELECT id FROM karyawan WHERE UPPER(nik) = ? OR LOWER(email) = LOWER(?)`)
+            .get(finalNik, reg.email)
+        : undefined;
       if (dupUser || dupEmp) {
         res.status(409).json({
-          error: 'NIK, username, atau email sudah digunakan akun aktif lain.',
+          error: finalRole === 'KARYAWAN'
+            ? 'NIK, username, atau email sudah digunakan akun aktif lain.'
+            : 'Username atau email sudah digunakan akun lain.',
         });
         return;
       }
 
       let empFotoPath: string | null = null;
-      if (reg.foto_profil_path) {
+      if (finalRole === 'KARYAWAN' && reg.foto_profil_path) {
         const avatarsDir = getAvatarsDir();
         const src = path.join(avatarsDir, path.basename(reg.foto_profil_path));
         if (fs.existsSync(src)) {
@@ -3751,33 +3760,41 @@ export function registerApiRoutes(app: Express) {
 
       db.exec('BEGIN IMMEDIATE');
       try {
-        const empInfo = db
-          .prepare(
-            `INSERT INTO karyawan (
-              nik, nama_lengkap, email, no_hp, kantor_id, bidang_id, jabatan,
-              tanggal_masuk, foto_profil_path, foto_profil_updated_at, aktif
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`
-          )
-          .run(
-            finalNik,
-            reg.nama_lengkap,
-            reg.email,
-            reg.no_hp,
-            finalKantor,
-            finalBidang,
-            finalJabatan,
-            today,
-            empFotoPath,
-            empFotoPath ? nowIso : null
-          );
-        const empId = Number(empInfo.lastInsertRowid);
+        let empId: number | null = null;
+        if (finalRole === 'KARYAWAN') {
+          const empInfo = db
+            .prepare(
+              `INSERT INTO karyawan (
+                nik, nama_lengkap, email, no_hp, kantor_id, bidang_id, jabatan,
+                tanggal_masuk, foto_profil_path, foto_profil_updated_at, aktif
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`
+            )
+            .run(
+              finalNik,
+              reg.nama_lengkap,
+              reg.email,
+              reg.no_hp,
+              finalKantor,
+              finalBidang,
+              finalJabatan,
+              today,
+              empFotoPath,
+              empFotoPath ? nowIso : null
+            );
+          empId = Number(empInfo.lastInsertRowid);
+        }
 
-        const userInfo = db
-          .prepare(
-            `INSERT INTO pengguna (username, email, password_hash, role, karyawan_id, aktif, token_version, created_at)
-             VALUES (?, ?, ?, ?, ?, 1, 1, ?)`
-          )
-          .run(reg.username, reg.email, reg.password_hash, finalRole, empId, nowIso);
+        const userInfo = finalRole === 'ADMIN'
+          ? db.prepare(
+              `INSERT INTO pengguna (
+                 username, email, password_hash, role, karyawan_id, nama_tampilan, no_hp,
+                 foto_profil_path, aktif, token_version, created_at
+               ) VALUES (?, ?, ?, 'ADMIN', NULL, ?, ?, ?, 1, 1, ?)`
+            ).run(reg.username, reg.email, reg.password_hash, reg.nama_lengkap, reg.no_hp, reg.foto_profil_path, nowIso)
+          : db.prepare(
+              `INSERT INTO pengguna (username, email, password_hash, role, karyawan_id, aktif, token_version, created_at)
+               VALUES (?, ?, ?, 'KARYAWAN', ?, 1, 1, ?)`
+            ).run(reg.username, reg.email, reg.password_hash, empId, nowIso);
         const newUserId = Number(userInfo.lastInsertRowid);
 
         db.prepare(
@@ -3799,7 +3816,7 @@ export function registerApiRoutes(app: Express) {
           aksi: 'APPROVE_REGISTRATION',
           targetEntity: 'pendaftaran_akun',
           targetId: regId,
-          karyawanId: empId,
+          karyawanId: empId ?? undefined,
           before: { status: 'PENDING', username: reg.username, role_diminta: reg.role_diminta },
           after: {
             status: 'APPROVED',
@@ -3813,7 +3830,7 @@ export function registerApiRoutes(app: Express) {
 
         db.exec('COMMIT');
         broadcastWorkforceUpdate('ACCOUNT_APPROVED');
-        res.json({ ok: true, userId: newUserId, karyawanId: empId, nik: finalNik });
+        res.json({ ok: true, userId: newUserId, karyawanId: empId, nik: finalNik, role: finalRole });
       } catch (err) {
         db.exec('ROLLBACK');
         res.status(400).json({
@@ -3876,9 +3893,11 @@ export function registerApiRoutes(app: Express) {
     const items = db
       .prepare(
         `SELECT u.id as user_id, k.id as karyawan_id, k.nik, u.username, u.email,
-                COALESCE(NULLIF(u.nama_tampilan, ''), k.nama_lengkap, 'Superadmin') as nama_lengkap,
+                COALESCE(NULLIF(u.nama_tampilan, ''), k.nama_lengkap,
+                         CASE WHEN u.role = 'ADMIN' THEN 'Admin Operasional' ELSE 'Superadmin' END) as nama_lengkap,
                 COALESCE(k.no_hp, u.no_hp, '') as no_hp,
-                COALESCE(k.jabatan, 'Akun Pengelola Sistem') as jabatan,
+                COALESCE(k.jabatan,
+                         CASE WHEN u.role = 'ADMIN' THEN 'Admin Operasional' ELSE 'Akun Pengelola Sistem' END) as jabatan,
                 u.role, k.kantor_id, kt.nama as kantor_nama,
                 k.bidang_id, b.nama as bidang_nama, k.tanggal_masuk,
                 u.aktif as user_aktif, k.aktif as karyawan_aktif,
@@ -3934,7 +3953,7 @@ export function registerApiRoutes(app: Express) {
       const finalRole: Role =
         role === 'SUPERADMIN' || role === 'ADMIN' || role === 'KARYAWAN' ? role : 'KARYAWAN';
       const finalNik =
-        finalRole === 'SUPERADMIN' ? '' : (nik || '').trim().toUpperCase() || generateNextNik();
+        finalRole === 'KARYAWAN' ? (nik || '').trim().toUpperCase() || generateNextNik() : null;
 
       if (cleanName.length < 2 || !cleanUser || !cleanEmail.includes('@') || !password || password.length < 6) {
         res.status(400).json({
@@ -3947,33 +3966,48 @@ export function registerApiRoutes(app: Express) {
         return;
       }
 
-      if (finalRole === 'SUPERADMIN') {
+      if (finalRole !== 'KARYAWAN') {
+        let standaloneFoto: string | null = null;
+        if (fotoBase64) {
+          try {
+            standaloneFoto = saveAvatarBase64(fotoBase64, `user_${cleanUser}`);
+          } catch (err) {
+            res.status(400).json({ error: err instanceof Error ? err.message : 'Foto profil tidak valid.' });
+            return;
+          }
+        }
         const nowIso = getWibIsoString();
         db.exec('BEGIN IMMEDIATE');
         try {
           const userInfo = db.prepare(
             `INSERT INTO pengguna (
                username, email, password_hash, role, karyawan_id, nama_tampilan, no_hp,
-               aktif, token_version, created_at
-             ) VALUES (?, ?, ?, 'SUPERADMIN', NULL, ?, ?, 1, 1, ?)`
-          ).run(cleanUser, cleanEmail, hashPassword(password), cleanName, (no_hp || '').trim(), nowIso);
+               foto_profil_path, foto_profil_updated_at, aktif, token_version, created_at
+             ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, 1, 1, ?)`
+          ).run(
+            cleanUser, cleanEmail, hashPassword(password), finalRole, cleanName,
+            (no_hp || '').trim(), standaloneFoto, standaloneFoto ? nowIso : null, nowIso
+          );
           const userId = Number(userInfo.lastInsertRowid);
           writeAuditLog(db, {
             actor: req.authUser!,
             req,
             modul: 'MANAJEMEN_AKUN',
-            aksi: 'CREATE_SUPERADMIN_ACCOUNT',
+            aksi: finalRole === 'ADMIN' ? 'CREATE_ADMIN_OPERATIONAL_ACCOUNT' : 'CREATE_SUPERADMIN_ACCOUNT',
             targetEntity: 'pengguna',
             targetId: userId,
-            after: { username: cleanUser, email: cleanEmail, nama_tampilan: cleanName, role: 'SUPERADMIN' },
-            alasan: 'Pembuatan akun Superadmin mandiri tanpa profil karyawan oleh Superadmin',
+            after: { username: cleanUser, email: cleanEmail, nama_tampilan: cleanName, role: finalRole, karyawan_id: null },
+            alasan: finalRole === 'ADMIN'
+              ? 'Pembuatan akun Admin Operasional mandiri tanpa profil pegawai'
+              : 'Pembuatan akun Superadmin mandiri tanpa profil pegawai',
           });
           db.exec('COMMIT');
-          res.status(201).json({ ok: true, userId, role: 'SUPERADMIN' });
+          res.status(201).json({ ok: true, userId, role: finalRole, karyawanId: null, nik: null });
         } catch (err) {
           db.exec('ROLLBACK');
+          deleteAvatarFile(standaloneFoto);
           res.status(400).json({
-            error: 'Gagal membuat akun Superadmin (username atau email mungkin sudah digunakan).',
+            error: 'Gagal membuat akun non-pegawai (username atau email mungkin sudah digunakan).',
             detail: safeErrorDetail(err),
           });
         }
@@ -4057,10 +4091,14 @@ export function registerApiRoutes(app: Express) {
         .prepare(
           `SELECT u.id as user_id, u.username, u.email, u.role, u.aktif as user_aktif,
                   u.nama_tampilan,
-                  COALESCE(NULLIF(u.nama_tampilan, ''), k.nama_lengkap, 'Superadmin') as nama_lengkap,
+                  COALESCE(NULLIF(u.nama_tampilan, ''), k.nama_lengkap,
+                    CASE WHEN u.role = 'ADMIN' THEN 'Admin Operasional' ELSE 'Superadmin' END) as nama_lengkap,
                   COALESCE(k.no_hp, u.no_hp, '') as no_hp,
-                  k.id as karyawan_id, k.nik, COALESCE(k.jabatan, 'Akun Pengelola Sistem') as jabatan,
-                  k.kantor_id, k.bidang_id, k.aktif as karyawan_aktif, k.foto_profil_path
+                  k.id as karyawan_id, k.nik,
+                  COALESCE(k.jabatan, CASE WHEN u.role = 'ADMIN' THEN 'Admin Operasional' ELSE 'Akun Pengelola Sistem' END) as jabatan,
+                  k.kantor_id, k.bidang_id, k.aktif as karyawan_aktif,
+                  COALESCE(k.foto_profil_path, u.foto_profil_path) as foto_profil_path,
+                  COALESCE(k.foto_profil_updated_at, u.foto_profil_updated_at) as foto_profil_updated_at
            FROM pengguna u
            LEFT JOIN karyawan k ON u.karyawan_id = k.id
            WHERE u.id = ?`
@@ -4082,6 +4120,7 @@ export function registerApiRoutes(app: Express) {
             bidang_id: number | null;
             karyawan_aktif: number | null;
             foto_profil_path: string | null;
+            foto_profil_updated_at: string | null;
           }
         | undefined;
 
@@ -4103,46 +4142,70 @@ export function registerApiRoutes(app: Express) {
         fotoBase64?: string | null;
         removePhoto?: boolean;
       };
+      const cleanName = (body.nama_lengkap ?? existing.nama_lengkap).trim();
+      const cleanUser = (body.username ?? existing.username).trim().toLowerCase();
+      const cleanEmail = (body.email ?? existing.email).trim().toLowerCase();
+      const cleanHp = (body.no_hp ?? existing.no_hp).trim();
+      const nextAktif = body.aktif !== undefined ? (body.aktif ? 1 : 0) : existing.user_aktif;
 
-      if (existing.karyawan_id === null) {
-        if (existing.role !== 'SUPERADMIN') {
-          res.status(409).json({ error: 'Akun tanpa profil karyawan hanya boleh memiliki role SUPERADMIN.' });
-          return;
-        }
+      if (cleanName.length < 2 || !/^[a-z0-9._-]{3,30}$/.test(cleanUser) || !cleanEmail.includes('@')) {
+        res.status(400).json({ error: 'Nama, username, atau email akun tidak valid.' });
+        return;
+      }
 
-        const cleanName = (body.nama_lengkap ?? existing.nama_lengkap).trim();
-        const cleanUser = (body.username ?? existing.username).trim().toLowerCase();
-        const cleanEmail = (body.email ?? existing.email).trim().toLowerCase();
-        const cleanHp = (body.no_hp ?? existing.no_hp).trim();
-        const nextAktif = body.aktif !== undefined ? (body.aktif ? 1 : 0) : existing.user_aktif;
+      const duplicateUser = db.prepare(
+        `SELECT id FROM pengguna
+         WHERE id <> ? AND (LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?))`
+      ).get(targetUserId, cleanUser, cleanEmail);
+      if (duplicateUser) {
+        res.status(409).json({ error: 'Username atau email sudah digunakan akun lain.' });
+        return;
+      }
 
-        if (cleanName.length < 2 || !/^[a-z0-9._-]{3,30}$/.test(cleanUser) || !cleanEmail.includes('@')) {
-          res.status(400).json({ error: 'Nama, username, atau email akun Superadmin tidak valid.' });
+      // Superadmin tetap merupakan akun pemilik mandiri dan tidak dapat diubah menjadi role lain.
+      if (existing.role === 'SUPERADMIN') {
+        if (body.role && body.role !== 'SUPERADMIN') {
+          res.status(400).json({ error: 'Role Superadmin tidak dapat diubah melalui pengelolaan akun.' });
           return;
         }
         if (targetUserId === req.authUser!.id && nextAktif === 0) {
           res.status(400).json({ error: 'Anda tidak dapat menonaktifkan akun Superadmin Anda sendiri.' });
           return;
         }
+        if (nextAktif === 0 && existing.user_aktif === 1) {
+          const activeSuperadmins = db.prepare(
+            `SELECT COUNT(*) as c FROM pengguna WHERE role = 'SUPERADMIN' AND aktif = 1`
+          ).get() as { c: number };
+          if (activeSuperadmins.c <= 1) {
+            res.status(400).json({ error: 'Minimal harus ada satu akun Superadmin aktif.' });
+            return;
+          }
+        }
+
+        let nextFoto = existing.foto_profil_path;
+        let savedFoto: string | null = null;
+        if (body.removePhoto) nextFoto = null;
+        else if (body.fotoBase64) {
+          try {
+            savedFoto = saveAvatarBase64(body.fotoBase64, `user_${targetUserId}`);
+            nextFoto = savedFoto;
+          } catch (err) {
+            res.status(400).json({ error: err instanceof Error ? err.message : 'Foto profil tidak valid.' });
+            return;
+          }
+        }
+
         db.exec('BEGIN IMMEDIATE');
         try {
-          if (nextAktif === 0 && existing.user_aktif === 1) {
-            const activeSuperadmins = db.prepare(
-              `SELECT COUNT(*) as c FROM pengguna WHERE role = 'SUPERADMIN' AND aktif = 1`
-            ).get() as { c: number };
-            if (activeSuperadmins.c <= 1) {
-              db.exec('ROLLBACK');
-              res.status(400).json({ error: 'Minimal harus ada satu akun Superadmin aktif.' });
-              return;
-            }
-          }
           db.prepare(
             `UPDATE pengguna
-             SET username = ?, email = ?, nama_tampilan = ?, no_hp = ?, aktif = ?,
+             SET username = ?, email = ?, nama_tampilan = ?, no_hp = ?, foto_profil_path = ?,
+                 foto_profil_updated_at = CASE WHEN ? = 1 THEN ? ELSE foto_profil_updated_at END,
+                 aktif = ?,
                  token_version = CASE WHEN ? = 1 THEN COALESCE(token_version, 1) + 1 ELSE COALESCE(token_version, 1) END
              WHERE id = ?`
-          ).run(cleanUser, cleanEmail, cleanName, cleanHp, nextAktif, nextAktif === 0 ? 1 : 0, targetUserId);
-
+          ).run(cleanUser, cleanEmail, cleanName, cleanHp, nextFoto, body.removePhoto || Boolean(savedFoto) ? 1 : 0,
+            body.removePhoto || savedFoto ? getWibIsoString() : null, nextAktif, nextAktif === 0 ? 1 : 0, targetUserId);
           writeAuditLog(db, {
             actor: req.authUser!,
             req,
@@ -4155,88 +4218,140 @@ export function registerApiRoutes(app: Express) {
             alasan: 'Pembaruan akun pemilik sistem oleh Superadmin',
           });
           db.exec('COMMIT');
-          res.json({ ok: true });
+          res.json({ ok: true, role: 'SUPERADMIN', karyawanId: null });
         } catch (err) {
           db.exec('ROLLBACK');
-          res.status(400).json({
-            error: 'Gagal memperbarui akun Superadmin (username atau email mungkin sudah digunakan).',
-            detail: safeErrorDetail(err),
-          });
+          deleteAvatarFile(savedFoto);
+          res.status(400).json({ error: 'Gagal memperbarui akun Superadmin.', detail: safeErrorDetail(err) });
         }
         return;
       }
 
       if (body.role === 'SUPERADMIN') {
-        res.status(400).json({ error: 'Akun Superadmin harus dibuat sebagai akun pemilik tersendiri, bukan mengubah akun pegawai.' });
+        res.status(400).json({ error: 'Akun Superadmin harus dibuat sebagai akun pemilik tersendiri.' });
         return;
       }
-      const nextRole: Role =
-        body.role === 'ADMIN' || body.role === 'KARYAWAN' ? body.role : existing.role;
-      const nextAktif = body.aktif !== undefined ? (body.aktif ? 1 : 0) : existing.user_aktif;
-
-      if (targetUserId === req.authUser!.id && nextAktif === 0) {
-        res.status(400).json({ error: 'Anda tidak dapat menonaktifkan akun Superadmin Anda sendiri.' });
-        return;
-      }
-      if (targetUserId === req.authUser!.id && nextRole !== 'SUPERADMIN') {
-        res.status(400).json({ error: 'Anda tidak dapat menurunkan peran akun Superadmin Anda sendiri.' });
-        return;
-      }
-
-      const cleanName = (body.nama_lengkap ?? existing.nama_lengkap).trim();
-      const cleanUser = (body.username ?? existing.username).trim().toLowerCase();
-      const cleanEmail = (body.email ?? existing.email).trim().toLowerCase();
-      const cleanHp = (body.no_hp ?? existing.no_hp).trim();
-      const cleanJabatan = (body.jabatan ?? existing.jabatan).trim();
+      const nextRole: 'KARYAWAN' | 'ADMIN' =
+        body.role === 'ADMIN' || body.role === 'KARYAWAN' ? body.role : existing.role as 'KARYAWAN' | 'ADMIN';
       const nextKantor = Number(body.kantor_id ?? existing.kantor_id);
       const nextBidang = Number(body.bidang_id ?? existing.bidang_id);
-      const nowIso = getWibIsoString();
+      const nextJabatan = nextRole === 'ADMIN' ? 'Admin Operasional' : (body.jabatan ?? existing.jabatan).trim();
+
+      if (nextRole === 'KARYAWAN') {
+        const office = db.prepare(`SELECT id FROM kantor WHERE id = ? AND aktif = 1`).get(nextKantor);
+        const field = db.prepare(`SELECT id FROM bidang_kerja WHERE id = ?`).get(nextBidang);
+        if (!office || !field) {
+          res.status(400).json({ error: 'Penempatan kantor dan bidang kerja wajib valid untuk akun Karyawan.' });
+          return;
+        }
+        const activeEmailConflict = db.prepare(
+          `SELECT id FROM karyawan
+           WHERE LOWER(email) = LOWER(?) AND COALESCE(is_system_archive, 0) = 0 AND id <> ?`
+        ).get(cleanEmail, existing.karyawan_id ?? 0);
+        if (activeEmailConflict) {
+          res.status(409).json({ error: 'Email sudah digunakan profil Karyawan lain.' });
+          return;
+        }
+      }
 
       let nextFoto = existing.foto_profil_path;
-      let fotoChanged = false;
-      if (body.removePhoto) {
-        deleteAvatarFile(existing.foto_profil_path);
-        nextFoto = null;
-        fotoChanged = true;
-      } else if (body.fotoBase64) {
+      let savedFoto: string | null = null;
+      if (body.removePhoto) nextFoto = null;
+      else if (body.fotoBase64) {
         try {
-          const saved = saveAvatarBase64(body.fotoBase64, `emp_${existing.karyawan_id}`);
-          deleteAvatarFile(existing.foto_profil_path);
-          nextFoto = saved;
-          fotoChanged = true;
+          savedFoto = saveAvatarBase64(
+            body.fotoBase64,
+            nextRole === 'KARYAWAN' ? `emp_${existing.karyawan_id ?? targetUserId}` : `user_${targetUserId}`
+          );
+          nextFoto = savedFoto;
         } catch (err) {
           res.status(400).json({ error: err instanceof Error ? err.message : 'Foto profil tidak valid.' });
           return;
         }
       }
 
+      const nowIso = getWibIsoString();
+      const today = getWibDateString();
+      let nextEmployeeId: number | null = existing.karyawan_id;
       db.exec('BEGIN IMMEDIATE');
       try {
-        const shouldBumpTokenVersion = nextRole !== existing.role || nextAktif === 0;
-        db.prepare(
-          `UPDATE pengguna
-           SET username = ?, email = ?, role = ?, aktif = ?,
-               token_version = CASE WHEN ? = 1 THEN COALESCE(token_version, 1) + 1 ELSE COALESCE(token_version, 1) END
-           WHERE id = ?`
-        ).run(cleanUser, cleanEmail, nextRole, nextAktif, shouldBumpTokenVersion ? 1 : 0, targetUserId);
+        if (nextRole === 'ADMIN') {
+          // Detach the user first so the database trigger never treats Admin as a Karyawan.
+          db.prepare(
+            `UPDATE pengguna
+             SET username = ?, email = ?, role = 'ADMIN', karyawan_id = NULL,
+                 nama_tampilan = ?, no_hp = ?, foto_profil_path = ?, foto_profil_updated_at = ?,
+                 aktif = ?,
+                 token_version = CASE WHEN ? = 1 THEN COALESCE(token_version, 1) + 1 ELSE COALESCE(token_version, 1) END
+             WHERE id = ?`
+          ).run(cleanUser, cleanEmail, cleanName, cleanHp, nextFoto,
+            body.removePhoto || savedFoto ? nowIso : existing.foto_profil_updated_at,
+            nextAktif, nextRole !== existing.role || nextAktif === 0 ? 1 : 0, targetUserId);
 
-        db.prepare(
-          `UPDATE karyawan
-           SET nama_lengkap = ?, email = ?, no_hp = ?, jabatan = ?, kantor_id = ?, bidang_id = ?,
-               aktif = ?, foto_profil_path = ?, foto_profil_updated_at = COALESCE(?, foto_profil_updated_at)
-           WHERE id = ?`
-        ).run(
-          cleanName,
-          cleanEmail,
-          cleanHp,
-          cleanJabatan,
-          nextKantor,
-          nextBidang,
-          nextAktif,
-          nextFoto,
-          fotoChanged ? nowIso : null,
-          existing.karyawan_id
-        );
+          if (existing.karyawan_id !== null) {
+            db.prepare(
+              `UPDATE karyawan
+               SET aktif = 0, is_system_archive = 1, jabatan = 'Akun Admin Operasional (Arsip)'
+               WHERE id = ?`
+            ).run(existing.karyawan_id);
+          }
+          nextEmployeeId = null;
+        } else {
+          if (existing.karyawan_id !== null) {
+            db.prepare(
+              `UPDATE pengguna
+               SET username = ?, email = ?, role = 'KARYAWAN', aktif = ?,
+                   token_version = CASE WHEN ? = 1 THEN COALESCE(token_version, 1) + 1 ELSE COALESCE(token_version, 1) END
+               WHERE id = ?`
+            ).run(cleanUser, cleanEmail, nextAktif, nextRole !== existing.role || nextAktif === 0 ? 1 : 0, targetUserId);
+
+            db.prepare(
+              `UPDATE karyawan
+               SET nama_lengkap = ?, email = ?, no_hp = ?, jabatan = ?, kantor_id = ?, bidang_id = ?,
+                   aktif = ?, foto_profil_path = ?, foto_profil_updated_at = ?,
+                   is_system_archive = 0
+               WHERE id = ?`
+            ).run(cleanName, cleanEmail, cleanHp, nextJabatan, nextKantor, nextBidang,
+              nextAktif, nextFoto, body.removePhoto || savedFoto ? nowIso : existing.foto_profil_updated_at,
+              existing.karyawan_id);
+          } else {
+            const archived = db.prepare(
+              `SELECT id FROM karyawan
+               WHERE LOWER(email) = LOWER(?) AND COALESCE(is_system_archive, 0) = 1
+               ORDER BY id DESC LIMIT 1`
+            ).get(cleanEmail) as { id: number } | undefined;
+            if (archived) {
+              nextEmployeeId = archived.id;
+              db.prepare(
+                `UPDATE karyawan
+                 SET nama_lengkap = ?, email = ?, no_hp = ?, jabatan = ?, kantor_id = ?, bidang_id = ?,
+                     tanggal_masuk = ?, aktif = ?, foto_profil_path = ?, foto_profil_updated_at = ?,
+                     is_system_archive = 0
+                 WHERE id = ?`
+              ).run(cleanName, cleanEmail, cleanHp, nextJabatan, nextKantor, nextBidang,
+                today, nextAktif, nextFoto, body.removePhoto || savedFoto ? nowIso : existing.foto_profil_updated_at,
+                nextEmployeeId);
+            } else {
+              const employee = db.prepare(
+                `INSERT INTO karyawan (
+                   nik, nama_lengkap, email, no_hp, kantor_id, bidang_id, jabatan,
+                   tanggal_masuk, foto_profil_path, foto_profil_updated_at, aktif
+                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+              ).run(generateNextNik(), cleanName, cleanEmail, cleanHp, nextKantor, nextBidang,
+                nextJabatan, today, nextFoto, body.removePhoto || savedFoto ? nowIso : null, nextAktif);
+              nextEmployeeId = Number(employee.lastInsertRowid);
+            }
+
+            db.prepare(
+              `UPDATE pengguna
+               SET username = ?, email = ?, role = 'KARYAWAN', karyawan_id = ?, nama_tampilan = '',
+                   no_hp = ?, foto_profil_path = NULL, foto_profil_updated_at = NULL, aktif = ?,
+                   token_version = CASE WHEN ? = 1 THEN COALESCE(token_version, 1) + 1 ELSE COALESCE(token_version, 1) END
+               WHERE id = ?`
+            ).run(cleanUser, cleanEmail, nextEmployeeId, cleanHp, nextAktif,
+              nextRole !== existing.role || nextAktif === 0 ? 1 : 0, targetUserId);
+          }
+        }
 
         writeAuditLog(db, {
           actor: req.authUser!,
@@ -4245,31 +4360,31 @@ export function registerApiRoutes(app: Express) {
           aksi: 'UPDATE_ACCOUNT',
           targetEntity: 'pengguna',
           targetId: targetUserId,
-          karyawanId: existing.karyawan_id,
+          karyawanId: existing.karyawan_id ?? (nextRole === 'KARYAWAN' ? nextEmployeeId ?? undefined : undefined),
           before: {
             username: existing.username,
             email: existing.email,
             role: existing.role,
             aktif: existing.user_aktif,
-            kantor_id: existing.kantor_id,
-            bidang_id: existing.bidang_id,
+            karyawan_id: existing.karyawan_id,
           },
           after: {
             username: cleanUser,
             email: cleanEmail,
             role: nextRole,
             aktif: nextAktif,
-            kantor_id: nextKantor,
-            bidang_id: nextBidang,
+            karyawan_id: nextRole === 'KARYAWAN' ? nextEmployeeId : null,
           },
-          alasan: 'Pembaruan data/peran/status akun oleh Superadmin',
+          alasan: 'Pembaruan akun, pemisahan role pegawai/non-pegawai, atau status akun oleh Superadmin',
         });
         db.exec('COMMIT');
-        res.json({ ok: true });
+        broadcastWorkforceUpdate('ACCOUNT_UPDATED');
+        res.json({ ok: true, role: nextRole, karyawanId: nextRole === 'KARYAWAN' ? nextEmployeeId : null });
       } catch (err) {
         db.exec('ROLLBACK');
+        deleteAvatarFile(savedFoto);
         res.status(400).json({
-          error: 'Gagal memperbarui akun (username atau email mungkin sudah dipakai akun lain).',
+          error: 'Gagal memperbarui akun (NIK, username, email, atau penempatan mungkin tidak valid).',
           detail: safeErrorDetail(err),
         });
       }
