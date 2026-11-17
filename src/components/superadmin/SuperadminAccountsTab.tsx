@@ -780,7 +780,7 @@ export function SuperadminAccountsTab({
                     />
                   </div>
                 )}
-                <div>
+                <div className={approveForm.role === 'ADMIN' ? 'sm:col-span-2' : ''}>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                     Role Disetujui
                   </label>
@@ -969,7 +969,7 @@ export function SuperadminAccountsTab({
               <h2 className="font-display text-base font-bold text-slate-900 dark:text-slate-100 truncate">
                 {editingAccount
                   ? `Kelola Akun ${editingAccount.nik ? `${editingAccount.nik} · ` : ''}(@${editingAccount.username})`
-                  : 'Buat Akun Baru (Superadmin)'}
+                  : 'Buat Akun Baru oleh Superadmin'}
               </h2>
               <button
                 type="button"
