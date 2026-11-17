@@ -1854,6 +1854,7 @@ export function registerApiRoutes(app: Express) {
          JOIN kantor kt ON k.kantor_id = kt.id
          JOIN bidang_kerja b ON k.bidang_id = b.id
          LEFT JOIN pengguna u ON u.karyawan_id = k.id
+         WHERE COALESCE(k.is_system_archive, 0) = 0
          ORDER BY k.nik ASC`
       )
       .all();
