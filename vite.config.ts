@@ -34,6 +34,12 @@ export default defineConfig(() => {
       },
     },
     server: {
+      // Allow only the exact Cloudflare Quick Tunnel hostname supplied for this
+      // local test session. Do not use allowedHosts: true; that disables Vite's
+      // DNS-rebinding protection for every hostname.
+      allowedHosts: process.env.VITE_TUNNEL_HOST?.trim()
+        ? [process.env.VITE_TUNNEL_HOST.trim().toLowerCase()]
+        : [],
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modify—file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
