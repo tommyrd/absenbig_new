@@ -197,6 +197,39 @@ function getKaryawanById(id: number): Karyawan | undefined {
     .get(id) as Karyawan | undefined;
 }
 
+interface ActiveCheckinOverride {
+  id: number;
+  urutan_sesi: number;
+  nama_sesi: string;
+  alasan: string;
+  berlaku_sampai: string;
+  created_at: string;
+  admin_id: number;
+  admin_nama: string;
+}
+
+function getActiveCheckinOverride(
+  db: ReturnType<typeof getDb>,
+  karyawanId: number,
+  tanggal: string,
+  urutanSesi: number,
+  nowIso: string
+): ActiveCheckinOverride | null {
+  const row = db
+    .prepare(
+      `SELECT o.id, o.urutan_sesi, o.nama_sesi, o.alasan, o.berlaku_sampai,
+              o.created_at, o.admin_id, k.nama_lengkap as admin_nama
+       FROM override_akses_absensi o
+       JOIN pengguna u ON u.id = o.admin_id
+       JOIN karyawan k ON k.id = u.karyawan_id
+       WHERE o.karyawan_id = ? AND o.tanggal = ? AND o.urutan_sesi = ?
+         AND o.status = 'AKTIF' AND o.used_at IS NULL AND o.berlaku_sampai > ?
+       ORDER BY o.id DESC LIMIT 1`
+    )
+    .get(karyawanId, tanggal, urutanSesi, nowIso) as ActiveCheckinOverride | undefined;
+  return row ?? null;
+}
+
 export function registerApiRoutes(app: Express) {
   const db = getDb();
   app.use('/api/v1', attachUser);
@@ -716,14 +749,210 @@ export function registerApiRoutes(app: Express) {
       )
       .all(emp.id, today, today);
 
+    const nextSession = resolved.policySnapshot.sesiList[resolved.sessionsCompleted];
+    const activeGrant = nextSession
+      ? getActiveCheckinOverride(db, emp.id, today, nextSession.urutan, getWibIsoString())
+      : null;
+    const day = {
+      ...resolved,
+      checkinOverride: activeGrant
+        ? {
+            id: activeGrant.id,
+            active: true,
+            urutanSesi: activeGrant.urutan_sesi,
+            namaSesi: activeGrant.nama_sesi,
+            alasan: activeGrant.alasan,
+            berlakuSampai: activeGrant.berlaku_sampai,
+            adminNama: activeGrant.admin_nama,
+          }
+        : null,
+    };
+
     res.json({
       serverDate: today,
       serverTime: getWibTimeString(),
       serverEpochMs: Date.now(),
       karyawan: emp,
-      day: resolved,
+      day,
       pendingRequestsToday: pendingRequests,
     });
+  });
+
+  // Admin-only exception workflow: reopen a single expired next session for a short time.
+  app.get('/api/v1/admin/attendance/override-checkins', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const today = getWibDateString();
+    const nowIso = getWibIsoString();
+    const nowMin = parseHmToMinutes(getWibTimeString().slice(0, 5));
+    const employees = db
+      .prepare(
+        `SELECT k.*, kt.nama as kantor_nama, kt.kode as kantor_kode, b.nama as bidang_nama
+         FROM karyawan k
+         JOIN kantor kt ON k.kantor_id = kt.id
+         JOIN bidang_kerja b ON k.bidang_id = b.id
+         WHERE k.aktif = 1
+         ORDER BY k.nama_lengkap ASC`
+      )
+      .all() as Karyawan[];
+
+    const items = employees.flatMap((employee) => {
+      const day = resolveDayForEmployee(db, employee, today);
+      if (!day.mustCheckIn || day.sessionsCompleted >= day.policySnapshot.jumlahSesi) return [];
+      const next = day.policySnapshot.sesiList[day.sessionsCompleted];
+      if (!next) return [];
+      const windowState = getSessionWindowState(nowMin, next.jam_mulai, next.jam_selesai);
+      if (windowState !== 'EXPIRED') return [];
+      const activeGrant = getActiveCheckinOverride(db, employee.id, today, next.urutan, nowIso);
+      return [{
+        karyawanId: employee.id,
+        nik: employee.nik,
+        namaLengkap: employee.nama_lengkap,
+        jabatan: employee.jabatan,
+        kantorNama: employee.kantor_nama || '',
+        bidangNama: employee.bidang_nama || '',
+        urutanSesi: next.urutan,
+        namaSesi: next.nama,
+        jamMulai: next.jam_mulai,
+        jamSelesai: next.jam_selesai,
+        terlambatMenit: Math.max(0, nowMin - parseHmToMinutes(next.jam_mulai)),
+        activeGrant: activeGrant
+          ? {
+              id: activeGrant.id,
+              berlakuSampai: activeGrant.berlaku_sampai,
+              alasan: activeGrant.alasan,
+              adminNama: activeGrant.admin_nama,
+              createdAt: activeGrant.created_at,
+            }
+          : null,
+      }];
+    });
+
+    res.json({ tanggal: today, serverTime: getWibTimeString(), items });
+  });
+
+  app.post('/api/v1/admin/attendance/override-checkins', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const { karyawanId, alasan } = req.body as { karyawanId?: number; alasan?: string };
+    const durasiMenit = Number((req.body as { durasiMenit?: number }).durasiMenit ?? 15);
+    if (!Number.isSafeInteger(Number(karyawanId)) || Number(karyawanId) <= 0) {
+      res.status(400).json({ error: 'Karyawan yang akan diberi izin wajib dipilih.' });
+      return;
+    }
+    if (!alasan || alasan.trim().length < 5 || alasan.trim().length > 500) {
+      res.status(400).json({ error: 'Alasan wajib diisi antara 5 sampai 500 karakter.' });
+      return;
+    }
+    if (![5, 10, 15, 30].includes(durasiMenit)) {
+      res.status(400).json({ error: 'Masa berlaku izin harus 5, 10, 15, atau 30 menit.' });
+      return;
+    }
+
+    const employee = getKaryawanById(Number(karyawanId));
+    if (!employee || employee.aktif !== 1) {
+      res.status(404).json({ error: 'Karyawan aktif tidak ditemukan.' });
+      return;
+    }
+
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const today = getWibDateString();
+      const nowIso = getWibIsoString();
+      const nowMin = parseHmToMinutes(getWibTimeString().slice(0, 5));
+      const day = resolveDayForEmployee(db, employee, today);
+      if (!day.mustCheckIn || day.sessionsCompleted >= day.policySnapshot.jumlahSesi) {
+        db.exec('ROLLBACK');
+        res.status(409).json({ error: 'Karyawan tidak memiliki sesi absensi yang masih harus diselesaikan hari ini.' });
+        return;
+      }
+
+      const next = day.policySnapshot.sesiList[day.sessionsCompleted];
+      if (!next) {
+        db.exec('ROLLBACK');
+        res.status(409).json({ error: 'Konfigurasi sesi berikutnya tidak ditemukan.' });
+        return;
+      }
+      const windowState = getSessionWindowState(nowMin, next.jam_mulai, next.jam_selesai);
+      if (windowState !== 'EXPIRED') {
+        db.exec('ROLLBACK');
+        res.status(409).json({
+          error: windowState === 'NOT_STARTED'
+            ? `Sesi ${next.nama} belum dimulai; Admin hanya dapat membuka kembali sesi yang sudah berakhir.`
+            : windowState === 'INVALID'
+              ? `Jadwal sesi ${next.nama} tidak valid. Perbaiki kebijakan absensi terlebih dahulu.`
+              : `Sesi ${next.nama} masih terbuka dan dapat diabsen secara normal.`,
+        });
+        return;
+      }
+
+      db.prepare(
+        `UPDATE override_akses_absensi
+         SET status = 'KEDALUWARSA'
+         WHERE karyawan_id = ? AND tanggal = ? AND urutan_sesi = ?
+           AND status = 'AKTIF' AND used_at IS NULL AND berlaku_sampai <= ?`
+      ).run(employee.id, today, next.urutan, nowIso);
+
+      const existingGrant = getActiveCheckinOverride(db, employee.id, today, next.urutan, nowIso);
+      if (existingGrant) {
+        db.exec('ROLLBACK');
+        res.status(409).json({
+          error: `Izin check-in untuk ${next.nama} masih aktif sampai ${existingGrant.berlaku_sampai.slice(11, 16)} WIB.`,
+          activeGrant: {
+            id: existingGrant.id,
+            berlakuSampai: existingGrant.berlaku_sampai,
+            adminNama: existingGrant.admin_nama,
+          },
+        });
+        return;
+      }
+
+      const berlakuSampai = getWibIsoString(new Date(Date.now() + durasiMenit * 60 * 1000));
+      const info = db
+        .prepare(
+          `INSERT INTO override_akses_absensi (
+             karyawan_id, tanggal, urutan_sesi, nama_sesi, alasan, admin_id,
+             status, berlaku_sampai, used_at, used_session_id, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, 'AKTIF', ?, NULL, NULL, ?)`
+        )
+        .run(employee.id, today, next.urutan, next.nama, alasan.trim(), req.authUser!.id, berlakuSampai, nowIso);
+
+      const grantId = Number(info.lastInsertRowid);
+      writeAuditLog(db, {
+        actor: req.authUser!,
+        req,
+        modul: 'OVERRIDE_ABSENSI',
+        aksi: 'BUKA_AKSES_CHECKIN',
+        targetEntity: 'override_akses_absensi',
+        targetId: grantId,
+        karyawanId: employee.id,
+        tanggalTerdampak: today,
+        before: {
+          statusSesi: 'EXPIRED',
+          sesiBerikutnya: next.urutan,
+          namaSesi: next.nama,
+        },
+        after: {
+          statusIzin: 'AKTIF',
+          berlakuSampai,
+          durasiMenit,
+          penggunaan: 'SATU_KALI',
+        },
+        alasan: alasan.trim(),
+      });
+
+      db.exec('COMMIT');
+      broadcastWorkforceUpdate('CHECKIN_ACCESS_GRANTED');
+      res.status(201).json({
+        ok: true,
+        id: grantId,
+        karyawanId: employee.id,
+        urutanSesi: next.urutan,
+        namaSesi: next.nama,
+        berlakuSampai,
+        durasiMenit,
+        status: 'AKTIF',
+      });
+    } catch (err) {
+      db.exec('ROLLBACK');
+      throw err;
+    }
   });
 
   app.post('/api/v1/attendance/session', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), asyncRoute(async (req, res) => {
@@ -801,6 +1030,9 @@ export function registerApiRoutes(app: Express) {
       targetSesiConfig.jam_mulai,
       targetSesiConfig.jam_selesai
     );
+    const checkinOverride = sessionWindow === 'EXPIRED'
+      ? getActiveCheckinOverride(db, emp.id, today, expectedNext, nowIso)
+      : null;
     if (sessionWindow === 'INVALID') {
       res.status(400).json({
         error: `Konfigurasi waktu ${targetSesiConfig.nama} tidak valid. Admin harus memperbaiki jam mulai dan jam selesai.`,
@@ -813,9 +1045,9 @@ export function registerApiRoutes(app: Express) {
       });
       return;
     }
-    if (sessionWindow === 'EXPIRED') {
+    if (sessionWindow === 'EXPIRED' && !checkinOverride) {
       res.status(400).json({
-        error: `Waktu absensi ${targetSesiConfig.nama} sudah berakhir pada pukul ${targetSesiConfig.jam_selesai} WIB. Absensi mandiri untuk sesi ini telah dikunci. Jika terjadi kendala perangkat atau keadaan khusus, hubungi Admin untuk Admin Override payroll.`,
+        error: `Waktu absensi ${targetSesiConfig.nama} sudah berakhir pada pukul ${targetSesiConfig.jam_selesai} WIB. Minta Admin membuka akses check-in khusus sebelum melakukan absensi.`,
       });
       return;
     }
@@ -994,11 +1226,37 @@ export function registerApiRoutes(app: Express) {
         );
       createdSessionId = Number(info.lastInsertRowid);
 
+      if (checkinOverride) {
+        const used = db
+          .prepare(
+            `UPDATE override_akses_absensi
+             SET status = 'DIGUNAKAN', used_at = ?, used_session_id = ?
+             WHERE id = ? AND status = 'AKTIF' AND used_at IS NULL AND berlaku_sampai > ?`
+          )
+          .run(nowIso, createdSessionId, checkinOverride.id, nowIso);
+        if (Number(used.changes) !== 1) {
+          throw new Error('Izin Admin sudah digunakan atau kedaluwarsa. Muat ulang halaman dan hubungi Admin.');
+        }
+        writeAuditLog(db, {
+          actor: user,
+          req,
+          modul: 'OVERRIDE_ABSENSI',
+          aksi: 'GUNAKAN_AKSES_CHECKIN',
+          targetEntity: 'override_akses_absensi',
+          targetId: checkinOverride.id,
+          karyawanId: emp.id,
+          tanggalTerdampak: today,
+          before: { statusIzin: 'AKTIF' },
+          after: { statusIzin: 'DIGUNAKAN', sessionId: createdSessionId, waktuServer: nowIso },
+          alasan: checkinOverride.alasan,
+        });
+      }
+
       writeAuditLog(db, {
         actor: user,
         req,
         modul: 'ABSENSI',
-        aksi: 'CHECKIN_SESI',
+        aksi: checkinOverride ? 'CHECKIN_SESI_DENGAN_OVERRIDE' : 'CHECKIN_SESI',
         targetEntity: 'absensi_sesi',
         targetId: createdSessionId,
         karyawanId: emp.id,
@@ -1010,6 +1268,9 @@ export function registerApiRoutes(app: Express) {
           dalamGeofence: Boolean(dalamGeofence),
           jarakMeter,
           tipeAktivitas: actType,
+          adminOverrideCheckin: Boolean(checkinOverride),
+          overrideCheckinId: checkinOverride?.id ?? null,
+          pemberiIzin: checkinOverride?.admin_nama ?? null,
         },
       });
       db.exec('COMMIT');
