@@ -85,6 +85,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   const [locationAddressStatus, setLocationAddressStatus] = useState<
     'idle' | 'loading' | 'ready' | 'unconfigured' | 'error'
   >('idle');
+  const locationRequestIdRef = useRef(0);
 
   const readCurrentGps = useCallback(
     () =>
@@ -249,6 +250,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   }, [data, liveWibHm, stopCamera]);
 
   const requestGps = useCallback(() => {
+    const requestId = ++locationRequestIdRef.current;
     stopCamera();
     setSubmitMsg(null);
     setGpsStatus('loading');
@@ -259,6 +261,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
 
     readCurrentGps()
       .then((position) => {
+        if (requestId !== locationRequestIdRef.current) return;
         setCoords(position);
         setGpsStatus('ok');
 
@@ -275,17 +278,20 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
           provider: string | null;
         }>(`/api/v1/location/reverse?${query.toString()}`)
           .then((result) => {
+            if (requestId !== locationRequestIdRef.current) return;
             setLocationAddress(result.address);
             setLocationAddressStatus(
               !result.configured ? 'unconfigured' : result.address ? 'ready' : 'error'
             );
           })
           .catch(() => {
+            if (requestId !== locationRequestIdRef.current) return;
             setLocationAddress(null);
             setLocationAddressStatus('error');
           });
       })
       .catch((err) => {
+        if (requestId !== locationRequestIdRef.current) return;
         setCoords(null);
         setGpsStatus('error');
         setGpsError(err instanceof Error ? err.message : 'Gagal membaca lokasi GPS.');
@@ -1012,7 +1018,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                             <>
                               <p className="leading-relaxed">{locationAddress}</p>
                               <p className="text-[10px] text-slate-400">
-                                Alamat perkiraan dari Google Maps Geocoding. Koordinat GPS browser tetap menjadi data lokasi utama.
+                                Alamat perkiraan dari Google Maps Geocoding. Koordinat dikirim ke Google hanya saat tombol Perbarui Lokasi ditekan; koordinat GPS browser tetap menjadi data lokasi utama.
                               </p>
                             </>
                           ) : locationAddressStatus === 'unconfigured' ? (
