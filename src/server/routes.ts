@@ -3667,10 +3667,13 @@ export function registerApiRoutes(app: Express) {
       const existing = db
         .prepare(
           `SELECT u.id as user_id, u.username, u.email, u.role, u.aktif as user_aktif,
-                  k.id as karyawan_id, k.nik, k.nama_lengkap, k.no_hp, k.jabatan,
+                  u.nama_tampilan,
+                  COALESCE(NULLIF(u.nama_tampilan, ''), k.nama_lengkap, 'Superadmin') as nama_lengkap,
+                  COALESCE(k.no_hp, u.no_hp, '') as no_hp,
+                  k.id as karyawan_id, k.nik, COALESCE(k.jabatan, 'Akun Pengelola Sistem') as jabatan,
                   k.kantor_id, k.bidang_id, k.aktif as karyawan_aktif, k.foto_profil_path
            FROM pengguna u
-           JOIN karyawan k ON u.karyawan_id = k.id
+           LEFT JOIN karyawan k ON u.karyawan_id = k.id
            WHERE u.id = ?`
         )
         .get(targetUserId) as
@@ -3680,14 +3683,15 @@ export function registerApiRoutes(app: Express) {
             email: string;
             role: Role;
             user_aktif: number;
-            karyawan_id: number;
-            nik: string;
+            nama_tampilan: string | null;
+            karyawan_id: number | null;
+            nik: string | null;
             nama_lengkap: string;
             no_hp: string;
             jabatan: string;
-            kantor_id: number;
-            bidang_id: number;
-            karyawan_aktif: number;
+            kantor_id: number | null;
+            bidang_id: number | null;
+            karyawan_aktif: number | null;
             foto_profil_path: string | null;
           }
         | undefined;
@@ -3711,10 +3715,74 @@ export function registerApiRoutes(app: Express) {
         removePhoto?: boolean;
       };
 
+      if (existing.karyawan_id === null) {
+        if (existing.role !== 'SUPERADMIN') {
+          res.status(409).json({ error: 'Akun tanpa profil karyawan hanya boleh memiliki role SUPERADMIN.' });
+          return;
+        }
+
+        const cleanName = (body.nama_lengkap ?? existing.nama_lengkap).trim();
+        const cleanUser = (body.username ?? existing.username).trim().toLowerCase();
+        const cleanEmail = (body.email ?? existing.email).trim().toLowerCase();
+        const cleanHp = (body.no_hp ?? existing.no_hp).trim();
+        const nextAktif = body.aktif !== undefined ? (body.aktif ? 1 : 0) : existing.user_aktif;
+
+        if (cleanName.length < 2 || !/^[a-z0-9._-]{3,30}$/.test(cleanUser) || !cleanEmail.includes('@')) {
+          res.status(400).json({ error: 'Nama, username, atau email akun Superadmin tidak valid.' });
+          return;
+        }
+        if (targetUserId === req.authUser!.id && nextAktif === 0) {
+          res.status(400).json({ error: 'Anda tidak dapat menonaktifkan akun Superadmin Anda sendiri.' });
+          return;
+        }
+        if (nextAktif === 0) {
+          const activeSuperadmins = db.prepare(
+            `SELECT COUNT(*) as c FROM pengguna WHERE role = 'SUPERADMIN' AND aktif = 1`
+          ).get() as { c: number };
+          if (activeSuperadmins.c <= 1) {
+            res.status(400).json({ error: 'Minimal harus ada satu akun Superadmin aktif.' });
+            return;
+          }
+        }
+
+        db.exec('BEGIN IMMEDIATE');
+        try {
+          db.prepare(
+            `UPDATE pengguna
+             SET username = ?, email = ?, nama_tampilan = ?, no_hp = ?, aktif = ?,
+                 token_version = CASE WHEN ? = 1 THEN COALESCE(token_version, 1) + 1 ELSE COALESCE(token_version, 1) END
+             WHERE id = ?`
+          ).run(cleanUser, cleanEmail, cleanName, cleanHp, nextAktif, nextAktif === 0 ? 1 : 0, targetUserId);
+
+          writeAuditLog(db, {
+            actor: req.authUser!,
+            req,
+            modul: 'MANAJEMEN_AKUN',
+            aksi: 'UPDATE_SUPERADMIN_ACCOUNT',
+            targetEntity: 'pengguna',
+            targetId: targetUserId,
+            before: { username: existing.username, email: existing.email, nama_tampilan: existing.nama_lengkap, aktif: existing.user_aktif, role: existing.role },
+            after: { username: cleanUser, email: cleanEmail, nama_tampilan: cleanName, aktif: nextAktif, role: 'SUPERADMIN' },
+            alasan: 'Pembaruan akun pemilik sistem oleh Superadmin',
+          });
+          db.exec('COMMIT');
+          res.json({ ok: true });
+        } catch (err) {
+          db.exec('ROLLBACK');
+          res.status(400).json({
+            error: 'Gagal memperbarui akun Superadmin (username atau email mungkin sudah digunakan).',
+            detail: safeErrorDetail(err),
+          });
+        }
+        return;
+      }
+
+      if (body.role === 'SUPERADMIN') {
+        res.status(400).json({ error: 'Akun Superadmin harus dibuat sebagai akun pemilik tersendiri, bukan mengubah akun pegawai.' });
+        return;
+      }
       const nextRole: Role =
-        body.role === 'SUPERADMIN' || body.role === 'ADMIN' || body.role === 'KARYAWAN'
-          ? body.role
-          : existing.role;
+        body.role === 'ADMIN' || body.role === 'KARYAWAN' ? body.role : existing.role;
       const nextAktif = body.aktif !== undefined ? (body.aktif ? 1 : 0) : existing.user_aktif;
 
       if (targetUserId === req.authUser!.id && nextAktif === 0) {
