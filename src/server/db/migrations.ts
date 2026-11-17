@@ -71,6 +71,14 @@ const MIGRATIONS: MigrationDef[] = [
       `);
     },
   },
+  {
+    version: '004',
+    name: 'require_strict_geofence_for_all_offices',
+    up: (db) => {
+      // Existing offices must follow the strict attendance radius policy.
+      db.exec(`UPDATE kantor SET geofence_mode = 'TOLAK_LUAR_RADIUS'`);
+    },
+  },
 ];
 
 export function runMigrations(db: DatabaseSync): string[] {
