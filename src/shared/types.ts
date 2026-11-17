@@ -37,6 +37,12 @@ export interface Kantor {
   geofence_mode: GeofenceMode;
   zona_waktu: string;
   aktif: number;
+  can_delete?: boolean;
+  jumlah_karyawan?: number;
+  jumlah_pendaftaran?: number;
+  jumlah_hari_libur?: number;
+  jumlah_periode_payroll?: number;
+  jumlah_kalender?: number;
 }
 
 export interface BidangKerja {
@@ -44,6 +50,10 @@ export interface BidangKerja {
   kode: string;
   nama: string;
   deskripsi: string;
+  can_delete?: boolean;
+  jumlah_karyawan?: number;
+  jumlah_kebijakan?: number;
+  jumlah_pendaftaran?: number;
 }
 
 export interface Karyawan {
