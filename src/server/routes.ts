@@ -735,7 +735,7 @@ export function registerApiRoutes(app: Express) {
       return;
     }
 
-    const apiKey = process.env.GOOGLE_MAPS_GEOCODING_API_KEY?.trim();
+    const apiKey = process.env.GEOAPIFY_API_KEY?.trim();
     if (!apiKey) {
       res.json({ address: null, configured: false, provider: null });
       return;
@@ -746,13 +746,13 @@ export function registerApiRoutes(app: Express) {
     const cacheKey = `${lat.toFixed(4)},${lng.toFixed(4)}`;
     const cached = reverseGeocodeCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
-      res.json({ address: cached.address, configured: true, provider: 'Google Maps' });
+      res.json({ address: cached.address, configured: true, provider: 'Geoapify' });
       return;
     }
     if (cached) reverseGeocodeCache.delete(cacheKey);
 
     // Conservative application-wide throttle (10 requests/second);
-    // Google's own quota/billing still applies. Nearby results are cached above.
+    // Geoapify daily credits and request-rate limits still apply. Cached results reduce usage.
     const now = Date.now();
     const elapsed = now - lastReverseGeocodeRequestAt;
     if (elapsed < 100) {
@@ -763,11 +763,12 @@ export function registerApiRoutes(app: Express) {
     lastReverseGeocodeRequestAt = now;
 
     try {
-      const url = new URL('https://maps.googleapis.com/maps/api/geocode/json');
-      url.searchParams.set('latlng', `${lat},${lng}`);
-      url.searchParams.set('key', apiKey);
-      url.searchParams.set('language', 'id');
-      url.searchParams.set('region', 'id');
+      const url = new URL('https://api.geoapify.com/v1/geocode/reverse');
+      url.searchParams.set('lat', String(lat));
+      url.searchParams.set('lon', String(lng));
+      url.searchParams.set('apiKey', apiKey);
+      url.searchParams.set('format', 'json');
+      url.searchParams.set('lang', 'id');
 
       const response = await fetch(url, {
         headers: { Accept: 'application/json' },
@@ -779,19 +780,14 @@ export function registerApiRoutes(app: Express) {
       }
 
       const payload = (await response.json()) as {
-        status?: string;
-        results?: { formatted_address?: string }[];
+        results?: { formatted?: string }[];
       };
-      if (payload.status === 'ZERO_RESULTS') {
-        res.json({ address: null, configured: true, provider: 'Google Maps' });
-        return;
-      }
       const address =
-        payload.status === 'OK' && typeof payload.results?.[0]?.formatted_address === 'string'
-          ? payload.results[0].formatted_address
+        typeof payload.results?.[0]?.formatted === 'string'
+          ? payload.results[0].formatted
           : null;
       if (!address) {
-        res.status(502).json({ error: 'Alamat tidak ditemukan dari koordinat GPS ini.' });
+        res.json({ address: null, configured: true, provider: 'Geoapify' });
         return;
       }
 
