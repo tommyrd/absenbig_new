@@ -30,8 +30,8 @@ Seluruh endpoint berada di bawah prefix `/api/v1`. Autentikasi menggunakan heade
 | `POST` | `/api/v1/auth/login` | Publik (Rate-limited) | Login via `identifier` (username/email) + `password`. Mengembalikan `{ token, user }` & cookie `HttpOnly`. Mengunci sementara (`429`) setelah 8 kali gagal per IP:username. |
 | `POST` | `/api/v1/auth/logout` | Semua / Opsional | Merevoke `jti` token ke tabel `revoked_tokens`, menghapus cookie, mencatat audit `AUTH/LOGOUT`. |
 | `GET` | `/api/v1/auth/me` | `KARYAWAN`, `ADMIN`, `SUPERADMIN` | Mengembalikan data profil pengguna aktif dari token terverifikasi. |
-| `GET` | `/api/v1/auth/register-options` | Publik | Daftar kantor aktif & bidang kerja untuk form pendaftaran akun baru. |
-| `POST` | `/api/v1/auth/register` | Publik (Rate-limited) | Pengajuan akun baru (`KARYAWAN` atau `ADMIN`) berstatus `PENDING` hingga di-ACC Superadmin. Foto avatar divalidasi magic bytes raster. |
+| `GET` | `/api/v1/auth/register-options` | Publik | Daftar kantor aktif & bidang kerja untuk form pendaftaran KARYAWAN; pendaftaran ADMIN tidak membutuhkan pilihan penempatan. |
+| `POST` | `/api/v1/auth/register` | Publik (Rate-limited) | Pengajuan `KARYAWAN` atau `ADMIN` berstatus `PENDING` hingga di-ACC Superadmin. KARYAWAN wajib mengirim kantor/bidang/jabatan; ADMIN tidak mengirim penempatan atau jabatan pegawai dan akan dibuat mandiri tanpa NIK saat ACC. Foto avatar divalidasi magic bytes raster. |
 
 ---
 
@@ -43,7 +43,7 @@ Seluruh endpoint berada di bawah prefix `/api/v1`. Autentikasi menggunakan heade
 | `PUT` | `/api/v1/profile/password` | Semua Role Terautentikasi (Rate-limited) | Mengganti sandi sendiri, menaikkan `token_version` (merevoke sesi lama), dan mengembalikan token baru. |
 | `PUT` | `/api/v1/profile/photo` | `KARYAWAN`, `ADMIN`, `SUPERADMIN` | Mengunggah/mengganti foto profil raster (`PNG/JPG/WEBP <= 2MB`) atau menghapus ke avatar default. Untuk ADMIN/SUPERADMIN, foto disimpan pada record `pengguna`; pegawai disimpan pada record `karyawan`. |
 | `GET` | `/api/v1/avatars/karyawan/:karyawanId` | Semua Role Terautentikasi | Mengambil foto profil karyawan (atau SVG inisial default). |
-| `GET` | `/api/v1/avatars/pengguna/:userId` | Semua Role Terautentikasi | Mengambil foto profil akun mandiri (termasuk SUPERADMIN) atau SVG inisial default. |
+| `GET` | `/api/v1/avatars/pengguna/:userId` | Semua Role Terautentikasi | Mengambil foto profil akun mandiri (ADMIN/SUPERADMIN) atau SVG inisial default. |
 | `GET` | `/api/v1/avatars/registration/:regId` | `SUPERADMIN` | Mengambil foto calon pendaftar saat proses verifikasi ACC. |
 
 ---
