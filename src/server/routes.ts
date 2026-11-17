@@ -2833,6 +2833,15 @@ export function registerApiRoutes(app: Express) {
     let nextFaviconUpdatedAt = before.favicon_updated_at ? String(before.favicon_updated_at) : null;
     const nowIso = getWibIsoString();
     const assetsDir = getAssetsDir();
+    let faviconUpload: ReturnType<typeof validateAndSanitizeFaviconBase64> | null = null;
+    if (body.faviconBase64 && !body.resetFavicon) {
+      try {
+        faviconUpload = validateAndSanitizeFaviconBase64(body.faviconBase64, 512 * 1024);
+      } catch (err) {
+        res.status(400).json({ error: err instanceof Error ? err.message : 'Favicon tidak valid.' });
+        return;
+      }
+    }
 
     if (body.resetLogo) {
       if (nextLogoPath) {
@@ -2870,17 +2879,8 @@ export function registerApiRoutes(app: Express) {
       }
       nextFaviconPath = null;
       nextFaviconUpdatedAt = nowIso;
-    } else if (body.faviconBase64) {
-      let ext: 'png' | 'svg' | 'ico';
-      let buf: Buffer;
-      try {
-        const parsed = validateAndSanitizeFaviconBase64(body.faviconBase64, 512 * 1024);
-        ext = parsed.ext;
-        buf = parsed.buf;
-      } catch (err) {
-        res.status(400).json({ error: err instanceof Error ? err.message : 'Favicon tidak valid.' });
-        return;
-      }
+    } else if (faviconUpload) {
+      const { ext, buf } = faviconUpload;
       if (!fs.existsSync(assetsDir)) fs.mkdirSync(assetsDir, { recursive: true });
       if (nextFaviconPath) {
         const oldFile = path.join(assetsDir, path.basename(nextFaviconPath));
