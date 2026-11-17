@@ -520,6 +520,44 @@ test('6. SVG logo XSS sanitization, attendance camera-only, jam_mulai gate, geof
     assert.match(String(earlyCheckin.data.error), /belum dimulai/i);
   }
 
+  // Once the configured session end has passed, the API must reject self check-in.
+  const currentMinuteOfDay =
+    Number(nowHm.slice(0, 2)) * 60 + Number(nowHm.slice(3, 5));
+  if (currentMinuteOfDay > 0) {
+    const closedEndMinute = currentMinuteOfDay - 1;
+    const closedEndHm = `${String(Math.floor(closedEndMinute / 60)).padStart(2, '0')}:${String(closedEndMinute % 60).padStart(2, '0')}`;
+    await apiJson(`/api/v1/policies/${futurePol.data.id}`, {
+      method: 'PUT',
+      token: adminToken,
+      body: {
+        nama: 'Kebijakan Uji Sesi Kedaluwarsa',
+        jumlah_sesi: 2,
+        min_sesi_hadir: 1,
+        toleransi_terlambat_menit: 15,
+        wajib_foto_semua_sesi: 1,
+        wajib_aktivitas_sesi_lanjut: 1,
+        sesi: [
+          { urutan: 1, nama: 'Sesi 1 Expired', jam_mulai: '00:00', jam_selesai: closedEndHm, wajib_foto: 1, wajib_aktivitas: 0, aktif: 1 },
+          { urutan: 2, nama: 'Sesi 2', jam_mulai: '00:00', jam_selesai: '23:59', wajib_foto: 1, wajib_aktivitas: 1, aktif: 1 },
+        ],
+      },
+    });
+    const expiredCheckin = await apiJson('/api/v1/attendance/session', {
+      method: 'POST',
+      token: karyawanToken,
+      body: {
+        urutanSesi: 1,
+        lat: -6.2,
+        lng: 106.8,
+        accuracyMeter: 10,
+        fotoBase64: SAMPLE_PNG_BASE64,
+        fotoSource: 'BROWSER_CAMERA',
+      },
+    });
+    assert.equal(expiredCheckin.status, 400);
+    assert.match(String(expiredCheckin.data.error), /sudah berakhir/i);
+  }
+
   // Update policy so Sesi 1 is open from 00:00..23:59
   await apiJson(`/api/v1/policies/${futurePol.data.id}`, {
     method: 'PUT',
@@ -561,6 +599,7 @@ test('6. SVG logo XSS sanitization, attendance camera-only, jam_mulai gate, geof
       urutanSesi: 1,
       lat: -6.25,
       lng: 106.85,
+      accuracyMeter: 10,
       fotoBase64: SAMPLE_PNG_BASE64,
       fotoSource: 'BROWSER_CAMERA',
     },
@@ -568,7 +607,23 @@ test('6. SVG logo XSS sanitization, attendance camera-only, jam_mulai gate, geof
   assert.equal(outsideGeo.status, 400);
   assert.match(String(outsideGeo.data.error), /radius/i);
 
-  // 3) Reject missing GPS even though this legacy office row is CATAT_DENGAN_FLAG
+  // 3) Reject a low-quality GPS fix before checking the geofence radius.
+  const poorAccuracy = await apiJson('/api/v1/attendance/session', {
+    method: 'POST',
+    token: karyawanToken,
+    body: {
+      urutanSesi: 1,
+      lat: -6.2,
+      lng: 106.8,
+      accuracyMeter: 150,
+      fotoBase64: SAMPLE_PNG_BASE64,
+      fotoSource: 'BROWSER_CAMERA',
+    },
+  });
+  assert.equal(poorAccuracy.status, 400);
+  assert.match(String(poorAccuracy.data.error), /akurasi GPS/i);
+
+  // 4) Reject missing GPS even though this legacy office row is CATAT_DENGAN_FLAG
   const missingGeo = await apiJson('/api/v1/attendance/session', {
     method: 'POST',
     token: karyawanToken,
@@ -580,7 +635,7 @@ test('6. SVG logo XSS sanitization, attendance camera-only, jam_mulai gate, geof
   });
   assert.equal(missingGeo.status, 400);
 
-  // 4) Reject fake magic bytes PNG even with BROWSER_CAMERA
+  // 5) Reject fake magic bytes PNG even with BROWSER_CAMERA
   const fakeMagicTry = await apiJson('/api/v1/attendance/session', {
     method: 'POST',
     token: karyawanToken,
@@ -588,13 +643,14 @@ test('6. SVG logo XSS sanitization, attendance camera-only, jam_mulai gate, geof
       urutanSesi: 1,
       lat: -6.2,
       lng: 106.8,
+      accuracyMeter: 10,
       fotoBase64: FAKE_PNG_BASE64,
       fotoSource: 'BROWSER_CAMERA',
     },
   });
   assert.equal(fakeMagicTry.status, 400);
 
-  // 5) Valid check-in inside radius with valid PNG camera capture succeeds
+  // 6) Valid check-in inside radius with valid PNG camera capture succeeds
   const validCheckin = await apiJson<{ ok: boolean; day: { sessionsCompleted: number; sessionRecords: { id: number; foto_path: string; foto_checksum: string }[] } }>(
     '/api/v1/attendance/session',
     {
