@@ -986,7 +986,7 @@ export function SuperadminAccountsTab({
                 </div>
               )}
 
-              {/* Foto Profil Control hanya untuk akun yang terhubung ke karyawan */}
+              {/* Foto profil tersedia untuk akun Admin Operasional dan Karyawan */}
               {accountForm.role !== 'SUPERADMIN' && (
               <div className="flex items-center gap-3.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700">
                 <UserAvatar
