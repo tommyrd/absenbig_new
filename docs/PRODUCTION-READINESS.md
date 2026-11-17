@@ -1,6 +1,6 @@
 # Laporan Kesiapan Production — Absensi BIGNET
 
-**Status Keseluruhan:** **SIAP PRODUCTION (Hosting Pribadi)** dengan pemenuhan konfigurasi `.env` & SSL pada server target.
+**Status Keseluruhan:** **PERLU VERIFIKASI ULANG SEBELUM GO-LIVE**. Perubahan aturan sesi dan GPS telah masuk ke `main`, tetapi build, test otomatis, serta UAT browser harus dijalankan ulang pada checkout terbaru.
 
 ---
 
@@ -8,10 +8,10 @@
 
 | Komponen | Status | Bukti Verifikasi Terukur |
 |---|---|---|
-| Build Frontend (`npm run build`) | Lulus | `vite build` menghasilkan `dist/index.html` dan aset hash immutable tanpa warning `__dirname`. |
-| Type Check (`npm run lint`) | Lulus | `tsc --noEmit` keluar dengan kode `0` (0 error TypeScript). |
-| Automated Tests (`npm test`) | Lulus | 17/17 test lulus (`9` test inti `tests/core.test.ts` + `8` test production `tests/production.test.ts`). |
-| Standalone Production Boot | Lulus | `NODE_ENV=production node server.ts` berjalan mulus di Node v22 tanpa Vite, healthcheck `200 OK`, SPA `/` `200 OK`, `izin_demo_login=0`. |
+| Build Frontend (`npm run build`) | Perlu verifikasi ulang | Jalankan pada checkout terbaru setelah perubahan sesi dan GPS. |
+| Type Check (`npm run lint`) | Perlu verifikasi ulang | Jalankan pada checkout terbaru untuk memastikan import helper dan UI TypeScript. |
+| Automated Tests (`npm test`) | Perlu verifikasi ulang | Cakupan saat ini 19 test (`11` test inti + `8` test production); hasil lulus belum diklaim sebelum dijalankan ulang. |
+| Standalone Production Boot | Perlu verifikasi ulang | Jalankan server production dan cek healthcheck setelah build terbaru. |
 | Session Time Window & GPS Quality | Diperbarui | Frontend dan backend memakai waktu WIB server; batas `jam_selesai` dikunci; GPS wajib akurasi maksimum ±100m dan margin akurasi tetap di dalam radius. |
 | Database Schema, Migrasi & Seed | Lulus | `schema_migrations` mencatat versi `001`–`004`, termasuk migrasi seluruh kantor ke geofence ketat; `seedProductionBaseline` memisahkan data demo dari production. |
 | Keamanan Autentikasi & API | Lulus | `scrypt`, HMAC-SHA256 + `jti` revocation + `token_version`, brute-force `429`, RBAC backend, validasi magic-bytes & sanitasi SVG. |
