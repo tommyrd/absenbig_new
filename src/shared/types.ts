@@ -64,6 +64,7 @@ export interface Karyawan {
   username?: string;
   has_foto_profil?: boolean;
   foto_profil_updated_at?: string | null;
+  is_system_archive?: number;
 }
 
 export interface AuthUser {
