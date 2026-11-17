@@ -275,6 +275,8 @@ export const SCHEMA_SQL = `
     footer_login TEXT NOT NULL DEFAULT 'Kantor Pusat Jakarta · Kantor Operasional Bandung',
     logo_path TEXT,
     logo_updated_at TEXT,
+    favicon_path TEXT,
+    favicon_updated_at TEXT,
     retensi_foto_hari INTEGER NOT NULL DEFAULT 365,
     wajib_gps_absensi INTEGER NOT NULL DEFAULT 1,
     izin_demo_login INTEGER NOT NULL DEFAULT 1,
