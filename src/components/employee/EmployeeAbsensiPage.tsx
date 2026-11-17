@@ -420,6 +420,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
       setPhotoDataUrl(capturedPhoto);
       stopCamera();
       setCameraError(null);
+      setSubmitMsg(null);
     } catch {
       setCameraError('Foto gagal diproses. Periksa memori perangkat, lalu coba ambil foto kembali.');
     }
@@ -428,11 +429,12 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   const retakePhoto = (requestedFacing: 'user' | 'environment' = facingMode) => {
     setPhotoDataUrl(null);
     setCameraError(null);
+    setSubmitMsg(null);
     void startCamera(requestedFacing);
   };
 
   const handleSubmitSession = async () => {
-    if (!data) return;
+    if (!data || submitting) return;
     const nextUrutan = data.day.sessionsCompleted + 1;
     const nextSesiCfg = data.day.policySnapshot.sesiList[data.day.sessionsCompleted];
     const currentMinute = parseHm(liveWibHm);
@@ -550,12 +552,13 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
           fotoSource: photoDataUrl ? 'BROWSER_CAMERA' : undefined,
         }),
       });
+      const successMessage = photoDataUrl
+        ? `Absensi Sesi ${nextUrutan} berhasil! Foto berhasil diunggah dan absensi tersimpan di Beranda.`
+        : `Absensi Sesi ${nextUrutan} berhasil dicatat dan tersimpan di Beranda.`;
       stopCamera();
       setPhotoDataUrl(null);
       setDeskripsiAktivitas('');
-      onSessionSubmitted(
-        `Absensi Sesi ${nextUrutan} berhasil! Foto dan keterangan berhasil tersimpan.`
-      );
+      onSessionSubmitted(successMessage);
     } catch (err) {
       setSubmitMsg({
         type: 'err',
