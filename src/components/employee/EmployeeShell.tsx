@@ -61,6 +61,14 @@ export function EmployeeShell({
       const res = await fetchToday();
       setMyDay(res.day);
       if (res.serverTime) setServerWibHm(res.serverTime.slice(0, 5));
+
+      // After a successful check-in, return to Beranda unless another
+      // incomplete session is already open on server WIB time.
+      setTab(
+        shouldOpenAttendanceOnEntry(res.day, res.serverTime)
+          ? 'absensi'
+          : 'beranda'
+      );
     } catch {
       // Keep the last successfully loaded day if a refresh temporarily fails.
     }
@@ -92,6 +100,28 @@ export function EmployeeShell({
       active = false;
     };
   }, [fetchToday]);
+
+  // While employees are on Beranda, watch for the next session opening.
+  // Use server WIB time so a device clock or timezone cannot trigger early.
+  useEffect(() => {
+    if (tab !== 'beranda') return;
+
+    const checkNextSession = async () => {
+      try {
+        const res = await fetchToday();
+        setMyDay(res.day);
+        if (res.serverTime) setServerWibHm(res.serverTime.slice(0, 5));
+        if (shouldOpenAttendanceOnEntry(res.day, res.serverTime)) {
+          setTab('absensi');
+        }
+      } catch {
+        // Preserve the current page during temporary network interruptions.
+      }
+    };
+
+    const timerId = window.setInterval(checkNextSession, 15000);
+    return () => window.clearInterval(timerId);
+  }, [fetchToday, tab]);
 
   const nextSesi = myDay ? myDay.policySnapshot.sesiList[myDay.sessionsCompleted] : null;
   const nowWibHm =
