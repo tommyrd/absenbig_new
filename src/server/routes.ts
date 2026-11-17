@@ -34,6 +34,7 @@ import {
 } from './services/resolver.ts';
 import { getWibDateString, getWibIsoString, getWibTimeString, parseHmToMinutes } from './time.ts';
 import { isGpsAccuracyAcceptable, isWithinVerifiedGeofence, MAX_GPS_ACCURACY_METERS } from '../shared/geofence.ts';
+import { requiresOfficeGeofence } from '../shared/geofence.ts';
 import { getSessionWindowState } from '../shared/session-window.ts';
 import type {
   AttendanceFeedPost,
@@ -859,22 +860,39 @@ export function registerApiRoutes(app: Express) {
       return;
     }
 
-    if (!isGpsAccuracyAcceptable(accuracyMeter)) {
+    if (
+      typeof accuracyMeter !== 'number' ||
+      !Number.isFinite(accuracyMeter) ||
+      accuracyMeter < 0
+    ) {
       res.status(400).json({
-        error: `Akurasi GPS belum memenuhi syarat. Akurasi perangkat harus maksimal ±${MAX_GPS_ACCURACY_METERS}m; hasil saat ini ${typeof accuracyMeter === 'number' && Number.isFinite(accuracyMeter) ? `±${Math.ceil(accuracyMeter)}m` : 'tidak tersedia'}. Aktifkan lokasi presisi dan perbarui GPS di area terbuka.`,
+        error: 'Informasi akurasi lokasi tidak tersedia. Aktifkan layanan lokasi perangkat dan coba kembali.',
       });
       return;
     }
 
     const jarakMeter = haversineMeters(lat!, lng!, office.lat, office.lng);
-    const dalamGeofence = isWithinVerifiedGeofence(
-      jarakMeter,
-      accuracyMeter,
-      office.radius_meter
-    ) ? 1 : 0;
-    if (!dalamGeofence) {
+    const accuracyAcceptable = isGpsAccuracyAcceptable(accuracyMeter);
+    const dalamGeofence =
+      accuracyAcceptable &&
+      isWithinVerifiedGeofence(jarakMeter, accuracyMeter, office.radius_meter)
+        ? 1
+        : 0;
+    const wajibDiKantor = requiresOfficeGeofence(
+      day.policySnapshot.aturanLokasi,
+      expectedNext
+    );
+
+    if (wajibDiKantor && !accuracyAcceptable) {
       res.status(400).json({
-        error: `Absensi ditolak. Jarak titik GPS ${jarakMeter}m dengan estimasi akurasi ±${Math.ceil(accuracyMeter)}m tidak cukup meyakinkan berada di dalam radius kantor ${office.radius_meter}m. Dekati bagian tengah area kantor dan perbarui GPS.`,
+        error: `Sesi ini wajib dilakukan di kantor. Akurasi GPS harus maksimal ±${MAX_GPS_ACCURACY_METERS}m; hasil saat ini ±${Math.ceil(accuracyMeter)}m. Aktifkan lokasi presisi atau gunakan perangkat GPS yang lebih akurat.`,
+      });
+      return;
+    }
+
+    if (wajibDiKantor && !dalamGeofence) {
+      res.status(400).json({
+        error: `Absensi ditolak. Sesi ${expectedNext} wajib berada di kantor. Jarak titik GPS ${jarakMeter}m dengan estimasi akurasi ±${Math.ceil(accuracyMeter)}m belum dapat dipastikan di dalam radius kantor ${office.radius_meter}m.`,
       });
       return;
     }
@@ -1667,10 +1685,10 @@ export function registerApiRoutes(app: Express) {
         .prepare(
           `INSERT INTO kebijakan_absensi (
             level, bidang_id, karyawan_id, nama, jumlah_sesi, min_sesi_hadir,
-            toleransi_terlambat_menit, wajib_foto_semua_sesi, wajib_aktivitas_sesi_lanjut,
+            toleransi_terlambat_menit, aturan_lokasi, wajib_foto_semua_sesi, wajib_aktivitas_sesi_lanjut,
             libur_dihitung_masuk, off_pengganti_dihitung_masuk, izin_dihitung_masuk,
             sakit_dihitung_masuk, cuti_dihitung_masuk, berlaku_mulai, aktif, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
         )
         .run(
           body.level || 'BIDANG',
@@ -1680,6 +1698,7 @@ export function registerApiRoutes(app: Express) {
           Number(body.jumlah_sesi),
           Math.min(Number(body.min_sesi_hadir) || 1, Number(body.jumlah_sesi)),
           Number(body.toleransi_terlambat_menit ?? 15),
+          body.aturan_lokasi === 'SEMUA_SESI_KANTOR' ? 'SEMUA_SESI_KANTOR' : 'SESI_PERTAMA_KANTOR',
           body.wajib_foto_semua_sesi ? 1 : 0,
           body.wajib_aktivitas_sesi_lanjut ? 1 : 0,
           body.libur_dihitung_masuk ? 1 : 0,
@@ -1740,7 +1759,7 @@ export function registerApiRoutes(app: Express) {
       db.prepare(
         `UPDATE kebijakan_absensi SET
           nama = ?, jumlah_sesi = ?, min_sesi_hadir = ?, toleransi_terlambat_menit = ?,
-          wajib_foto_semua_sesi = ?, wajib_aktivitas_sesi_lanjut = ?,
+          aturan_lokasi = ?, wajib_foto_semua_sesi = ?, wajib_aktivitas_sesi_lanjut = ?,
           libur_dihitung_masuk = ?, off_pengganti_dihitung_masuk = ?,
           izin_dihitung_masuk = ?, sakit_dihitung_masuk = ?, cuti_dihitung_masuk = ?,
           aktif = ?
@@ -1750,6 +1769,11 @@ export function registerApiRoutes(app: Express) {
         Number(body.jumlah_sesi),
         Math.min(Number(body.min_sesi_hadir), Number(body.jumlah_sesi)),
         Number(body.toleransi_terlambat_menit ?? 15),
+        body.aturan_lokasi === 'SEMUA_SESI_KANTOR'
+          ? 'SEMUA_SESI_KANTOR'
+          : body.aturan_lokasi === 'SESI_PERTAMA_KANTOR'
+            ? 'SESI_PERTAMA_KANTOR'
+            : (before as { aturan_lokasi?: string }).aturan_lokasi || 'SESI_PERTAMA_KANTOR',
         body.wajib_foto_semua_sesi ? 1 : 0,
         body.wajib_aktivitas_sesi_lanjut ? 1 : 0,
         body.libur_dihitung_masuk ? 1 : 0,
