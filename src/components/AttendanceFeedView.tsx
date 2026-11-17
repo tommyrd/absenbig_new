@@ -132,8 +132,8 @@ export function AttendanceFeedView({
   }, [loadFeed]);
 
   // Automatically resolve older feed records as soon as the feed loads.
-  // The backend stores successful results in absensi_lokasi_cache, so each
-  // legacy attendance record is geocoded once rather than on every page visit.
+  // Successful and negative results are persisted by the backend in
+  // absensi_lokasi_cache, so refreshing Beranda does not repeatedly call Geoapify.
   useEffect(() => {
     const missing = (feed?.posts || []).filter(
       (post) =>
@@ -145,58 +145,51 @@ export function AttendanceFeedView({
     );
     if (missing.length === 0) return;
 
-    const batches: AttendanceFeedPost[][] = [];
-    for (let index = 0; index < missing.length; index += 10) {
-      batches.push(missing.slice(index, index + 10));
-    }
+    const ids = missing.map((post) => post.id);
+    ids.forEach((id) => requestedLocationIdsRef.current.add(id));
+    setLocationLookupStatus((current) => {
+      const next = { ...current };
+      for (const id of ids) next[id] = 'loading';
+      return next;
+    });
 
-    const markStatus = (ids: number[], status: 'loading' | 'unconfigured' | 'not-found' | 'error') => {
-      setLocationLookupStatus((current) => {
-        const next = { ...current };
-        for (const id of ids) next[id] = status;
-        return next;
+    void apiFetch<{
+      items: { sessionId: number; address: string | null; configured: boolean }[];
+    }>('/api/v1/feed/location-addresses', {
+      method: 'POST',
+      body: JSON.stringify({ sessionIds: ids }),
+    })
+      .then((result) => {
+        const byId = new Map(result.items.map((item) => [item.sessionId, item]));
+        setResolvedLocationByPost((current) => {
+          const next = { ...current };
+          for (const item of result.items) {
+            if (item.address) next[item.sessionId] = item.address;
+          }
+          return next;
+        });
+        setLocationLookupStatus((current) => {
+          const next = { ...current };
+          for (const id of ids) {
+            const item = byId.get(id);
+            if (!item) {
+              next[id] = 'error';
+            } else if (item.address) {
+              delete next[id];
+            } else {
+              next[id] = item.configured ? 'not-found' : 'unconfigured';
+            }
+          }
+          return next;
+        });
+      })
+      .catch(() => {
+        setLocationLookupStatus((current) => {
+          const next = { ...current };
+          for (const id of ids) next[id] = 'error';
+          return next;
+        });
       });
-    };
-
-    const resolveLegacyAddresses = async () => {
-      for (const batch of batches) {
-        const ids = batch.map((post) => post.id);
-        ids.forEach((id) => requestedLocationIdsRef.current.add(id));
-        markStatus(ids, 'loading');
-
-        try {
-          const result = await apiFetch<{
-            items: { sessionId: number; address: string | null; configured: boolean }[];
-          }>('/api/v1/feed/location-addresses', {
-            method: 'POST',
-            body: JSON.stringify({ sessionIds: ids }),
-          });
-
-          setResolvedLocationByPost((current) => {
-            const next = { ...current };
-            for (const item of result.items) {
-              if (item.address) next[item.sessionId] = item.address;
-            }
-            return next;
-          });
-          setLocationLookupStatus((current) => {
-            const next = { ...current };
-            for (const item of result.items) {
-              if (item.address) {
-                delete next[item.sessionId];
-              } else {
-                next[item.sessionId] = item.configured ? 'not-found' : 'unconfigured';
-              }
-            }
-            return next;
-          });
-        } catch {
-          markStatus(ids, 'error');
-        }
-      }
-    };
-
-    void resolveLegacyAddresses();
   }, [feed?.posts, resolvedLocationByPost]);
 
   const sortedRoster = useMemo(() => {
