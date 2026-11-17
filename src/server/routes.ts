@@ -800,7 +800,7 @@ export function registerApiRoutes(app: Express) {
          FROM karyawan k
          JOIN kantor kt ON k.kantor_id = kt.id
          JOIN bidang_kerja b ON k.bidang_id = b.id
-         WHERE k.aktif = 1
+         WHERE k.aktif = 1 AND COALESCE(k.is_system_archive, 0) = 0
          ORDER BY k.nama_lengkap ASC`
       )
       .all() as Karyawan[];
@@ -1930,7 +1930,7 @@ export function registerApiRoutes(app: Express) {
 
   app.put('/api/v1/master/employees/:id', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const id = Number(req.params.id);
-    const before = db.prepare(`SELECT * FROM karyawan WHERE id = ?`).get(id);
+    const before = db.prepare(`SELECT * FROM karyawan WHERE id = ? AND COALESCE(is_system_archive, 0) = 0`).get(id);
     if (!before) {
       res.status(404).json({ error: 'Karyawan tidak ditemukan.' });
       return;
@@ -1944,7 +1944,7 @@ export function registerApiRoutes(app: Express) {
       aktif: number;
     };
     db.prepare(
-      `UPDATE karyawan SET nama_lengkap = ?, no_hp = ?, kantor_id = ?, bidang_id = ?, jabatan = ?, aktif = ? WHERE id = ?`
+      `UPDATE karyawan SET nama_lengkap = ?, no_hp = ?, kantor_id = ?, bidang_id = ?, jabatan = ?, aktif = ? WHERE id = ? AND COALESCE(is_system_archive, 0) = 0`
     ).run(nama_lengkap, no_hp, Number(kantor_id), Number(bidang_id), jabatan, aktif ? 1 : 0, id);
     const after = db.prepare(`SELECT * FROM karyawan WHERE id = ?`).get(id);
     writeAuditLog(db, {
@@ -2547,7 +2547,7 @@ export function registerApiRoutes(app: Express) {
       return;
     }
 
-    const empRows = db.prepare(`SELECT id FROM karyawan WHERE aktif = 1 ORDER BY nik ASC`).all() as { id: number }[];
+    const empRows = db.prepare(`SELECT id FROM karyawan WHERE aktif = 1 AND COALESCE(is_system_archive, 0) = 0 ORDER BY nik ASC`).all() as { id: number }[];
     const summaries = empRows.map((e) => computeMonthlySummary(db, e.id, bulan)).filter(Boolean);
     const totalHariMasuk = summaries.reduce((acc, s) => acc + (s?.hariMasuk ?? 0), 0);
     const totalTidakHadir = summaries.reduce((acc, s) => acc + (s?.tidakHadir ?? 0), 0);
@@ -2657,7 +2657,7 @@ export function registerApiRoutes(app: Express) {
         ? req.query.bulan
         : getWibDateString().slice(0, 7);
 
-    const empRows = db.prepare(`SELECT id FROM karyawan WHERE aktif = 1`).all() as { id: number }[];
+    const empRows = db.prepare(`SELECT id FROM karyawan WHERE aktif = 1 AND COALESCE(is_system_archive, 0) = 0`).all() as { id: number }[];
     const summaries = empRows.map((e) => computeMonthlySummary(db, e.id, bulan)).filter(Boolean);
 
     const totalHariMasuk = summaries.reduce((acc, s) => acc + (s?.hariMasuk ?? 0), 0);
@@ -3783,18 +3783,18 @@ export function registerApiRoutes(app: Express) {
           res.status(400).json({ error: 'Anda tidak dapat menonaktifkan akun Superadmin Anda sendiri.' });
           return;
         }
-        if (nextAktif === 0) {
-          const activeSuperadmins = db.prepare(
-            `SELECT COUNT(*) as c FROM pengguna WHERE role = 'SUPERADMIN' AND aktif = 1`
-          ).get() as { c: number };
-          if (activeSuperadmins.c <= 1) {
-            res.status(400).json({ error: 'Minimal harus ada satu akun Superadmin aktif.' });
-            return;
-          }
-        }
-
         db.exec('BEGIN IMMEDIATE');
         try {
+          if (nextAktif === 0) {
+            const activeSuperadmins = db.prepare(
+              `SELECT COUNT(*) as c FROM pengguna WHERE role = 'SUPERADMIN' AND aktif = 1`
+            ).get() as { c: number };
+            if (activeSuperadmins.c <= 1) {
+              db.exec('ROLLBACK');
+              res.status(400).json({ error: 'Minimal harus ada satu akun Superadmin aktif.' });
+              return;
+            }
+          }
           db.prepare(
             `UPDATE pengguna
              SET username = ?, email = ?, nama_tampilan = ?, no_hp = ?, aktif = ?,
