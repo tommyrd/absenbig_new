@@ -1,4 +1,4 @@
-import type { OperationalStatus, PayrollStatus, ResolvedDay } from './types';
+import type { OperationalStatus, ResolvedDay } from './types';
 
 export type HistoryCalendarStatus =
   | OperationalStatus
