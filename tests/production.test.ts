@@ -477,6 +477,12 @@ test('5. Authorization boundaries, query-token restriction, logout jti & token_v
   assert.equal((await apiJson('/api/v1/settings', { token: karyawanToken })).status, 403);
   assert.equal((await apiJson('/api/v1/settings', { token: adminToken })).status, 403);
   assert.equal((await apiJson('/api/v1/superadmin/accounts', { token: adminToken })).status, 403);
+  assert.equal((await apiJson('/api/v1/attendance/today', { token: adminToken })).status, 403);
+  assert.equal((await apiJson('/api/v1/requests', {
+    method: 'POST',
+    token: adminToken,
+    body: { jenis: 'IZIN', tanggalMulai: '2026-04-10', tanggalAkhir: '2026-04-10', alasan: 'Uji batas role' },
+  })).status, 403);
   assert.equal(
     (
       await apiJson('/api/v1/payroll/override', {
