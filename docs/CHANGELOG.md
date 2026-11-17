@@ -1,5 +1,14 @@
 # Changelog — Absensi BIGNET
 
+## 2026-11-17 — Gate absensi 100% ditentukan waktu server
+
+- Endpoint `GET /api/v1/attendance/today` menangkap satu waktu server untuk tanggal, jam, status jendela seluruh sesi, masa berlaku override, dan response epoch.
+- Browser tidak lagi menghitung status OPEN/NOT_STARTED/EXPIRED dari jam perangkat atau dari jam lokal hasil offset. Browser hanya menggunakan `serverWindowState` dan `serverSessionWindowStates` yang dikirim API.
+- Status sesi diperbarui setiap 5 detik, setelah GPS berhasil, dan ketika halaman kembali terlihat/fokus; respons diberi `Cache-Control: no-store`.
+- Tombol menampilkan label terpisah untuk menunggu, berakhir, jadwal tidak valid, dan siap membuka kamera. Banner juga menampilkan waktu server yang digunakan saat pemeriksaan.
+- Pemeriksaan waktu lokal di halaman sebelum membuka kamera/mengirim dihapus. Endpoint POST tetap menjadi otoritas final dan memvalidasi ulang waktu server saat request diterima.
+- Jam header dan halaman tidak lagi menampilkan jam perangkat sebelum sinkronisasi pertama dari server.
+
 ## 2026-11-17 — Hapus master Kantor & Bidang Kerja dengan pemeriksaan relasi
 
 - Menu **Kantor & Geofence** dan **Bidang Kerja** menampilkan tombol **Hapus** pada setiap kartu. Tombol aktif hanya jika server memastikan belum ada relasi bisnis; jika masih digunakan, tombol dinonaktifkan dan alasan relasinya ditampilkan.
