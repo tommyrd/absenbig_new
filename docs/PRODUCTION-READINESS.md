@@ -12,8 +12,8 @@
 | Type Check (`npm run lint`) | Perlu verifikasi ulang | Jalankan pada checkout terbaru untuk memastikan import helper dan UI TypeScript. |
 | Automated Tests (`npm test`) | Perlu verifikasi ulang | Cakupan saat ini 19 test (`11` test inti + `8` test production); hasil lulus belum diklaim sebelum dijalankan ulang. |
 | Standalone Production Boot | Perlu verifikasi ulang | Jalankan server production dan cek healthcheck setelah build terbaru. |
-| Session Time Window & GPS Quality | Diperbarui | Frontend dan backend memakai waktu WIB server; batas `jam_selesai` dikunci; GPS wajib akurasi maksimum ±100m dan margin akurasi tetap di dalam radius. |
-| Database Schema, Migrasi & Seed | Lulus | `schema_migrations` mencatat versi `001`–`004`, termasuk migrasi seluruh kantor ke geofence ketat; `seedProductionBaseline` memisahkan data demo dari production. |
+| Session Time Window & GPS Quality | Diperbarui | Frontend dan backend memakai waktu WIB server; batas `jam_selesai` dikunci; GPS wajib akurasi maksimum ±100m dan margin akurasi tetap di dalam radius pada sesi yang diwajibkan kantor. |\n| Attendance Location Policy | Diperbarui | Admin dapat memilih Sesi 1 wajib kantor (default, sesi 2+ fleksibel) atau semua sesi wajib kantor; diterapkan di API dan UI. |
+| Database Schema, Migrasi & Seed | Lulus | `schema_migrations` mencatat versi `001`–`005`, termasuk migrasi aturan lokasi per kebijakan; `seedProductionBaseline` memisahkan data demo dari production. |
 | Keamanan Autentikasi & API | Lulus | `scrypt`, HMAC-SHA256 + `jti` revocation + `token_version`, brute-force `429`, RBAC backend, validasi magic-bytes & sanitasi SVG. |
 | Penyimpanan Foto & Aset Persisten | Lulus | `DATA_DIR` configurable di luar rilis kode; nama file acak kriptografis + SHA-256 checksum. |
 | Backup & Restore Otomatis | Lulus | Snapshot `VACUUM INTO`, integrity check, SHA-256 manifest, `.tar.gz`, verifikasi link foto & safety snapshot pra-restore teruji end-to-end. |
