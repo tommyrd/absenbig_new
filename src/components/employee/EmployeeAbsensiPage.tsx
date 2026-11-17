@@ -1011,7 +1011,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                     <div className="flex items-center justify-between gap-2">
                       <div>
                         <label className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-                          Kamera Browser Langsung {nextSesi.wajib_foto ? '(Wajib)' : '(Opsional)'}
+                          Kamera Browser Langsung {photoRequired ? '(Wajib)' : '(Opsional)'}
                         </label>
                         <p className="text-[11px] text-slate-500 dark:text-slate-400">
                           Foto diambil langsung dari kamera browser (unggah file/galeri dinonaktifkan).
