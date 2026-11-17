@@ -607,7 +607,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
         </p>
         <button
           type="button"
-          onClick={loadToday}
+          onClick={() => void loadToday()}
           className="mt-3 min-h-[44px] sm:min-h-[36px] px-4 py-2 text-xs font-medium bg-navy-900 dark:bg-blue-600 text-white rounded-lg"
         >
           Muat Ulang
