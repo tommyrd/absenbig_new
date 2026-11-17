@@ -55,6 +55,24 @@ export const SCHEMA_SQL = `
     created_at TEXT NOT NULL
   );
 
+  CREATE TRIGGER IF NOT EXISTS trg_pengguna_role_link_insert
+  BEFORE INSERT ON pengguna
+  FOR EACH ROW
+  WHEN (NEW.role = 'SUPERADMIN' AND NEW.karyawan_id IS NOT NULL)
+    OR (NEW.role <> 'SUPERADMIN' AND NEW.karyawan_id IS NULL)
+  BEGIN
+    SELECT RAISE(ABORT, 'SUPERADMIN harus tanpa profil karyawan; ADMIN/KARYAWAN wajib terhubung ke karyawan.');
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS trg_pengguna_role_link_update
+  BEFORE UPDATE OF role, karyawan_id ON pengguna
+  FOR EACH ROW
+  WHEN (NEW.role = 'SUPERADMIN' AND NEW.karyawan_id IS NOT NULL)
+    OR (NEW.role <> 'SUPERADMIN' AND NEW.karyawan_id IS NULL)
+  BEGIN
+    SELECT RAISE(ABORT, 'SUPERADMIN harus tanpa profil karyawan; ADMIN/KARYAWAN wajib terhubung ke karyawan.');
+  END;
+
   CREATE TABLE IF NOT EXISTS revoked_tokens (
     jti TEXT PRIMARY KEY,
     expires_at INTEGER NOT NULL,
