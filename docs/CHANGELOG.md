@@ -38,3 +38,12 @@
 - GPS menggunakan nilai `accuracy` dari browser; akurasi di atas ±100m ditolak dan jarak ditambah margin akurasi harus tetap berada dalam radius kantor.
 - Admin Override tetap tersedia untuk menetapkan hasil payroll `DIHITUNG MASUK` saat ada kendala perangkat, dengan alasan dan audit trail; override tidak membuat sesi/foto/GPS palsu.
 - Pengujian unit ditambahkan untuk batas sesi dan akurasi GPS.
+
+## 2026-11-17 — Configurable attendance location policy
+
+- Admin Operasional dapat mengatur aturan lokasi pada kebijakan DEFAULT, BIDANG, dan KARYAWAN mengikuti hierarki kebijakan yang sudah ada.
+- Default: Sesi 1 wajib berada dalam radius kantor; Sesi 2 dan seterusnya boleh dilakukan di lokasi lain.
+- Opsi ketat: seluruh sesi wajib berada dalam radius kantor.
+- Untuk sesi fleksibel, koordinat dan akurasi GPS tetap disimpan; akurasi rendah ditampilkan sebagai perkiraan dan tidak dipakai untuk meloloskan atau menolak geofence karena geofence tidak diwajibkan pada sesi tersebut.
+- Backend API dan frontend memakai aturan yang sama. Migrasi database versi 005 menambahkan kolom aturan_lokasi dan memberi kebijakan lama nilai default SESI_PERTAMA_KANTOR.
+- Test unit dan integration mencakup kedua mode kebijakan.
