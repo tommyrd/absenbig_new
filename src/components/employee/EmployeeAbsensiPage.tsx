@@ -336,8 +336,9 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
 
     const next = data?.day.policySnapshot.sesiList[data.day.sessionsCompleted];
     const windowState = data?.serverWindowState ?? 'INVALID';
-    const hasOverride = Boolean(data?.day.checkinOverride?.active);
-    if (!next || (windowState !== 'OPEN' && !hasOverride)) {
+    const hasServerWindowSnapshot = Boolean(data?.serverWindowCheckedAt && Number.isFinite(data.serverEpochMs));
+    const hasOverride = Boolean(hasServerWindowSnapshot && data?.day.checkinOverride?.active);
+    if (!next || !hasServerWindowSnapshot || (windowState !== 'OPEN' && !hasOverride)) {
       const message = !next
         ? 'Tidak ada sesi absensi berikutnya.'
         : windowState === 'NOT_STARTED'
@@ -660,9 +661,10 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   const nextSesi = day.policySnapshot.sesiList[nextSessionIndex];
   const allSessionsDone = day.sessionsCompleted >= day.policySnapshot.jumlahSesi;
   const nextWindowState: SessionWindowState = data.serverWindowState ?? 'INVALID';
-  const hasActiveCheckinOverride = Boolean(day.checkinOverride?.active);
-  const nextSessionExpired = nextWindowState === 'EXPIRED' && !hasActiveCheckinOverride;
-  const nextSessionStarted = nextWindowState === 'OPEN' || hasActiveCheckinOverride;
+  const hasServerWindowSnapshot = Boolean(data.serverWindowCheckedAt && Number.isFinite(data.serverEpochMs));
+  const hasActiveCheckinOverride = Boolean(hasServerWindowSnapshot && day.checkinOverride?.active);
+  const nextSessionExpired = hasServerWindowSnapshot && nextWindowState === 'EXPIRED' && !hasActiveCheckinOverride;
+  const nextSessionStarted = hasServerWindowSnapshot && (nextWindowState === 'OPEN' || hasActiveCheckinOverride);
   const minutesUntilStart = data.serverMinutesUntilStart ?? 0;
   const photoRequired = Boolean(
     nextSesi &&
