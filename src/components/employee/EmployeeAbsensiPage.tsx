@@ -167,6 +167,8 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   }, [stopCamera]);
 
   const requestGps = useCallback(() => {
+    stopCamera();
+    setPhotoDataUrl(null);
     setGpsStatus('loading');
     setGpsError(null);
     setCoords(null);
@@ -180,7 +182,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
         setGpsStatus('error');
         setGpsError(err instanceof Error ? err.message : 'Gagal membaca lokasi GPS.');
       });
-  }, [readCurrentGps]);
+  }, [readCurrentGps, stopCamera]);
 
   useEffect(() => {
     requestGps();
