@@ -97,3 +97,11 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
    - Badge sesi/progres, tepat waktu/terlambat, dan dalam/di luar radius dibedakan secara visual.
    - Caption aktivitas tampil pada blok tersendiri; alamat kantor, koordinat GPS, jarak dan tombol Detail lokasi tetap tersedia.
    - Jarak di atas 1 km ditampilkan dalam kilometer dengan satu desimal; uji layar HP sempit dan desktop serta mode gelap.
+
+11. **Actual Check-in Address vs Assigned Office (Feed):**
+   - Buat absensi dengan koordinat GPS Pontianak untuk karyawan yang kantor penempatannya Jakarta. Feed harus menampilkan alamat GPS Pontianak sebagai Lokasi saat absen dan Jakarta hanya sebagai Kantor penempatan.
+   - Pastikan kolom `lokasi_alamat` tersimpan pada record sesi dan tetap muncul setelah restart server.
+   - Untuk record lama yang `lokasi_alamat` null, card tidak boleh menampilkan alamat kantor sebagai lokasi aktual; Detail Lokasi mencoba reverse geocoding dari koordinat historis.
+   - Jika Geoapify tidak terkonfigurasi atau gagal, absensi tetap tersimpan; feed menampilkan koordinat dan penjelasan bahwa alamat aktual tidak tersedia.
+   - Geofence tetap dihitung dari lat/lng dan koordinat kantor; alamat hasil geocoding tidak boleh memengaruhi kelulusan radius.
+   - Pastikan atribusi Powered by Geoapify dan © OpenStreetMap contributors tetap terlihat.
