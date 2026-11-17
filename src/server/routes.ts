@@ -596,7 +596,12 @@ export function registerApiRoutes(app: Express) {
 
     const scope = req.query.scope === 'today' ? 'today' : 'recent';
     let postSql = `
-      SELECT s.*, COALESCE(NULLIF(s.lokasi_alamat, ''), alc.alamat) as lokasi_aktual_alamat,
+      SELECT s.*,
+             COALESCE(NULLIF(s.lokasi_alamat, ''), alc.alamat) as lokasi_aktual_alamat,
+             CASE
+               WHEN NULLIF(s.lokasi_alamat, '') IS NOT NULL OR alc.absensi_sesi_id IS NOT NULL
+               THEN 1 ELSE 0
+             END as lokasi_alamat_lookup_done,
              k.nik, k.nama_lengkap, k.jabatan, k.kantor_id, k.bidang_id, k.foto_profil_updated_at,
              kt.nama as kantor_nama, kt.alamat as kantor_alamat,
              b.nama as bidang_nama,
@@ -638,6 +643,7 @@ export function registerApiRoutes(app: Express) {
       kantor_nama: string;
       kantor_alamat: string;
       lokasi_aktual_alamat: string | null;
+      lokasi_alamat_lookup_done: number;
       tanggal: string;
       urutan_sesi: number;
       nama_sesi: string;
@@ -669,6 +675,7 @@ export function registerApiRoutes(app: Express) {
         kantorNama: p.kantor_nama,
         kantorAlamat: p.kantor_alamat,
         lokasiAktualAlamat: p.lokasi_aktual_alamat ?? null,
+        lokasiAlamatLookupDone: Boolean(p.lokasi_alamat_lookup_done),
         tanggal: p.tanggal,
         urutanSesi: p.urutan_sesi,
         namaSesi: p.nama_sesi,
