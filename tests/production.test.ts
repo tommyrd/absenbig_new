@@ -478,6 +478,13 @@ test('5. Authorization boundaries, query-token restriction, logout jti & token_v
   ).get(karyawanId) as { bidang_id: number };
   assert.equal(reassigned.bidang_id, createField.data.id);
 
+  // A field assigned to an employee must be protected from deletion.
+  const fieldDeleteBlocked = await apiJson(
+    `/api/v1/master/bidang/${createField.data.id}`,
+    { method: 'DELETE', token: adminToken }
+  );
+  assert.equal(fieldDeleteBlocked.status, 409);
+
   const restoreField = await apiJson(`/api/v1/master/employees/${karyawanId}`, {
     method: 'PUT',
     token: adminToken,
@@ -491,6 +498,75 @@ test('5. Authorization boundaries, query-token restriction, logout jti & token_v
     body: { kode: 'NO_ACCESS', nama: 'Tidak boleh', deskripsi: '' },
   });
   assert.equal(employeeCannotEditField.status, 403);
+
+  // Once every reference is gone, the unused field can be deleted.
+  const fieldDeleteAllowed = await apiJson(
+    `/api/v1/master/bidang/${createField.data.id}`,
+    { method: 'DELETE', token: adminToken }
+  );
+  assert.equal(fieldDeleteAllowed.status, 200);
+  assert.equal(
+    getDb().prepare(`SELECT id FROM bidang_kerja WHERE id = ?`).get(createField.data.id),
+    undefined
+  );
+
+  // New offices contain only their generated weekly-calendar child rows and
+  // should be deletable until employees, registrations, holidays or payroll use them.
+  const createOffice = await apiJson<{ id: number }>('/api/v1/master/offices', {
+    method: 'POST',
+    token: adminToken,
+    body: {
+      kode: 'QA-DEL',
+      nama: 'Kantor Uji Hapus',
+      alamat: 'Alamat Uji',
+      lat: -0.0263,
+      lng: 109.3425,
+      radius_meter: 250,
+    },
+  });
+  assert.equal(createOffice.status, 201);
+
+  const officeList = await apiJson<{
+    items: Array<{ id: number; can_delete: boolean; jumlah_kalender: number }>;
+  }>('/api/v1/master/offices', { token: adminToken });
+  const newOffice = officeList.data.items.find((office) => office.id === createOffice.data.id);
+  assert.ok(newOffice);
+  assert.equal(newOffice.can_delete, true);
+  assert.equal(newOffice.jumlah_kalender, 7);
+
+  const assignOffice = await apiJson(`/api/v1/master/employees/${karyawanId}`, {
+    method: 'PUT',
+    token: adminToken,
+    body: { ...beforeFieldEdit, kantor_id: createOffice.data.id },
+  });
+  assert.equal(assignOffice.status, 200);
+
+  const officeDeleteBlocked = await apiJson(
+    `/api/v1/master/offices/${createOffice.data.id}`,
+    { method: 'DELETE', token: adminToken }
+  );
+  assert.equal(officeDeleteBlocked.status, 409);
+
+  const restoreOffice = await apiJson(`/api/v1/master/employees/${karyawanId}`, {
+    method: 'PUT',
+    token: adminToken,
+    body: beforeFieldEdit,
+  });
+  assert.equal(restoreOffice.status, 200);
+
+  const officeDeleteAllowed = await apiJson(
+    `/api/v1/master/offices/${createOffice.data.id}`,
+    { method: 'DELETE', token: adminToken }
+  );
+  assert.equal(officeDeleteAllowed.status, 200);
+  assert.equal(
+    getDb().prepare(`SELECT id FROM kantor WHERE id = ?`).get(createOffice.data.id),
+    undefined
+  );
+  assert.equal(
+    getDb().prepare(`SELECT COUNT(*) AS total FROM kalender_kerja WHERE kantor_id = ?`).get(createOffice.data.id) as { total: number }.total,
+    0
+  );
 
   // Expired token rejected
   const expiredToken = signToken({ userId: karyawanUserId, role: 'KARYAWAN', exp: Date.now() - 5000 });
