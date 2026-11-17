@@ -500,6 +500,12 @@ test('5. Authorization boundaries, query-token restriction, logout jti & token_v
   assert.equal(employeeCannotEditField.status, 403);
 
   // Once every reference is gone, the unused field can be deleted.
+  const employeeCannotDeleteField = await apiJson(
+    `/api/v1/master/bidang/${createField.data.id}`,
+    { method: 'DELETE', token: karyawanToken }
+  );
+  assert.equal(employeeCannotDeleteField.status, 403);
+
   const fieldDeleteAllowed = await apiJson(
     `/api/v1/master/bidang/${createField.data.id}`,
     { method: 'DELETE', token: adminToken }
@@ -554,6 +560,12 @@ test('5. Authorization boundaries, query-token restriction, logout jti & token_v
   });
   assert.equal(restoreOffice.status, 200);
 
+  const employeeCannotDeleteOffice = await apiJson(
+    `/api/v1/master/offices/${createOffice.data.id}`,
+    { method: 'DELETE', token: karyawanToken }
+  );
+  assert.equal(employeeCannotDeleteOffice.status, 403);
+
   const officeDeleteAllowed = await apiJson(
     `/api/v1/master/offices/${createOffice.data.id}`,
     { method: 'DELETE', token: adminToken }
@@ -564,7 +576,7 @@ test('5. Authorization boundaries, query-token restriction, logout jti & token_v
     undefined
   );
   assert.equal(
-    getDb().prepare(`SELECT COUNT(*) AS total FROM kalender_kerja WHERE kantor_id = ?`).get(createOffice.data.id) as { total: number }.total,
+    (getDb().prepare(`SELECT COUNT(*) AS total FROM kalender_kerja WHERE kantor_id = ?`).get(createOffice.data.id) as { total: number }).total,
     0
   );
 
