@@ -1,5 +1,14 @@
 # Changelog — Absensi BIGNET
 
+## 2026-11-17 — Foto profil SUPERADMIN mandiri
+
+- Tombol **Ganti Foto Profil** kini tersedia untuk akun SUPERADMIN.
+- Foto pemilik sistem disimpan langsung di tabel `pengguna` (`foto_profil_path`, `foto_profil_updated_at`), tidak membuat atau menghubungkan profil karyawan.
+- Ditambahkan endpoint avatar akun `/api/v1/avatars/pengguna/:userId`; foto yang sama tampil di profil, navigasi Superadmin, dan daftar Kelola Akun.
+- Endpoint `PUT /api/v1/profile/photo` mendukung upload dan reset foto akun SUPERADMIN dengan Audit Trail.
+- Migrasi `013_standalone_superadmin_profile_photos` menambahkan kolom foto untuk database yang sudah berjalan.
+
+
 ## 2026-11-17 — Pemisahan akun SUPERADMIN dari data pegawai
 
 - SUPERADMIN kini merupakan akun pemilik/pengelola sistem yang berdiri sendiri; `pengguna.karyawan_id` nullable dan identitas pemilik disimpan di `nama_tampilan` serta `no_hp`.
