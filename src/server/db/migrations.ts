@@ -255,8 +255,15 @@ const MIGRATIONS: MigrationDef[] = [
          SET is_system_archive = 1,
              aktif = 0,
              jabatan = 'Akun Pemilik Sistem (Arsip)'
-         WHERE aktif = 0
-           AND lower(trim(jabatan)) IN ('superadmin / owner', 'owner / ceo', 'akun pemilik sistem (arsip)')`
+         WHERE (
+           (aktif = 0 AND lower(trim(jabatan)) IN ('superadmin / owner', 'owner / ceo', 'akun pemilik sistem (arsip)'))
+           OR id IN (
+             SELECT k.id
+             FROM karyawan k
+             JOIN pengguna u ON lower(u.email) = lower(k.email)
+             WHERE u.role = 'SUPERADMIN' AND u.karyawan_id IS NULL
+           )
+         )`
       ).run();
     },
   },
