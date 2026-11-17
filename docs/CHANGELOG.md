@@ -56,3 +56,11 @@
 - Saat login, aplikasi menggunakan waktu WIB dari endpoint server dan jadwal sesi berikutnya untuk memilih tab awal: Absensi hanya jika sesi berikutnya sedang terbuka; selain itu Beranda.
 - Pengujian unit ditambahkan untuk routing halaman awal berdasarkan status sesi.
 - Setelah absensi sesi berhasil, karyawan kembali ke Beranda jika sesi berikutnya belum dibuka; ketika berada di Beranda, jadwal berikutnya diperiksa setiap 15 detik dan tab Absensi dibuka otomatis saat sesi aktif.
+
+## 2026-11-17 — Mobile camera controls and camera lifecycle hardening
+
+- Tombol kamera mobile dirapikan menjadi baris ringkas: Ambil Foto, ganti kamera depan/belakang, dan Batal; label tidak membungkus.
+- Capture dinonaktifkan sampai video memiliki frame aktual (loadeddata, readyState, videoWidth, dan videoHeight valid).
+- Pergantian kamera menghentikan stream lama, membatalkan request kamera yang tertunda, dan memvalidasi kamera depan/belakang yang benar-benar dibuka.
+- Stream video dilepas dari elemen ketika kamera dihentikan; track yang terputus ditangani; error izin, perangkat hilang, dan kamera sibuk dibedakan.
+- Ditambahkan kasus UAT untuk kamera depan/belakang dan lifecycle stream. Uji perangkat fisik tetap harus dilakukan pada HP.
