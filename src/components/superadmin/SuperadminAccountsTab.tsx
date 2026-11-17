@@ -766,30 +766,38 @@ export function SuperadminAccountsTab({
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    NIK Karyawan (Opsional)
-                  </label>
-                  <input
-                    type="text"
-                    value={approveForm.nik}
-                    onChange={(e) => setApproveForm({ ...approveForm, nik: e.target.value })}
-                    placeholder="Otomatis jika dikosongkan"
-                    className="w-full h-11 sm:h-10 px-3 text-sm font-mono border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg"
-                  />
-                </div>
+                {approveForm.role === 'KARYAWAN' && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      NIK Karyawan (Opsional)
+                    </label>
+                    <input
+                      type="text"
+                      value={approveForm.nik}
+                      onChange={(e) => setApproveForm({ ...approveForm, nik: e.target.value })}
+                      placeholder="Otomatis jika dikosongkan"
+                      className="w-full h-11 sm:h-10 px-3 text-sm font-mono border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg"
+                    />
+                  </div>
+                )}
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                     Role Disetujui
                   </label>
                   <select
                     value={approveForm.role}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const nextRole = e.target.value as 'KARYAWAN' | 'ADMIN';
                       setApproveForm({
                         ...approveForm,
-                        role: e.target.value as 'KARYAWAN' | 'ADMIN',
-                      })
-                    }
+                        role: nextRole,
+                        jabatan: nextRole === 'ADMIN'
+                          ? 'Admin Operasional'
+                          : approveForm.jabatan === 'Admin Operasional'
+                            ? 'Teknisi Lapangan'
+                            : approveForm.jabatan,
+                      });
+                    }}
                     className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
                   >
                     <option value="KARYAWAN">Teknisi / Karyawan</option>
@@ -798,57 +806,65 @@ export function SuperadminAccountsTab({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Penempatan Kantor
-                  </label>
-                  <select
-                    value={approveForm.kantor_id}
-                    onChange={(e) =>
-                      setApproveForm({ ...approveForm, kantor_id: Number(e.target.value) })
-                    }
-                    className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
-                  >
-                    {offices.map((o) => (
-                      <option key={o.id} value={o.id}>
-                        {o.nama}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Bidang Kerja
-                  </label>
-                  <select
-                    value={approveForm.bidang_id}
-                    onChange={(e) =>
-                      setApproveForm({ ...approveForm, bidang_id: Number(e.target.value) })
-                    }
-                    className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
-                  >
-                    {bidangList.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.nama}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+              {approveForm.role === 'KARYAWAN' ? (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                        Penempatan Kantor
+                      </label>
+                      <select
+                        value={approveForm.kantor_id}
+                        onChange={(e) =>
+                          setApproveForm({ ...approveForm, kantor_id: Number(e.target.value) })
+                        }
+                        className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
+                      >
+                        {offices.map((o) => (
+                          <option key={o.id} value={o.id}>
+                            {o.nama}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                        Bidang Kerja
+                      </label>
+                      <select
+                        value={approveForm.bidang_id}
+                        onChange={(e) =>
+                          setApproveForm({ ...approveForm, bidang_id: Number(e.target.value) })
+                        }
+                        className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
+                      >
+                        {bidangList.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.nama}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Jabatan
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={approveForm.jabatan}
-                  onChange={(e) => setApproveForm({ ...approveForm, jabatan: e.target.value })}
-                  className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg"
-                />
-              </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Jabatan
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={approveForm.jabatan}
+                      onChange={(e) => setApproveForm({ ...approveForm, jabatan: e.target.value })}
+                      className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg"
+                    />
+                  </div>
+                </>
+              ) : (
+                <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs leading-relaxed text-blue-900 dark:border-blue-900/70 dark:bg-blue-950/30 dark:text-blue-200">
+                  Akun Admin Operasional dibuat sebagai akun non-pegawai tanpa NIK, kantor, atau bidang kerja.
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
@@ -971,7 +987,7 @@ export function SuperadminAccountsTab({
               )}
 
               {/* Foto Profil Control hanya untuk akun yang terhubung ke karyawan */}
-              {accountForm.role === 'KARYAWAN' && (
+              {accountForm.role !== 'SUPERADMIN' && (
               <div className="flex items-center gap-3.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700">
                 <UserAvatar
                   karyawanId={editingAccount?.karyawan_id}
@@ -1112,7 +1128,7 @@ export function SuperadminAccountsTab({
                 </div>
               </div>
 
-              {accountForm.role !== 'SUPERADMIN' && (
+              {accountForm.role === 'KARYAWAN' && (
               <>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
