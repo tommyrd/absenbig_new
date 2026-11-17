@@ -4,9 +4,9 @@
 
 ## 1. Cakupan Pengujian Otomatis (`npm test`)
 
-Suite berisi 23 test (15 inti + 8 production) dan dijalankan menggunakan `tsx --test tests/*.test.ts`. Perubahan terbaru menambah cakupan batas akhir sesi dan kualitas GPS. Jalankan ulang secara lokal setelah menarik commit terbaru; angka kelulusan harus berasal dari hasil perintah aktual.
+Suite berisi 24 test (16 inti + 8 production) dan dijalankan menggunakan `tsx --test tests/*.test.ts`. Perubahan terbaru menambah cakupan batas akhir sesi dan kualitas GPS. Jalankan ulang secara lokal setelah menarik commit terbaru; angka kelulusan harus berasal dari hasil perintah aktual.
 
-### A. Suite Inti Bisnis (`tests/core.test.ts` — 15 Test)
+### A. Suite Inti Bisnis (`tests/core.test.ts` — 16 Test)
 1. **Standalone Superadmin migration & role linkage** — Migrasi memisahkan akun pemilik dari profil pegawai, mengarsipkan profil lama tanpa menghapus bukti historis, mempertahankan foreign key, dan menolak relasi role/pegawai yang tidak sesuai.
 2. **Geofence Haversine distance calculation** — Perhitungan jarak meter antara koordinat GPS karyawan dan kantor.
 3. **Session time window** — Absensi hanya diizinkan sejak `jam_mulai` hingga `jam_selesai` (inklusif); setelah `jam_selesai` menjadi `EXPIRED`.
@@ -22,6 +22,7 @@ Suite berisi 23 test (15 inti + 8 production) dan dijalankan menggunakan `tsx --
 13. **Employee entry routing** — Saat login, karyawan diarahkan ke Absensi hanya jika sesi berikutnya sedang berada dalam jendela waktu server; jika belum waktunya, sesi berakhir, atau semua sesi selesai, mulai dari Beranda.
 14. **System settings RBAC & Feed access across all roles** — Endpoint settings terproteksi khusus `SUPERADMIN`, Beranda Feed dan foto dapat diakses lintas role, validasi sumber kamera & jam mulai sesi berjalan.
 15. **History calendar reflects attendance and final Admin Override** — Status kalender histori konsisten terhadap bukti sesi dan hasil koreksi payroll.
+16. **Monotonic server clock after mobile browser resume** — Jam gate absensi dihitung dari waktu server dan `performance.now()`, bukan jam dinding perangkat; sinkron ulang setelah halaman kembali aktif.
 
 ### B. Suite Hardening Production (`tests/production.test.ts` — 8 Test)
 Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
@@ -29,7 +30,7 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
 2. **Health check & HttpOnly cookie login** — `/api/v1/health` (200 OK WIB), sandi salah ditolak (401), login benar menerbitkan cookie `HttpOnly; SameSite=Lax`.
 3. **Brute-force rate limiting** — Percobaan gagal ke-9 pada login memicu HTTP `429` dengan header `Retry-After`.
 4. **Account lifecycle & Registration ACC workflow** — Pembuatan akun karyawan/admin mewajibkan sandi >= 6 karakter, avatar dengan magic bytes palsu ditolak (`400`), akun `PENDING` & `REJECTED` diblokir saat login (`403`), dan `ACC` oleh Superadmin langsung mengaktifkan login.
-5. **RBAC isolation, query-token guard & token revocation** — `?token=` ditolak pada `/api/v1/auth/me` (`401`), diizinkan pada `/api/v1/avatars/*`; Karyawan & Admin ditolak (`403`) pada endpoint Superadmin; token kedaluwarsa ditolak; ganti kata sandi & logout langsung merevoke token lama; penonaktifan akun memutus sesi aktif.
+5. **RBAC isolation, query-token guard, token revocation & Admin work-field editing** — `?token=` ditolak pada `/api/v1/auth/me` (`401`), diizinkan pada `/api/v1/avatars/*`; Karyawan & Admin ditolak (`403`) pada endpoint Superadmin; Admin dapat mengubah master bidang dan memindahkan teknisi ke bidang lain; token kedaluwarsa ditolak; ganti kata sandi & logout langsung merevoke token lama; penonaktifan akun memutus sesi aktif.
 6. **SVG XSS protection, browser-camera-only, `jam_mulai` gate & strict geofence** — SVG mengandung `<script>` ditolak (`400`); logo SVG bersih disajikan dengan `X-Content-Type-Options: nosniff` + CSP; absensi sebelum `jam_mulai` dan setelah `jam_selesai` ditolak (`400`); `FILE_UPLOAD` ditolak (`400`); GPS wajib tersedia dengan akurasi maksimum ±100m; lokasi di luar radius atau area yang tidak bisa dipastikan berada dalam radius ditolak meskipun request mengirim mode legacy `CATAT_DENGAN_FLAG`; seluruh kantor lama dinormalisasi oleh migrasi `004` ke `TOLAK_LUAR_RADIUS`; migrasi `005` menambahkan aturan lokasi per kebijakan; PNG kamera valid tersimpan dengan SHA-256 checksum.
 7. **Special work, Off Pengganti, Payroll closing & post-closing override** — Kuota off pengganti terkunci saat pengajuan dan berstatus `DIPAKAI` setelah approval Admin; override pada bulan `CLOSED` membutuhkan flag `koreksiSetelahClosing` (`409` vs `201`) dan tercatat pada modul `CLOSING_KOREKSI`.
 8. **Disaster recovery Backup & Restore end-to-end** — `runBackup()` membuat snapshot database + foto + `manifest.json` + `.tar.gz`; setelah simulasi kehilangan DB & folder `photos/`, `runRestore()` memulihkan DB & seluruh tautan foto (`missingPhotosCount === 0`); modifikasi 1 byte pada arsip backup langsung terdeteksi dan membatalkan restore sebelum menyentuh data aktif.
@@ -42,7 +43,7 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
 |---|---|---|
 | TypeScript Check | `npm run lint` (`tsc --noEmit`) | Perlu dijalankan ulang setelah commit terbaru |
 | Frontend Bundle | `npm run build` (`vite build`) | Perlu dijalankan ulang setelah commit terbaru |
-| Automated Tests | `npm.cmd test` | Perlu dijalankan ulang; cakupan saat ini 23 test |
+| Automated Tests | `npm.cmd test` | Perlu dijalankan ulang; cakupan saat ini 24 test |
 | Production Server Boot | `NODE_ENV=production node server.ts` | Perlu UAT ulang setelah commit terbaru |
 
 ---
@@ -160,3 +161,13 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
 11. Pada profil SUPERADMIN, unggah foto PNG/JPG/WEBP maksimal 2 MB. Pastikan foto muncul di header profil, navigasi, dan daftar Kelola Akun, serta kolom foto tersimpan pada `pengguna`, bukan `karyawan`.
 12. Tekan **Reset Foto** dan pastikan avatar kembali ke inisial default tanpa mengubah `karyawan_id = NULL`.
 11. Pastikan database menolak `INSERT/UPDATE` yang mencoba menghubungkan SUPERADMIN ke `karyawan_id`, dan menolak akun ADMIN/KARYAWAN tanpa `karyawan_id`.
+
+## 6. UAT Admin Edit Bidang & Jam Absensi Mobile
+
+1. Login sebagai ADMIN operasional, buka **Master Karyawan & Kantor → Karyawan**, pilih **Edit** pada teknisi, lalu ubah **Bidang Kerja**. Simpan dan pastikan bidang baru muncul pada master karyawan, kebijakan efektif, dan laporan terkait.
+2. Buka tab **Bidang Kerja**, pilih **Ubah** pada kartu bidang, lalu ubah kode/nama/deskripsi. Pastikan perubahan tersimpan, tampil setelah refresh, dan tercatat pada Audit Trail.
+3. Coba memilih kantor/bidang yang tidak ada melalui request; backend harus mengembalikan HTTP 400 dan data lama tidak berubah.
+4. Di Safari iPhone, buka halaman Absensi sebelum sesi dibuka. Tunggu sampai sesi mulai, lalu pastikan status berubah tanpa harus logout/login.
+5. Buka Settings browser untuk memberi izin lokasi, kembali ke tab aplikasi, tekan **Perbarui Lokasi**, dan tunggu GPS berhasil. Jika waktu server sudah berada di dalam jadwal, tombol kamera harus terbuka; tombol kirim aktif setelah seluruh persyaratan foto/aktivitas/geofence terpenuhi.
+6. Ulangi dengan tab di-background atau layar terkunci lalu kembali. Pastikan jam di header dan gate Absensi selaras, meskipun jam perangkat manual berbeda.
+7. Pastikan sesi yang belum mulai tetap terkunci dan sesi yang sudah lewat tetap ditolak kecuali terdapat izin check-in khusus Admin yang aktif. API server tetap menolak submit di luar waktu sah.
