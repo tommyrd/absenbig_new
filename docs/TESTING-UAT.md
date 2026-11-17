@@ -25,7 +25,7 @@ Suite berisi 23 test (15 inti + 8 production) dan dijalankan menggunakan `tsx --
 
 ### B. Suite Hardening Production (`tests/production.test.ts` — 8 Test)
 Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
-1. **Idempotent migrations & clean production seeding** — 12 versi migrasi aman dijalankan ulang; `seedProductionBaseline` membuat hanya 1 Superadmin awal dengan `izin_demo_login = 0` dan kata sandi ter-hash `scrypt`.
+1. **Idempotent migrations & clean production seeding** — 13 versi migrasi aman dijalankan ulang; `seedProductionBaseline` membuat hanya 1 Superadmin awal dengan `izin_demo_login = 0` dan kata sandi ter-hash `scrypt`.
 2. **Health check & HttpOnly cookie login** — `/api/v1/health` (200 OK WIB), sandi salah ditolak (401), login benar menerbitkan cookie `HttpOnly; SameSite=Lax`.
 3. **Brute-force rate limiting** — Percobaan gagal ke-9 pada login memicu HTTP `429` dengan header `Retry-After`.
 4. **Account lifecycle & Registration ACC workflow** — Pembuatan akun karyawan/admin mewajibkan sandi >= 6 karakter, avatar dengan magic bytes palsu ditolak (`400`), akun `PENDING` & `REJECTED` diblokir saat login (`403`), dan `ACC` oleh Superadmin langsung mengaktifkan login.
@@ -42,7 +42,7 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
 |---|---|---|
 | TypeScript Check | `npm run lint` (`tsc --noEmit`) | Perlu dijalankan ulang setelah commit terbaru |
 | Frontend Bundle | `npm run build` (`vite build`) | Perlu dijalankan ulang setelah commit terbaru |
-| Automated Tests | `npm.cmd test` | Perlu dijalankan ulang; cakupan saat ini 22 test |
+| Automated Tests | `npm.cmd test` | Perlu dijalankan ulang; cakupan saat ini 23 test |
 | Production Server Boot | `NODE_ENV=production node server.ts` | Perlu UAT ulang setelah commit terbaru |
 
 ---
@@ -157,4 +157,6 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
 8. Pastikan akun Superadmin yang sedang dipakai tidak dapat menonaktifkan dirinya sendiri dan sistem menolak penonaktifan Superadmin aktif terakhir.
 9. Pastikan setiap pembuatan/perubahan/reset akun tercatat pada Audit Trail sebagai aktor SUPERADMIN.
 10. Pastikan akun ADMIN dan KARYAWAN tetap menjadi akun pegawai dan semua fitur absensi mereka tetap berjalan.
+11. Pada profil SUPERADMIN, unggah foto PNG/JPG/WEBP maksimal 2 MB. Pastikan foto muncul di header profil, navigasi, dan daftar Kelola Akun, serta kolom foto tersimpan pada `pengguna`, bukan `karyawan`.
+12. Tekan **Reset Foto** dan pastikan avatar kembali ke inisial default tanpa mengubah `karyawan_id = NULL`.
 11. Pastikan database menolak `INSERT/UPDATE` yang mencoba menghubungkan SUPERADMIN ke `karyawan_id`, dan menolak akun ADMIN/KARYAWAN tanpa `karyawan_id`.
