@@ -523,7 +523,6 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
         );
         if (!isWithinVerifiedGeofence(freshDistance, freshCoords.accuracy, user.kantor_radius)) {
           stopCamera();
-          setPhotoDataUrl(null);
           setSubmitMsg({
             type: 'err',
             text: `Absensi ditolak. Sesi ${nextUrutan} wajib di kantor; jarak ${freshDistance}m dengan estimasi akurasi ±${freshCoords.accuracy}m belum dapat dipastikan berada dalam radius kantor ${user.kantor_radius}m.`,
@@ -614,13 +613,6 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
     nextSesi.urutan >= 2 &&
     (day.policySnapshot.wajibAktivitasSesiLanjut || nextSesi.wajib_aktivitas === 1)
   );
-  const canSubmitAttendance =
-    !submitting &&
-    nextSessionStarted &&
-    canCheckInByLocation &&
-    (!photoRequired || Boolean(photoDataUrl)) &&
-    (!activityRequired || Boolean(deskripsiAktivitas.trim()));
-
   const distanceMeters = coords
     ? haversineClient(coords.lat, coords.lng, user.kantor_lat, user.kantor_lng)
     : null;
@@ -637,6 +629,13 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
     gpsStatus === 'ok' &&
     coords !== null &&
     (!sessionRequiresOffice || (gpsAccuracyOk && verifiedWithinRadius));
+
+  const canSubmitAttendance =
+    !submitting &&
+    nextSessionStarted &&
+    canCheckInByLocation &&
+    (!photoRequired || Boolean(photoDataUrl)) &&
+    (!activityRequired || Boolean(deskripsiAktivitas.trim()));
 
   return (
     <div className="space-y-5 sm:space-y-6">
@@ -968,7 +967,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                         <p className="font-mono tabular-nums">
                           Koordinat: {coords.lat}, {coords.lng} (Akurasi ±{coords.accuracy}m)
                         </p>
-                        <p className="flex flex-wrap items-center gap-1.5 font-medium">
+                        <div className="flex flex-wrap items-center gap-1.5 font-medium">
                           <span>Jarak ke kantor:</span>
                           <span className="font-mono tabular-nums text-slate-900 dark:text-slate-100">{distanceMeters} m</span>
                           <span className="text-slate-400">·</span>
@@ -982,11 +981,11 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                               : `Sesi fleksibel · Lokasi luar kantor diizinkan dan GPS tetap dicatat`}
                           </span>
                           {!sessionRequiresOffice && !gpsAccuracyOk && (
-                            <p className="text-amber-700 dark:text-amber-300">
+                            <p className="w-full text-amber-700 dark:text-amber-300">
                               Peringatan: akurasi lokasi ±{coords.accuracy}m rendah. Absensi sesi fleksibel tetap diizinkan, tetapi koordinat hanya perkiraan dan bukan bukti lokasi presisi.
                             </p>
                           )}
-                        </p>
+                        </div>
                       </div>
                     ) : gpsStatus === 'loading' ? (
                       <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -1018,15 +1017,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                           Foto diambil langsung dari kamera browser (unggah file/galeri dinonaktifkan).
                         </p>
                       </div>
-                      {photoDataUrl && (
-                        <button
-                          type="button"
-                          onClick={() => setPhotoDataUrl(null)}
-                          className="min-h-[36px] px-2 text-xs font-medium text-red-700 dark:text-red-400 hover:underline shrink-0"
-                        >
-                          Hapus & Ulangi Foto
-                        </button>
-                      )}
+
                     </div>
 
                     {photoDataUrl ? (
