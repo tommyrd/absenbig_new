@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { Express, Request, Response } from 'express';
+import type { Express, NextFunction, Request, Response } from 'express';
 import {
   buildAuthCookie,
   extractToken,
@@ -49,6 +49,14 @@ import type {
 
 // SSE clients for real-time workforce status
 const sseClients = new Set<Response>();
+
+function asyncRoute(
+  handler: (req: AuthenticatedRequest, res: Response) => Promise<void>
+) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    void handler(req as AuthenticatedRequest, res).catch(next);
+  };
+}
 
 function broadcastWorkforceUpdate(eventType: string) {
   const payload = JSON.stringify({ type: eventType, waktu: getWibIsoString() });
@@ -750,7 +758,7 @@ export function registerApiRoutes(app: Express) {
     }
   });
 
-  app.post('/api/v1/attendance/session', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), async (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/v1/attendance/session', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), asyncRoute(async (req, res) => {
     const user = req.authUser!;
     const attLimit = attendanceLimiter.consume(`att:${user.id}`);
     if (!attLimit.allowed) {
@@ -1047,7 +1055,7 @@ export function registerApiRoutes(app: Express) {
     broadcastWorkforceUpdate('SESSION_SUBMITTED');
     const updatedDay = resolveDayForEmployee(db, emp, today);
     res.status(201).json({ ok: true, day: updatedDay });
-  });
+  }));
 
   // 5. Attendance Photo Access (own history + today's shared Beranda feed; Admin/Superadmin all)
   app.get('/api/v1/photos/:sessionId', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
