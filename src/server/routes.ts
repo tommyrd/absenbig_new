@@ -35,6 +35,7 @@ import {
 import { getWibDateString, getWibIsoString, getWibTimeString, parseHmToMinutes } from './time.ts';
 import { isGpsAccuracyAcceptable, isWithinVerifiedGeofence, MAX_GPS_ACCURACY_METERS, requiresOfficeGeofence } from '../shared/geofence.ts';
 import { getSessionWindowState } from '../shared/session-window.ts';
+import { getGeoapifyAddress } from './services/reverse-geocode.ts';
 import type {
   AttendanceFeedPost,
   AttendanceFeedRosterItem,
@@ -48,11 +49,6 @@ import type {
 
 // SSE clients for real-time workforce status
 const sseClients = new Set<Response>();
-
-type ReverseGeocodeCacheEntry = { address: string; expiresAt: number };
-const reverseGeocodeCache = new Map<string, ReverseGeocodeCacheEntry>();
-let lastReverseGeocodeRequestAt = 0;
-
 
 function broadcastWorkforceUpdate(eventType: string) {
   const payload = JSON.stringify({ type: eventType, waktu: getWibIsoString() });
@@ -631,6 +627,7 @@ export function registerApiRoutes(app: Express) {
       kantor_id: number;
       kantor_nama: string;
       kantor_alamat: string;
+      lokasi_alamat: string | null;
       tanggal: string;
       urutan_sesi: number;
       nama_sesi: string;
@@ -661,6 +658,7 @@ export function registerApiRoutes(app: Express) {
         kantorId: p.kantor_id,
         kantorNama: p.kantor_nama,
         kantorAlamat: p.kantor_alamat,
+        lokasiAktualAlamat: p.lokasi_alamat ?? null,
         tanggal: p.tanggal,
         urutanSesi: p.urutan_sesi,
         namaSesi: p.nama_sesi,
@@ -717,9 +715,8 @@ export function registerApiRoutes(app: Express) {
     });
   });
 
-  // Reverse-geocode only after an employee explicitly refreshes GPS.
-  // The API key stays on the server; raw coordinates are never sent to a public
-  // no-key geocoder. Address is an estimate and never replaces GPS coordinates.
+  // Reverse-geocode only after the employee explicitly refreshes GPS.
+  // This endpoint and attendance submit share the server-side Geoapify cache.
   app.get('/api/v1/location/reverse', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), async (req: AuthenticatedRequest, res: Response) => {
     const lat = typeof req.query.lat === 'string' ? Number(req.query.lat) : Number.NaN;
     const lng = typeof req.query.lng === 'string' ? Number(req.query.lng) : Number.NaN;
@@ -735,77 +732,25 @@ export function registerApiRoutes(app: Express) {
       return;
     }
 
-    const apiKey = process.env.GEOAPIFY_API_KEY?.trim();
-    if (!apiKey) {
+    if (!process.env.GEOAPIFY_API_KEY?.trim()) {
       res.json({ address: null, configured: false, provider: null });
       return;
     }
 
-    // Four decimal places cache nearby refreshes (~11m at the equator).
-    // Cached results live for six hours to reduce paid API calls.
-    const cacheKey = `${lat.toFixed(4)},${lng.toFixed(4)}`;
-    const cached = reverseGeocodeCache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) {
-      res.json({ address: cached.address, configured: true, provider: 'Geoapify' });
-      return;
-    }
-    if (cached) reverseGeocodeCache.delete(cacheKey);
-
-    // Conservative application-wide throttle (10 requests/second);
-    // Geoapify daily credits and request-rate limits still apply. Cached results reduce usage.
-    const now = Date.now();
-    const elapsed = now - lastReverseGeocodeRequestAt;
-    if (elapsed < 100) {
-      res.setHeader('Retry-After', '1');
-      res.status(429).json({ error: 'Permintaan alamat terlalu cepat. Coba perbarui lokasi beberapa saat lagi.' });
-      return;
-    }
-    lastReverseGeocodeRequestAt = now;
-
     try {
-      const url = new URL('https://api.geoapify.com/v1/geocode/reverse');
-      url.searchParams.set('lat', String(lat));
-      url.searchParams.set('lon', String(lng));
-      url.searchParams.set('apiKey', apiKey);
-      url.searchParams.set('format', 'json');
-      url.searchParams.set('lang', 'id');
-
-      const response = await fetch(url, {
-        headers: { Accept: 'application/json' },
-        signal: AbortSignal.timeout(6000),
-      });
-      if (!response.ok) {
-        res.status(502).json({ error: 'Layanan alamat lokasi sedang tidak tersedia.' });
+      const result = await getGeoapifyAddress(lat, lng);
+      res.json({ address: result.address, configured: result.configured, provider: 'Geoapify' });
+    } catch (error) {
+      if (error instanceof Error && error.name === 'GeoapifyRateLimitError') {
+        res.setHeader('Retry-After', '1');
+        res.status(429).json({ error: 'Permintaan alamat terlalu cepat. Coba beberapa saat lagi.' });
         return;
       }
-
-      const payload = (await response.json()) as {
-        results?: { formatted?: string }[];
-      };
-      const address =
-        typeof payload.results?.[0]?.formatted === 'string'
-          ? payload.results[0].formatted
-          : null;
-      if (!address) {
-        res.json({ address: null, configured: true, provider: 'Geoapify' });
-        return;
-      }
-
-      reverseGeocodeCache.set(cacheKey, {
-        address,
-        expiresAt: Date.now() + 6 * 60 * 60 * 1000,
-      });
-      if (reverseGeocodeCache.size > 500) {
-        const oldestKey = reverseGeocodeCache.keys().next().value;
-        if (oldestKey) reverseGeocodeCache.delete(oldestKey);
-      }
-      res.json({ address, configured: true, provider: 'Geoapify' });
-    } catch {
       res.status(502).json({ error: 'Gagal mengambil alamat lokasi. Koordinat GPS tetap tersedia.' });
     }
   });
 
-  app.post('/api/v1/attendance/session', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/v1/attendance/session', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), async (req: AuthenticatedRequest, res: Response) => {
     const user = req.authUser!;
     const attLimit = attendanceLimiter.consume(`att:${user.id}`);
     if (!attLimit.allowed) {
@@ -995,6 +940,12 @@ export function registerApiRoutes(app: Express) {
     const isLate = expectedNext === 1 && lateDiff > 0;
     const keterlambatanMenit = isLate ? nowMin - startMin : 0;
 
+    // Store a display-only address snapshot resolved by the server from the
+    // submitted GPS coordinates. Geocoding failures never block attendance.
+    const actualLocationAddress = await getGeoapifyAddress(lat!, lng!)
+      .then((result) => result.address)
+      .catch(() => null);
+
     // Save photo file securely (camera capture raster image + magic-byte check + unpredictable filename)
     let savedPhotoName: string | null = null;
     let fotoChecksum: string | null = null;
@@ -1036,10 +987,10 @@ export function registerApiRoutes(app: Express) {
           `INSERT INTO absensi_sesi (
             karyawan_id, tanggal, urutan_sesi, nama_sesi, waktu_server,
             status_ketepatan, keterlambatan_menit, lat, lng, accuracy_meter,
-            jarak_kantor_meter, dalam_geofence, ip_address, user_agent,
+            jarak_kantor_meter, dalam_geofence, lokasi_alamat, ip_address, user_agent,
             tipe_aktivitas, deskripsi_aktivitas, foto_path, foto_checksum,
             policy_snapshot_json, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           emp.id,
@@ -1054,6 +1005,7 @@ export function registerApiRoutes(app: Express) {
           typeof accuracyMeter === 'number' ? accuracyMeter : null,
           jarakMeter,
           dalamGeofence,
+          actualLocationAddress,
           ip,
           ua,
           actType,
