@@ -267,6 +267,40 @@ const MIGRATIONS: MigrationDef[] = [
       ).run();
     },
   },
+  {
+    version: '012',
+    name: 'enforce_role_employee_link_invariant',
+    up: (db) => {
+      const invalid = db.prepare(
+        `SELECT id, role FROM pengguna
+         WHERE (role = 'SUPERADMIN' AND karyawan_id IS NOT NULL)
+            OR (role <> 'SUPERADMIN' AND karyawan_id IS NULL)`
+      ).all() as { id: number; role: string }[];
+      if (invalid.length > 0) {
+        throw new Error('Ada akun dengan relasi pegawai yang tidak sesuai role; periksa data pengguna sebelum migrasi 012.');
+      }
+
+      db.exec(`
+        CREATE TRIGGER IF NOT EXISTS trg_pengguna_role_link_insert
+        BEFORE INSERT ON pengguna
+        FOR EACH ROW
+        WHEN (NEW.role = 'SUPERADMIN' AND NEW.karyawan_id IS NOT NULL)
+          OR (NEW.role <> 'SUPERADMIN' AND NEW.karyawan_id IS NULL)
+        BEGIN
+          SELECT RAISE(ABORT, 'SUPERADMIN harus tanpa profil karyawan; ADMIN/KARYAWAN wajib terhubung ke karyawan.');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_pengguna_role_link_update
+        BEFORE UPDATE OF role, karyawan_id ON pengguna
+        FOR EACH ROW
+        WHEN (NEW.role = 'SUPERADMIN' AND NEW.karyawan_id IS NOT NULL)
+          OR (NEW.role <> 'SUPERADMIN' AND NEW.karyawan_id IS NULL)
+        BEGIN
+          SELECT RAISE(ABORT, 'SUPERADMIN harus tanpa profil karyawan; ADMIN/KARYAWAN wajib terhubung ke karyawan.');
+        END;
+      `);
+    },
+  },
 ];
 
 export function runMigrations(db: DatabaseSync): string[] {
