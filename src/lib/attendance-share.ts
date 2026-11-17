@@ -2,7 +2,7 @@ import { getAuthorizedPhotoUrl } from './api';
 import type { AttendanceFeedPost } from '../shared/types';
 
 const WIDTH = 1080;
-const HEIGHT = 1440;
+const HEIGHT = 1350;
 const PADDING = 68;
 
 function roundedRect(
@@ -184,7 +184,7 @@ export async function createAttendanceShareImage(post: AttendanceFeedPost): Prom
 
   // Photo proof.
   const photoY = nameY + 130;
-  const photoHeight = 500;
+  const photoHeight = 320;
   drawPhoto(ctx, photo, PADDING, photoY, WIDTH - PADDING * 2, photoHeight);
 
   // Activity block.
@@ -255,7 +255,7 @@ export async function createAttendanceShareImage(post: AttendanceFeedPost): Prom
 
   ctx.fillStyle = '#94a3b8';
   ctx.font = '18px Arial, sans-serif';
-  ctx.fillText('Alamat perkiraan dari GPS · Geoapify / OpenStreetMap', PADDING, HEIGHT - 83);
+  ctx.fillText('Alamat perkiraan dari GPS · Powered by Geoapify · © OpenStreetMap contributors', PADDING, HEIGHT - 83);
 
   const blob = await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((value) => {
