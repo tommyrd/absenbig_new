@@ -29,3 +29,12 @@
 - `src/components/LoginView.tsx`: Mengosongkan state awal input login (menghapus kredensial demo pre-fill) dan menampilkan panel cepat demo hanya ketika `izin_demo_login === 1` tanpa mengubah tampilan UI.
 - `vite.config.ts`: Mengganti `__dirname` dengan `import.meta.dirname`.
 - `.env.example` & `.gitignore`: Templat lengkap konfigurasi production tanpa rahasia dan pengecualian ketat terhadap `.env`, database aktif, media pengguna, log, serta arsip backup.
+
+
+## 2026-11-17 — Session window, GPS accuracy, and Admin Override
+
+- Absensi mandiri kini hanya dibuka pada rentang `jam_mulai` hingga `jam_selesai` berdasarkan waktu server WIB; setelahnya API menolak permintaan.
+- Halaman Karyawan/teknisi menampilkan sesi kedaluwarsa, mengunci kamera dan tombol kirim, serta menutup kamera saat sesi berakhir.
+- GPS menggunakan nilai `accuracy` dari browser; akurasi di atas ±100m ditolak dan jarak ditambah margin akurasi harus tetap berada dalam radius kantor.
+- Admin Override tetap tersedia untuk menetapkan hasil payroll `DIHITUNG MASUK` saat ada kendala perangkat, dengan alasan dan audit trail; override tidak membuat sesi/foto/GPS palsu.
+- Pengujian unit ditambahkan untuk batas sesi dan akurasi GPS.
