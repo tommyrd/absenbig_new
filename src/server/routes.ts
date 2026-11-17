@@ -3785,7 +3785,7 @@ export function registerApiRoutes(app: Express) {
         }
         db.exec('BEGIN IMMEDIATE');
         try {
-          if (nextAktif === 0) {
+          if (nextAktif === 0 && existing.user_aktif === 1) {
             const activeSuperadmins = db.prepare(
               `SELECT COUNT(*) as c FROM pengguna WHERE role = 'SUPERADMIN' AND aktif = 1`
             ).get() as { c: number };
