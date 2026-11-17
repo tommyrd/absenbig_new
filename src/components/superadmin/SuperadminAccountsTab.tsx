@@ -477,8 +477,17 @@ export function SuperadminAccountsTab({
       sortValue: (r) => r.kantor_nama,
       render: (r) => (
         <div className="text-xs">
-          <p className="font-medium text-slate-800 dark:text-slate-200">{r.kantor_nama}</p>
-          <p className="text-slate-500 dark:text-slate-400">{r.bidang_nama}</p>
+          {r.role === 'SUPERADMIN' ? (
+            <>
+              <p className="font-medium text-amber-700 dark:text-amber-300">Bukan Pegawai</p>
+              <p className="text-slate-500 dark:text-slate-400">Akun pemilik sistem</p>
+            </>
+          ) : (
+            <>
+              <p className="font-medium text-slate-800 dark:text-slate-200">{r.kantor_nama}</p>
+              <p className="text-slate-500 dark:text-slate-400">{r.bidang_nama}</p>
+            </>
+          )}
         </div>
       ),
     },
@@ -1025,14 +1034,15 @@ export function SuperadminAccountsTab({
                   </label>
                   <select
                     value={accountForm.role}
+                    disabled={Boolean(editingAccount && editingAccount.role === 'SUPERADMIN')}
                     onChange={(e) =>
                       setAccountForm({ ...accountForm, role: e.target.value as Role })
                     }
-                    className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
+                    className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 disabled:opacity-60"
                   >
                     <option value="KARYAWAN">KARYAWAN / TEKNISI</option>
                     <option value="ADMIN">ADMIN OPERASIONAL</option>
-                    <option value="SUPERADMIN">SUPERADMIN</option>
+                    <option value="SUPERADMIN" disabled={Boolean(editingAccount && editingAccount.role !== 'SUPERADMIN')}>SUPERADMIN · AKUN PEMILIK</option>
                   </select>
                 </div>
               </div>
