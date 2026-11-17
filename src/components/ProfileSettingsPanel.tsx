@@ -163,6 +163,7 @@ export function ProfileSettingsPanel({
           <div className="flex items-start sm:items-center gap-4 min-w-0">
             <UserAvatar
               karyawanId={user.karyawan_id}
+              userId={user.karyawan_id === null ? user.id : null}
               name={user.nama_lengkap}
               role={user.role}
               version={user.foto_profil_updated_at}
@@ -191,7 +192,6 @@ export function ProfileSettingsPanel({
                   </p>
                 </>
               )}
-              {!isStandaloneSuperadmin && (
               <div className="pt-2 flex flex-wrap items-center gap-2">
                 <label className="min-h-[44px] sm:min-h-[36px] px-3.5 py-2 bg-navy-900 hover:bg-navy-800 dark:bg-blue-700 dark:hover:bg-blue-600 text-white text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 cursor-pointer">
                   <Camera className="w-3.5 h-3.5" />
@@ -219,7 +219,6 @@ export function ProfileSettingsPanel({
                   </button>
                 )}
               </div>
-              )}
             </div>
           </div>
           <button
