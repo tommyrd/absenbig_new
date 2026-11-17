@@ -29,7 +29,7 @@ interface TodayResponse {
 
 interface EmployeeAbsensiPageProps {
   user: AuthUser;
-  onSessionSubmitted: (message: string) => void;
+  onSessionSubmitted: (message: string, sessionId: number) => void;
 }
 
 function haversineClient(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -81,11 +81,6 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   const [coords, setCoords] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
   const [gpsStatus, setGpsStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle');
   const [gpsError, setGpsError] = useState<string | null>(null);
-  const [locationAddress, setLocationAddress] = useState<string | null>(null);
-  const [locationAddressStatus, setLocationAddressStatus] = useState<
-    'idle' | 'loading' | 'ready' | 'unconfigured' | 'error'
-  >('idle');
-  const locationRequestIdRef = useRef(0);
 
   const readCurrentGps = useCallback(
     () =>
@@ -250,53 +245,23 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   }, [data, liveWibHm, stopCamera]);
 
   const requestGps = useCallback(() => {
-    const requestId = ++locationRequestIdRef.current;
     stopCamera();
     setSubmitMsg(null);
     setGpsStatus('loading');
     setGpsError(null);
     setCoords(null);
-    setLocationAddress(null);
-    setLocationAddressStatus('idle');
 
+    // This step only reads precise browser GPS. Reverse geocoding is intentionally
+    // deferred until the attendance submit endpoint and then saved with the record.
     readCurrentGps()
       .then((position) => {
-        if (requestId !== locationRequestIdRef.current) return;
         setCoords(position);
         setGpsStatus('ok');
-
-        // Reverse-geocode only after the employee explicitly presses
-        // Perbarui Lokasi. The server keeps the provider key private.
-        setLocationAddressStatus('loading');
-        const query = new URLSearchParams({
-          lat: String(position.lat),
-          lng: String(position.lng),
-        });
-        void apiFetch<{
-          address: string | null;
-          configured: boolean;
-          provider: string | null;
-        }>(`/api/v1/location/reverse?${query.toString()}`)
-          .then((result) => {
-            if (requestId !== locationRequestIdRef.current) return;
-            setLocationAddress(result.address);
-            setLocationAddressStatus(
-              !result.configured ? 'unconfigured' : result.address ? 'ready' : 'error'
-            );
-          })
-          .catch(() => {
-            if (requestId !== locationRequestIdRef.current) return;
-            setLocationAddress(null);
-            setLocationAddressStatus('error');
-          });
       })
       .catch((err) => {
-        if (requestId !== locationRequestIdRef.current) return;
         setCoords(null);
         setGpsStatus('error');
         setGpsError(err instanceof Error ? err.message : 'Gagal membaca lokasi GPS.');
-        setLocationAddress(null);
-        setLocationAddressStatus('idle');
       });
   }, [readCurrentGps, stopCamera]);
 
@@ -577,7 +542,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
           ? 'Mengunggah foto dan menyimpan absensi... Jangan tutup halaman.'
           : 'Menyimpan absensi ke server... Jangan tutup halaman.',
       });
-      await apiFetch('/api/v1/attendance/session', {
+      const submitted = await apiFetch<{ sessionId: number }>('/api/v1/attendance/session', {
         method: 'POST',
         body: JSON.stringify({
           urutanSesi: nextUrutan,
@@ -596,7 +561,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
       stopCamera();
       setPhotoDataUrl(null);
       setDeskripsiAktivitas('');
-      onSessionSubmitted(successMessage);
+      onSessionSubmitted(successMessage, submitted.sessionId);
     } catch (err) {
       setSubmitMsg({
         type: 'err',
@@ -1003,7 +968,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                       Tekan tombol ini terlebih dahulu. Setelah lokasi terbaca, kamera dan tombol kirim absensi akan dibuka sesuai kebijakan lokasi sesi Anda.
                     </p>
                     <p className="text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">
-                      Koordinat dan akurasi berasal dari GPS browser. Jika alamat Geoapify diaktifkan pada server, pencarian alamat akan mengirim koordinat ke Geoapify setelah tombol ini ditekan.
+                      Tahap ini hanya membaca koordinat dan akurasi GPS browser. Alamat perkiraan akan dicari sekali saat absensi dikirim, lalu disimpan bersama bukti absensi.
                     </p>
 
                     {gpsStatus === 'ok' && coords ? (
@@ -1013,28 +978,8 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                         </p>
                         <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-900/50 p-2.5 space-y-1">
                           <p className="font-semibold text-slate-800 dark:text-slate-100">
-                            Lokasi aktual terdeteksi browser
+                            Koordinat lokasi aktual
                           </p>
-                          {locationAddressStatus === 'loading' ? (
-                            <p className="text-slate-500 dark:text-slate-400">Mencari alamat berdasarkan koordinat GPS...</p>
-                          ) : locationAddressStatus === 'ready' && locationAddress ? (
-                            <>
-                              <p className="leading-relaxed">{locationAddress}</p>
-                              <p className="text-[10px] text-slate-400">
-                                Alamat perkiraan dari Geoapify Reverse Geocoding. Koordinat dikirim ke Geoapify hanya saat tombol Perbarui Lokasi ditekan; koordinat GPS browser tetap menjadi data lokasi utama.
-                              </p>
-                            </>
-                          ) : locationAddressStatus === 'unconfigured' ? (
-                            <p className="text-amber-700 dark:text-amber-300">
-                              Alamat lengkap belum diaktifkan. Koordinat GPS dan tautan peta tetap tersedia.
-                            </p>
-                          ) : locationAddressStatus === 'error' ? (
-                            <p className="text-amber-700 dark:text-amber-300">
-                              Alamat tidak berhasil diperoleh. Koordinat GPS tetap tercatat dan dapat dibuka di peta.
-                            </p>
-                          ) : (
-                            <p className="text-slate-500 dark:text-slate-400">Alamat belum diminta.</p>
-                          )}
                           <a
                             href={`https://www.google.com/maps/search/?api=1&query=${coords.lat},${coords.lng}`}
                             target="_blank"
@@ -1043,6 +988,9 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                           >
                             Buka titik GPS di Google Maps
                           </a>
+                          <p className="text-[10px] text-slate-400">
+                            Alamat lokasi akan disimpan otomatis bersama catatan absensi setelah pengiriman berhasil.
+                          </p>
                         </div>
                         <div className="flex flex-wrap items-center gap-1.5 font-medium">
                           <span>Jarak ke kantor:</span>
