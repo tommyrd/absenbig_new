@@ -273,11 +273,11 @@ export function seedDemoDataset(db: DatabaseSync): boolean {
     VALUES (?, ?, ?, 'KARYAWAN', ?, 1, 1, ?)
   `);
   userInsert.run('andi', 'andi@bignet.id', passwordHash, 2, nowIso);
-  userInsert.run('rina', 'rina@bignet.id', passwordHash, 'KARYAWAN', 3, nowIso);
-  userInsert.run('dimas', 'dimas@bignet.id', passwordHash, 'KARYAWAN', 4, nowIso);
-  userInsert.run('fajar', 'fajar@bignet.id', passwordHash, 'KARYAWAN', 5, nowIso);
-  userInsert.run('dewi', 'dewi@bignet.id', passwordHash, 'KARYAWAN', 6, nowIso);
-  userInsert.run('hendra', 'hendra@bignet.id', passwordHash, 'KARYAWAN', 7, nowIso);
+  userInsert.run('rina', 'rina@bignet.id', passwordHash, 3, nowIso);
+  userInsert.run('dimas', 'dimas@bignet.id', passwordHash, 4, nowIso);
+  userInsert.run('fajar', 'fajar@bignet.id', passwordHash, 5, nowIso);
+  userInsert.run('dewi', 'dewi@bignet.id', passwordHash, 6, nowIso);
+  userInsert.run('hendra', 'hendra@bignet.id', passwordHash, 7, nowIso);
 
   const polInsert = db.prepare(`
     INSERT INTO kebijakan_absensi (
