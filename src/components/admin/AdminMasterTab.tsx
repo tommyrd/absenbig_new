@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { Building2, Edit3, Plus, Users, X } from 'lucide-react';
+import { Building2, Edit3, Plus, Trash2, Users, X } from 'lucide-react';
 import { apiFetch } from '../../lib/api';
 import type { BidangKerja, Kantor, Karyawan, Role } from '../../shared/types';
 import { DataTable, type ColumnDef } from '../DataTable';
@@ -48,6 +48,9 @@ export function AdminMasterTab() {
 
   const [formErr, setFormErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deletingItem, setDeletingItem] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteNotice, setDeleteNotice] = useState<string | null>(null);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -182,6 +185,48 @@ export function AdminMasterTab() {
       setFormErr(err instanceof Error ? err.message : 'Gagal menyimpan bidang.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const deleteOffice = async (office: Kantor) => {
+    if (office.can_delete !== true || deletingItem) return;
+    const confirmed = window.confirm(
+      `Hapus kantor "${office.nama}" (${office.kode})? Pengaturan kalender mingguan kantor ini juga akan dihapus. Tindakan ini tidak dapat dibatalkan.`
+    );
+    if (!confirmed) return;
+
+    setDeletingItem(`office:${office.id}`);
+    setDeleteError(null);
+    setDeleteNotice(null);
+    try {
+      await apiFetch(`/api/v1/master/offices/${office.id}`, { method: 'DELETE' });
+      setDeleteNotice(`Kantor "${office.nama}" berhasil dihapus.`);
+      await loadAll();
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Gagal menghapus kantor.');
+    } finally {
+      setDeletingItem(null);
+    }
+  };
+
+  const deleteBidang = async (bidang: BidangKerja) => {
+    if (bidang.can_delete !== true || deletingItem) return;
+    const confirmed = window.confirm(
+      `Hapus bidang kerja "${bidang.nama}" (${bidang.kode})? Tindakan ini tidak dapat dibatalkan.`
+    );
+    if (!confirmed) return;
+
+    setDeletingItem(`bidang:${bidang.id}`);
+    setDeleteError(null);
+    setDeleteNotice(null);
+    try {
+      await apiFetch(`/api/v1/master/bidang/${bidang.id}`, { method: 'DELETE' });
+      setDeleteNotice(`Bidang kerja "${bidang.nama}" berhasil dihapus.`);
+      await loadAll();
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Gagal menghapus bidang kerja.');
+    } finally {
+      setDeletingItem(null);
     }
   };
 
@@ -366,6 +411,19 @@ export function AdminMasterTab() {
         </div>
       </div>
 
+      {(deleteError || deleteNotice) && (
+        <div
+          role={deleteError ? 'alert' : 'status'}
+          className={`rounded-lg border px-3 py-2.5 text-xs ${
+            deleteError
+              ? 'border-red-200 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300'
+              : 'border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200'
+          }`}
+        >
+          {deleteError || deleteNotice}
+        </div>
+      )}
+
       {subtab === 'karyawan' && (
         <DataTable
           data={employees}
@@ -386,7 +444,17 @@ export function AdminMasterTab() {
 
       {subtab === 'kantor' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {offices.map((o) => (
+          {offices.map((o) => {
+            const officeBlockers = [
+              o.jumlah_karyawan ? `${o.jumlah_karyawan} pegawai` : null,
+              o.jumlah_pendaftaran ? `${o.jumlah_pendaftaran} pendaftaran akun` : null,
+              o.jumlah_hari_libur ? `${o.jumlah_hari_libur} data hari libur` : null,
+              o.jumlah_periode_payroll ? `${o.jumlah_periode_payroll} periode payroll` : null,
+            ].filter(Boolean);
+            const officeDeleteTitle = o.can_delete
+              ? 'Hapus kantor yang belum memiliki relasi bisnis'
+              : `Tidak dapat dihapus: ${officeBlockers.join(', ') || 'status relasi belum dapat diverifikasi'}`;
+            return (
             <div
               key={o.id}
               className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 sm:p-5 space-y-3"
@@ -401,27 +469,44 @@ export function AdminMasterTab() {
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{o.alamat}</p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingOffice(o);
-                    setOfficeForm({
-                      kode: o.kode,
-                      nama: o.nama,
-                      alamat: o.alamat,
-                      lat: o.lat,
-                      lng: o.lng,
-                      radius_meter: o.radius_meter,
-                    });
-                    setFormErr(null);
-                    setOfficeModal(true);
-                  }}
-                  className="min-h-[36px] px-2 text-xs font-semibold text-blue-700 dark:text-blue-400 hover:underline inline-flex items-center gap-1 shrink-0"
-                >
-                  <Edit3 className="w-3.5 h-3.5" />
-                  Ubah
-                </button>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingOffice(o);
+                      setOfficeForm({
+                        kode: o.kode,
+                        nama: o.nama,
+                        alamat: o.alamat,
+                        lat: o.lat,
+                        lng: o.lng,
+                        radius_meter: o.radius_meter,
+                      });
+                      setFormErr(null);
+                      setOfficeModal(true);
+                    }}
+                    className="min-h-[36px] px-2 text-xs font-semibold text-blue-700 dark:text-blue-400 hover:underline inline-flex items-center gap-1"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    Ubah
+                  </button>
+                  <button
+                    type="button"
+                    title={officeDeleteTitle}
+                    disabled={!o.can_delete || deletingItem !== null}
+                    onClick={() => void deleteOffice(o)}
+                    className="min-h-[36px] px-2 text-xs font-semibold text-red-700 dark:text-red-400 hover:underline inline-flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    {deletingItem === `office:${o.id}` ? 'Menghapus...' : 'Hapus'}
+                  </button>
+                </div>
               </div>
+              {officeBlockers.length > 0 && (
+                <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                  Tidak dapat dihapus karena masih terhubung dengan: {officeBlockers.join(' · ')}.
+                </p>
+              )}
               <div className="pt-3 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-400 grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
                   <span className="text-slate-400 dark:text-slate-500">Koordinat:</span>
@@ -437,13 +522,23 @@ export function AdminMasterTab() {
                 </div>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
       {subtab === 'bidang' && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {bidangList.map((b) => (
+          {bidangList.map((b) => {
+            const fieldBlockers = [
+              b.jumlah_karyawan ? `${b.jumlah_karyawan} pegawai` : null,
+              b.jumlah_kebijakan ? `${b.jumlah_kebijakan} kebijakan absensi` : null,
+              b.jumlah_pendaftaran ? `${b.jumlah_pendaftaran} pendaftaran akun` : null,
+            ].filter(Boolean);
+            const fieldDeleteTitle = b.can_delete
+              ? 'Hapus bidang kerja yang belum memiliki relasi'
+              : `Tidak dapat dihapus: ${fieldBlockers.join(', ') || 'status relasi belum dapat diverifikasi'}`;
+            return (
             <div
               key={b.id}
               className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 sm:p-5"
@@ -453,14 +548,26 @@ export function AdminMasterTab() {
                   <Users className="w-4 h-4 shrink-0" />
                   <span className="font-mono text-xs font-semibold">{b.kode}</span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => openEditBidang(b)}
-                  className="min-h-[36px] px-2 text-xs font-semibold text-blue-700 dark:text-blue-400 hover:underline inline-flex items-center gap-1 shrink-0"
-                >
-                  <Edit3 className="w-3.5 h-3.5" />
-                  Ubah
-                </button>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => openEditBidang(b)}
+                    className="min-h-[36px] px-2 text-xs font-semibold text-blue-700 dark:text-blue-400 hover:underline inline-flex items-center gap-1"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    Ubah
+                  </button>
+                  <button
+                    type="button"
+                    title={fieldDeleteTitle}
+                    disabled={!b.can_delete || deletingItem !== null}
+                    onClick={() => void deleteBidang(b)}
+                    className="min-h-[36px] px-2 text-xs font-semibold text-red-700 dark:text-red-400 hover:underline inline-flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    {deletingItem === `bidang:${b.id}` ? 'Menghapus...' : 'Hapus'}
+                  </button>
+                </div>
               </div>
               <h3 className="font-display text-base font-bold text-slate-900 dark:text-slate-100 mt-1">
                 {b.nama}
@@ -468,8 +575,14 @@ export function AdminMasterTab() {
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 leading-relaxed">
                 {b.deskripsi}
               </p>
+              {fieldBlockers.length > 0 && (
+                <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-2">
+                  Tidak dapat dihapus karena masih terhubung dengan: {fieldBlockers.join(' · ')}.
+                </p>
+              )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
