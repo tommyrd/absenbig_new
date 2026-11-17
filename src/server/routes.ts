@@ -836,7 +836,7 @@ export function registerApiRoutes(app: Express) {
       res.status(400).json({ error: 'Karyawan yang akan diberi izin wajib dipilih.' });
       return;
     }
-    if (!alasan || alasan.trim().length < 5 || alasan.trim().length > 500) {
+    if (typeof alasan !== 'string' || alasan.trim().length < 5 || alasan.trim().length > 500) {
       res.status(400).json({ error: 'Alasan wajib diisi antara 5 sampai 500 karakter.' });
       return;
     }
