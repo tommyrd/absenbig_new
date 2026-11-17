@@ -720,7 +720,7 @@ test('6. SVG logo XSS sanitization, attendance camera-only, jam_mulai gate, geof
   // Default location rule: session 2 may be taken off-site; retain approximate GPS evidence.
   const flexibleOffsite = await apiJson<{
     ok: boolean;
-    day: { sessionsCompleted: number; sessionRecords: { id: number; dalam_geofence: boolean; accuracy_meter: number }[] };
+    day: { sessionsCompleted: number; sessionRecords: { id: number; dalam_geofence: number; accuracy_meter: number }[] };
   }>('/api/v1/attendance/session', {
     method: 'POST',
     token: karyawanToken,
