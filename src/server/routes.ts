@@ -1982,16 +1982,44 @@ export function registerApiRoutes(app: Express) {
       return;
     }
     const { nama_lengkap, no_hp, kantor_id, bidang_id, jabatan, aktif } = req.body as {
-      nama_lengkap: string;
-      no_hp: string;
-      kantor_id: number;
-      bidang_id: number;
-      jabatan: string;
-      aktif: number;
+      nama_lengkap?: string;
+      no_hp?: string;
+      kantor_id?: number;
+      bidang_id?: number;
+      jabatan?: string;
+      aktif?: number;
     };
-    db.prepare(
-      `UPDATE karyawan SET nama_lengkap = ?, no_hp = ?, kantor_id = ?, bidang_id = ?, jabatan = ?, aktif = ? WHERE id = ? AND COALESCE(is_system_archive, 0) = 0`
-    ).run(nama_lengkap, no_hp, Number(kantor_id), Number(bidang_id), jabatan, aktif ? 1 : 0, id);
+    const nextKantorId = Number(kantor_id);
+    const nextBidangId = Number(bidang_id);
+    if (
+      !nama_lengkap?.trim() ||
+      !jabatan?.trim() ||
+      !Number.isInteger(nextKantorId) ||
+      !Number.isInteger(nextBidangId) ||
+      ![0, 1].includes(Number(aktif))
+    ) {
+      res.status(400).json({ error: 'Nama, jabatan, kantor, bidang kerja, dan status karyawan wajib valid.' });
+      return;
+    }
+
+    const kantorExists = db.prepare(`SELECT id FROM kantor WHERE id = ? AND aktif = 1`).get(nextKantorId);
+    const bidangExists = db.prepare(`SELECT id FROM bidang_kerja WHERE id = ?`).get(nextBidangId);
+    if (!kantorExists || !bidangExists) {
+      res.status(400).json({ error: 'Kantor atau bidang kerja yang dipilih tidak ditemukan atau tidak aktif.' });
+      return;
+    }
+
+    try {
+      db.prepare(
+        `UPDATE karyawan SET nama_lengkap = ?, no_hp = ?, kantor_id = ?, bidang_id = ?, jabatan = ?, aktif = ? WHERE id = ? AND COALESCE(is_system_archive, 0) = 0`
+      ).run(nama_lengkap.trim(), (no_hp || '').trim(), nextKantorId, nextBidangId, jabatan.trim(), Number(aktif), id);
+    } catch (err) {
+      res.status(400).json({
+        error: 'Perubahan data karyawan tidak dapat disimpan.',
+        detail: safeErrorDetail(err),
+      });
+      return;
+    }
     const after = db.prepare(`SELECT * FROM karyawan WHERE id = ?`).get(id);
     writeAuditLog(db, {
       actor: req.authUser!,
