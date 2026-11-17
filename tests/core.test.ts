@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
+import { DatabaseSync } from 'node:sqlite';
 import http from 'node:http';
 import test from 'node:test';
 import express from 'express';
 import { signToken } from '../src/server/auth.ts';
 import { getDb } from '../src/server/db.ts';
 import { registerApiRoutes } from '../src/server/routes.ts';
+import { runMigrations } from '../src/server/db/migrations.ts';
 import {
   computeMonthlySummary,
   getEffectivePolicy,
@@ -18,6 +20,102 @@ import { isGpsAccuracyAcceptable, isWithinVerifiedGeofence, MAX_GPS_ACCURACY_MET
 import { getSessionWindowState } from '../src/shared/session-window.ts';
 import { shouldOpenAttendanceOnEntry } from '../src/shared/employee-entry.ts';
 import { getHistoryCalendarStatus } from '../src/shared/history-calendar.ts';
+
+test('Migration detaches legacy Superadmin from employees and archives its old profile', () => {
+  const db = new DatabaseSync(':memory:');
+  try {
+    db.exec(`
+      PRAGMA foreign_keys = ON;
+      CREATE TABLE schema_migrations (
+        version TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        applied_at TEXT NOT NULL
+      );
+      CREATE TABLE karyawan (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nik TEXT NOT NULL UNIQUE,
+        nama_lengkap TEXT NOT NULL,
+        email TEXT NOT NULL UNIQUE,
+        no_hp TEXT NOT NULL DEFAULT '',
+        kantor_id INTEGER NOT NULL,
+        bidang_id INTEGER NOT NULL,
+        jabatan TEXT NOT NULL,
+        tanggal_masuk TEXT NOT NULL,
+        foto_profil_path TEXT,
+        foto_profil_updated_at TEXT,
+        aktif INTEGER NOT NULL DEFAULT 1
+      );
+      CREATE TABLE pengguna (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL UNIQUE,
+        email TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        role TEXT NOT NULL CHECK(role IN ('KARYAWAN','ADMIN','SUPERADMIN')),
+        karyawan_id INTEGER NOT NULL REFERENCES karyawan(id),
+        aktif INTEGER NOT NULL DEFAULT 1,
+        token_version INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL
+      );
+    `);
+
+    const migrationInsert = db.prepare(
+      `INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)`
+    );
+    for (const version of ['001', '002', '003', '004', '005', '006', '007', '008', '009']) {
+      migrationInsert.run(version, 'legacy_test', '2026-11-17T00:00:00+07:00');
+    }
+
+    db.prepare(
+      `INSERT INTO karyawan (
+         id, nik, nama_lengkap, email, no_hp, kantor_id, bidang_id, jabatan, tanggal_masuk, aktif
+       ) VALUES
+         (1, 'BG-001', 'Budi Hartono', 'owner@bignet.id', '08110000001', 1, 1, 'Owner / CEO', '2021-01-10', 1),
+         (2, 'BG-002', 'Andi Pratama', 'andi@bignet.id', '08110000002', 1, 1, 'NOC Engineer', '2023-02-15', 1)`
+    ).run();
+
+    db.prepare(
+      `INSERT INTO pengguna (
+         id, username, email, password_hash, role, karyawan_id, aktif, token_version, created_at
+       ) VALUES (1, 'owner', 'owner@bignet.id', 'hash', 'SUPERADMIN', 1, 1, 1, '2021-01-10')`
+    ).run();
+
+    const applied = runMigrations(db);
+    assert.deepEqual(applied, [
+      '010_separate_superadmin_accounts_from_employee_records',
+      '011_exclude_legacy_superadmin_profiles_from_employee_master',
+    ]);
+
+    const ownerAccount = db.prepare(
+      `SELECT role, karyawan_id, nama_tampilan, no_hp FROM pengguna WHERE username = 'owner'`
+    ).get() as {
+      role: string;
+      karyawan_id: number | null;
+      nama_tampilan: string;
+      no_hp: string;
+    };
+    assert.equal(ownerAccount.role, 'SUPERADMIN');
+    assert.equal(ownerAccount.karyawan_id, null);
+    assert.equal(ownerAccount.nama_tampilan, 'Budi Hartono');
+    assert.equal(ownerAccount.no_hp, '08110000001');
+
+    const archivedOwner = db.prepare(
+      `SELECT aktif, is_system_archive, jabatan FROM karyawan WHERE id = 1`
+    ).get() as { aktif: number; is_system_archive: number; jabatan: string };
+    assert.equal(archivedOwner.aktif, 0);
+    assert.equal(archivedOwner.is_system_archive, 1);
+    assert.equal(archivedOwner.jabatan, 'Akun Pemilik Sistem (Arsip)');
+
+    const ordinaryEmployee = db.prepare(
+      `SELECT aktif, is_system_archive FROM karyawan WHERE id = 2`
+    ).get() as { aktif: number; is_system_archive: number };
+    assert.equal(ordinaryEmployee.aktif, 1);
+    assert.equal(ordinaryEmployee.is_system_archive, 0);
+
+    assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
+  } finally {
+    db.close();
+  }
+});
 
 test('Geofence Haversine distance calculation', () => {
   const distSame = haversineMeters(-6.2088, 106.8456, -6.2088, 106.8456);
