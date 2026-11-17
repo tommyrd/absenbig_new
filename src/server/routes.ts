@@ -2002,7 +2002,8 @@ export function registerApiRoutes(app: Express) {
       return;
     }
 
-    const kantorExists = db.prepare(`SELECT id FROM kantor WHERE id = ? AND aktif = 1`).get(nextKantorId);
+    const currentOfficeId = (before as { kantor_id: number }).kantor_id;
+    const kantorExists = db.prepare(`SELECT id FROM kantor WHERE id = ? AND (aktif = 1 OR id = ?)`).get(nextKantorId, currentOfficeId);
     const bidangExists = db.prepare(`SELECT id FROM bidang_kerja WHERE id = ?`).get(nextBidangId);
     if (!kantorExists || !bidangExists) {
       res.status(400).json({ error: 'Kantor atau bidang kerja yang dipilih tidak ditemukan atau tidak aktif.' });
