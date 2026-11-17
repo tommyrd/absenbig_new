@@ -16,7 +16,7 @@ import {
 import { apiFetch, getAuthorizedPhotoUrl } from '../../lib/api';
 import type { AuthUser, Karyawan, ResolvedDay } from '../../shared/types';
 import { isGpsAccuracyAcceptable, isWithinVerifiedGeofence, MAX_GPS_ACCURACY_METERS, requiresOfficeGeofence } from '../../shared/geofence';
-import { getSessionWindowState } from '../../shared/session-window';
+import type { SessionWindowState } from '../../shared/session-window';
 import { createServerClockSync, getEstimatedServerEpochMs, type ServerClockSync } from '../../shared/server-clock';
 import { StatusBadge } from '../StatusBadge';
 
@@ -24,6 +24,10 @@ interface TodayResponse {
   serverDate: string;
   serverTime: string;
   serverEpochMs?: number;
+  serverWindowCheckedAt?: string;
+  serverWindowState?: SessionWindowState | null;
+  serverSessionWindowStates?: SessionWindowState[];
+  serverMinutesUntilStart?: number;
   karyawan: Karyawan;
   day: ResolvedDay;
 }
@@ -206,7 +210,8 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
     document.addEventListener('visibilitychange', refreshWhenVisible);
 
     // Refresh any newly issued Admin check-in permission and correct the clock.
-    const refreshId = window.setInterval(() => void loadToday(true), 15000);
+    // Keep the authoritative server session state fresh while the page is visible.
+    const refreshId = window.setInterval(() => void loadToday(true), 3000);
     return () => {
       window.clearInterval(refreshId);
       window.removeEventListener('focus', refreshWhenVisible);
@@ -293,16 +298,17 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   // Automatically close the camera when the server-synchronized session window expires.
   useEffect(() => {
     if (!data) return;
-    const next = data.day.policySnapshot.sesiList[data.day.sessionsCompleted];
+    const nextIndex = data.day.sessionsCompleted;
+    const next = data.day.policySnapshot.sesiList[nextIndex];
     if (
       next &&
-      parseHm(liveWibHm) > parseHm(next.jam_selesai) &&
+      data.serverSessionWindowStates?.[nextIndex] === 'EXPIRED' &&
       !data.day.checkinOverride?.active
     ) {
       stopCamera();
       setPhotoDataUrl(null);
     }
-  }, [data, liveWibHm, stopCamera]);
+  }, [data, stopCamera]);
 
   const requestGps = useCallback(() => {
     stopCamera();
@@ -333,17 +339,18 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
     const requestId = ++cameraRequestIdRef.current;
 
     const next = data?.day.policySnapshot.sesiList[data.day.sessionsCompleted];
-    const currentMinute = parseHm(liveWibHm);
-    if (
-      !next ||
-      currentMinute < parseHm(next.jam_mulai) ||
-      (currentMinute > parseHm(next.jam_selesai) && !data?.day.checkinOverride?.active)
-    ) {
-      setCameraError(
-        next
-          ? `Waktu absensi hanya ${next.jam_mulai}–${next.jam_selesai} WIB. Sesi belum dibuka atau sudah dikunci. Minta Admin membuka akses check-in khusus bila diperlukan.`
-          : 'Tidak ada sesi absensi berikutnya.'
-      );
+    const windowState = data?.serverWindowState ?? 'INVALID';
+    const hasOverride = Boolean(data?.day.checkinOverride?.active);
+    if (!next || (windowState !== 'OPEN' && !hasOverride)) {
+      const message = !next
+        ? 'Tidak ada sesi absensi berikutnya.'
+        : windowState === 'NOT_STARTED'
+          ? `Sesi ${next.nama} belum dimulai. Waktu server saat ini ${data?.serverTime || 'belum tersedia'} WIB; sesi dibuka pukul ${next.jam_mulai} WIB.`
+          : windowState === 'EXPIRED'
+            ? `Sesi ${next.nama} sudah berakhir pukul ${next.jam_selesai} WIB menurut waktu server. Hubungi Admin bila memerlukan akses khusus.`
+            : 'Jadwal sesi tidak valid atau status server belum tersedia. Muat ulang halaman atau hubungi Admin.';
+      setCameraError(message);
+      void loadToday(true);
       return;
     }
 
@@ -506,27 +513,9 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
     if (!data || submitting) return;
     const nextUrutan = data.day.sessionsCompleted + 1;
     const nextSesiCfg = data.day.policySnapshot.sesiList[data.day.sessionsCompleted];
-    const currentMinute = parseHm(liveWibHm);
-    if (nextSesiCfg && currentMinute < parseHm(nextSesiCfg.jam_mulai)) {
-      setSubmitMsg({
-        type: 'err',
-        text: `Absensi ${nextSesiCfg.nama} belum dimulai. Sesi baru dapat diisi mulai pukul ${nextSesiCfg.jam_mulai} WIB.`,
-      });
-      return;
-    }
-    if (
-      nextSesiCfg &&
-      currentMinute > parseHm(nextSesiCfg.jam_selesai) &&
-      !data.day.checkinOverride?.active
-    ) {
-      stopCamera();
-      setSubmitMsg({
-        type: 'err',
-        text: `Waktu absensi ${nextSesiCfg.nama} sudah berakhir pukul ${nextSesiCfg.jam_selesai} WIB. Hubungi Admin untuk meminta akses check-in khusus.`,
-      });
-      return;
-    }
 
+    // Do not decide the time window from a browser clock here. The POST endpoint
+    // validates the current server time again when the attendance is received.
     const requirePhoto = Boolean(
       nextSesiCfg &&
       (data.day.policySnapshot.wajibFotoSemuaSesi || nextSesiCfg.wajib_foto === 1)
@@ -637,6 +626,8 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
         type: 'err',
         text: err instanceof Error ? err.message : 'Gagal mengirim absensi sesi.',
       });
+      // The server may have closed the window while the employee prepared the photo.
+      void loadToday(true);
     } finally {
       setSubmitting(false);
     }
@@ -672,15 +663,11 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   const nextSessionIndex = day.sessionsCompleted; // 0-based index of next session
   const nextSesi = day.policySnapshot.sesiList[nextSessionIndex];
   const allSessionsDone = day.sessionsCompleted >= day.policySnapshot.jumlahSesi;
-  const nowMin = parseHm(liveWibHm);
-  const nextStartMin = nextSesi ? parseHm(nextSesi.jam_mulai) : 0;
-  const nextWindowState = nextSesi
-    ? getSessionWindowState(nowMin, nextSesi.jam_mulai, nextSesi.jam_selesai)
-    : 'INVALID';
+  const nextWindowState: SessionWindowState = data.serverWindowState ?? 'INVALID';
   const hasActiveCheckinOverride = Boolean(day.checkinOverride?.active);
   const nextSessionExpired = nextWindowState === 'EXPIRED' && !hasActiveCheckinOverride;
   const nextSessionStarted = nextWindowState === 'OPEN' || hasActiveCheckinOverride;
-  const minutesUntilStart = nextSesi ? Math.max(0, nextStartMin - nowMin) : 0;
+  const minutesUntilStart = data.serverMinutesUntilStart ?? 0;
   const photoRequired = Boolean(
     nextSesi &&
     (day.policySnapshot.wajibFotoSemuaSesi || nextSesi.wajib_foto === 1)
@@ -838,11 +825,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
               {day.policySnapshot.sesiList.map((sesi, idx) => {
                 const record = day.sessionRecords.find((r) => r.urutan_sesi === sesi.urutan);
                 const isNext = !record && idx === day.sessionsCompleted;
-                const sesiWindowState = getSessionWindowState(
-                  nowMin,
-                  sesi.jam_mulai,
-                  sesi.jam_selesai
-                );
+                const sesiWindowState = data.serverSessionWindowStates?.[idx] ?? 'INVALID';
                 const sesiExpired = sesiWindowState === 'EXPIRED';
                 const sesiStarted = sesiWindowState === 'OPEN';
 
@@ -1015,7 +998,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                         </p>
                         <p className="text-amber-900 dark:text-amber-200 leading-relaxed">
                           Absensi hanya dapat dilakukan setelah jam sesi dimulai. Waktu server saat ini{' '}
-                          <span className="font-mono font-semibold">{liveWibHm} WIB</span> (sesi dibuka dalam{' '}
+                          <span className="font-mono font-semibold">{data.serverTime} WIB</span> (waktu server; sesi dibuka dalam{' '}
                           <span className="font-semibold">{formatDurationMinutes(minutesUntilStart)}</span>).
                         </p>
                       </div>
@@ -1237,9 +1220,13 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                                 : sessionRequiresOffice
                                   ? 'Lokasi di luar radius kantor'
                                   : 'Periksa lokasi terlebih dahulu'
-                                : nextSessionStarted
-                                  ? `Buka Kamera ${facingMode === 'user' ? 'Depan' : 'Belakang'}`
-                                  : `Menunggu Pukul ${nextSesi.jam_mulai} WIB`}
+                                : nextWindowState === 'NOT_STARTED'
+                                  ? `Menunggu Pukul ${nextSesi.jam_mulai} WIB`
+                                  : nextWindowState === 'EXPIRED'
+                                    ? `Sesi Berakhir ${nextSesi.jam_selesai} WIB`
+                                    : nextWindowState === 'INVALID'
+                                      ? 'Jadwal Sesi Tidak Valid'
+                                      : `Buka Kamera ${facingMode === 'user' ? 'Depan' : 'Belakang'}`}
                           </button>
                           <button
                             type="button"
