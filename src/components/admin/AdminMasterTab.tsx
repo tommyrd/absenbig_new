@@ -792,6 +792,11 @@ export function AdminMasterTab() {
               </button>
             </div>
             <form onSubmit={submitBidang} className="p-5 space-y-3.5 overflow-y-auto">
+              {formErr && (
+                <div role="alert" className="p-3 rounded-lg bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800/70 text-xs text-red-800 dark:text-red-300">
+                  {formErr}
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Kode Bidang
