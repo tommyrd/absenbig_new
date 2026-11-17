@@ -86,8 +86,8 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
 
 9. **Browser Location Address & History Calendar (Employee):**
    - Tekan Perbarui Lokasi; verifikasi koordinat latitude/longitude, akurasi ±meter, jarak kantor, dan tautan titik di Google Maps tampil dari posisi browser.
-   - Tanpa `GOOGLE_MAPS_GEOCODING_API_KEY`, alamat teks harus menampilkan keterangan belum dikonfigurasi dan fitur absensi tetap berjalan menggunakan koordinat browser.
-   - Dengan Google Geocoding API aktif, verifikasi alamat perkiraan tampil. Pastikan key hanya berada di environment server dan alamat hanya diminta setelah pengguna menekan Perbarui Lokasi.
+   - Perbarui Lokasi hanya membaca koordinat dan akurasi dari browser; alamat belum dicari pada tahap ini.
+   - Setelah submit, alamat perkiraan Geoapify disimpan dalam `absensi_sesi.lokasi_alamat`; tanpa API key atau ketika layanan gagal, absensi tetap tersimpan dengan koordinat GPS sebagai bukti lokasi.
    - Kalender History memakai status resolver: hijau HADIR, merah TIDAK HADIR, amber BELUM SELESAI, dan warna khusus untuk libur/off/cuti/izin/sakit/off pengganti.
    - Hari mendatang yang belum dievaluasi tetap netral, tanggal dapat dipilih untuk memfilter timeline, dan Admin Override diberi penanda O serta memakai hasil payroll final untuk warna.
 
@@ -95,16 +95,16 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
    - Setiap kartu menampilkan identitas sekali saja: nama, jabatan/bidang, kantor, jam WIB, dan tanggal.
    - Foto memakai tinggi maksimum yang konsisten dan tidak terpotong; klik foto membuka lightbox.
    - Badge sesi/progres, tepat waktu/terlambat, dan dalam/di luar radius dibedakan secara visual.
-   - Caption aktivitas tampil pada blok tersendiri; alamat kantor, koordinat GPS, jarak dan tombol Detail lokasi tetap tersedia.
+   - Caption aktivitas tampil pada blok tersendiri; alamat aktual, koordinat GPS, jarak dan tombol Bagikan tersedia. Card tidak menampilkan alamat kantor penempatan.
    - Jarak di atas 1 km ditampilkan dalam kilometer dengan satu desimal; uji layar HP sempit dan desktop serta mode gelap.
 
 11. **Actual Check-in Address vs Assigned Office (Feed):**
-   - Buat absensi dengan koordinat GPS Pontianak untuk karyawan yang kantor penempatannya Jakarta. Feed harus menampilkan alamat GPS Pontianak sebagai Lokasi saat absen dan Jakarta hanya sebagai Kantor penempatan.
+   - Buat absensi dengan koordinat GPS Pontianak untuk karyawan yang kantor penempatannya Jakarta. Feed harus menampilkan alamat GPS Pontianak sebagai Lokasi saat absen, tanpa menampilkan alamat kantor penempatan.
    - Pastikan kolom `lokasi_alamat` tersimpan pada record sesi dan tetap muncul setelah restart server.
    - Untuk record lama yang `lokasi_alamat` null dan tidak memiliki cache alamat lama, card menampilkan keterangan alamat tidak tersimpan serta koordinat GPS; Beranda tidak melakukan reverse geocoding.
    - Jika Geoapify tidak terkonfigurasi atau gagal, absensi tetap tersimpan; feed menampilkan koordinat dan penjelasan bahwa alamat aktual tidak tersedia.
    - Geofence tetap dihitung dari lat/lng dan koordinat kantor; alamat hasil geocoding tidak boleh memengaruhi kelulusan radius.
-   - Pastikan atribusi Powered by Geoapify dan © OpenStreetMap contributors tetap terlihat.
+   - Pastikan atribusi Powered by Geoapify dan © OpenStreetMap contributors terlihat saat alamat hasil provider ditampilkan.
 
 12. **Submit-Time GPS Address Snapshot (No Geoapify Request from Beranda):**
    - Memperbarui lokasi pada halaman Absensi hanya membaca Geolocation browser; tidak ada request Geoapify.
@@ -115,7 +115,7 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
 
 13. **Share Card & Redirect to Newly Published Attendance:**
    - Setelah submit berhasil, response mengembalikan `sessionId`; pengguna kembali ke Beranda dan card sesi yang baru dibuat otomatis di-scroll ke tengah serta di-highlight.
-   - Setiap post memiliki tombol Bagikan; PNG 4:5 berisi foto, identitas, sesi/waktu, aktivitas, alamat GPS, koordinat, dan jarak aktual.
+   - Setiap post memiliki tombol Bagikan; PNG portrait berisi foto, identitas, sesi/waktu, aktivitas, alamat GPS, koordinat, dan jarak aktual.
    - Pada Android/ browser yang mendukung Web Share file, tombol Bagikan membuka system share sheet dan WhatsApp/Telegram dapat dipilih.
    - Pada browser yang tidak mendukung file sharing, PNG diunduh dengan instruksi melampirkannya secara manual.
    - Verifikasi foto bukti dapat diambil menggunakan token otorisasi; jika foto gagal dimuat, kartu tetap dibuat dengan placeholder.
