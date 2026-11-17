@@ -158,12 +158,15 @@ export function AttendanceFeedView({
     ? sortedRoster.find((r) => r.karyawanId === selectedEmpId) || null
     : null;
 
+  const formatDistance = (meters: number) =>
+    meters >= 1000
+      ? `${(meters / 1000).toLocaleString('id-ID', { maximumFractionDigits: 1 })} km`
+      : `${Math.round(meters).toLocaleString('id-ID')} m`;
+
   const formatLocationSubtitle = (post: AttendanceFeedPost) => {
     const officeShort = post.kantorNama.split('(')[0].trim();
     if (post.jarakKantorMeter !== null) {
-      return `${officeShort} · ${post.jarakKantorMeter}m (${
-        post.dalamGeofence ? 'Dalam Radius' : 'Luar Radius'
-      })`;
+      return `${officeShort} · ${formatDistance(post.jarakKantorMeter)} dari kantor`;
     }
     return officeShort;
   };
@@ -436,136 +439,148 @@ export function AttendanceFeedView({
                 return (
                   <article
                     key={post.id}
-                    className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden"
+                    className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm"
                   >
-                    {/* Instagram Post Header: Avatar, Bold Name, Location Subtitle, Time */}
-                    <div className="px-3.5 sm:px-4 py-3 flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2.5 min-w-0">
+                    {/* 1. Employee identity and attendance time */}
+                    <header className="px-3.5 sm:px-4 py-3.5 border-b border-slate-100 dark:border-slate-800">
+                      <div className="flex items-center gap-3 min-w-0">
                         <UserAvatar
                           karyawanId={post.karyawanId}
                           name={post.namaLengkap}
                           role={post.role}
                           version={post.fotoProfilUpdatedAt}
                           size="md"
-                          className="!w-9 !h-9 !rounded-full"
+                          className="!w-10 !h-10 !rounded-full shrink-0"
                         />
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
-                              {post.namaLengkap}
-                            </h2>
-                            <span className="text-xs text-slate-400 dark:text-slate-500 shrink-0">·</span>
-                            <span className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                              {post.bidangNama}
-                            </span>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setLightboxPost(post)}
-                            className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-400 truncate max-w-full text-left"
-                          >
-                            <MapPin className="w-3 h-3 text-blue-700 dark:text-blue-400 shrink-0" />
-                            <span className="truncate">{formatLocationSubtitle(post)}</span>
-                          </button>
+                        <div className="min-w-0 flex-1">
+                          <h2 className="text-sm font-bold leading-tight text-slate-900 dark:text-slate-100 truncate">
+                            {post.namaLengkap}
+                          </h2>
+                          <p className="mt-1 text-[11px] leading-tight text-slate-500 dark:text-slate-400 truncate">
+                            {post.jabatan} <span aria-hidden="true">·</span> {post.bidangNama}
+                          </p>
+                          <p className="mt-1 flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                            <MapPin className="w-3 h-3 shrink-0 text-slate-400" />
+                            <span className="truncate">{post.kantorNama.split('(')[0].trim()}</span>
+                          </p>
+                        </div>
+                        <div className="shrink-0 text-right pl-1">
+                          <p className="text-sm font-bold font-mono tabular-nums text-slate-900 dark:text-slate-100">
+                            {post.jamWib}
+                          </p>
+                          <p className="text-[10px] font-medium text-slate-400 dark:text-slate-500">
+                            WIB · {dateLabel}
+                          </p>
                         </div>
                       </div>
+                    </header>
 
-                      <div className="text-right shrink-0">
-                        <p className="font-mono text-xs font-semibold text-slate-800 dark:text-slate-200 tabular-nums">
-                          {post.jamWib} WIB
-                        </p>
-                        <p className="text-[11px] text-slate-400 dark:text-slate-500">
-                          {dateLabel}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Instagram Clean Unobstructed Photo */}
+                    {/* 2. Photo evidence with a consistent maximum height */}
                     <button
                       type="button"
                       onClick={() => setLightboxPost(post)}
-                      className="w-full block bg-slate-950 aspect-[4/3] sm:aspect-square overflow-hidden text-left"
-                      aria-label={`Lihat detail foto absensi ${post.namaLengkap}`}
+                      className="relative w-full h-[min(74vw,320px)] sm:h-[320px] block bg-slate-100 dark:bg-slate-950 overflow-hidden text-left"
+                      aria-label={`Lihat bukti foto absensi ${post.namaLengkap}, ${post.namaSesi}`}
                     >
                       {post.hasFoto && !photoBroken ? (
                         <img
                           src={getAuthorizedPhotoUrl(post.id)}
-                          alt={`Absensi ${post.namaLengkap} - ${post.namaSesi}`}
+                          alt={`Bukti absensi ${post.namaLengkap} - ${post.namaSesi}`}
                           referrerPolicy="no-referrer"
                           onError={() =>
                             setFailedPhotoIds((prev) => ({ ...prev, [post.id]: true }))
                           }
-                          className="w-full h-full object-cover"
+                          className="w-full h-full object-contain"
+                          loading="lazy"
                         />
                       ) : (
-                        <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-navy-900 to-slate-900 text-slate-300 p-6 text-center">
-                          <Camera className="w-9 h-9 text-blue-300 mb-2 opacity-80" />
-                          <p className="text-sm font-semibold text-white">{post.namaLengkap}</p>
-                          <p className="text-xs text-slate-300 mt-0.5">{post.namaSesi}</p>
+                        <div className="w-full h-full flex flex-col items-center justify-center bg-slate-100 dark:bg-slate-900 text-slate-500 dark:text-slate-400 p-6 text-center">
+                          <Camera className="w-8 h-8 mb-2 opacity-70" />
+                          <p className="text-sm font-semibold">{post.namaLengkap}</p>
+                          <p className="text-xs mt-1">Bukti foto tidak tersedia</p>
                         </div>
                       )}
+                      <span className="absolute bottom-2 right-2 rounded-md bg-slate-950/70 px-2 py-1 text-[10px] font-medium text-white backdrop-blur-sm">
+                        Lihat foto
+                      </span>
                     </button>
 
-                    {/* Instagram Info & Caption Footer Below Photo */}
-                    <div className="px-3.5 sm:px-4 py-3 space-y-2">
-                      {/* Quick Attendance Metadata Row */}
-                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                        <div className="flex flex-wrap items-center gap-2 text-slate-600 dark:text-slate-300">
-                          <span className="font-semibold text-slate-900 dark:text-slate-100">
-                            {post.namaSesi}
-                          </span>
-                          <span aria-hidden="true" className="text-slate-400">·</span>
-                          <span
-                            className={`font-medium ${
-                              post.statusKetepatan === 'TERLAMBAT'
-                                ? 'text-amber-700 dark:text-amber-400'
-                                : 'text-emerald-700 dark:text-emerald-400'
-                            }`}
-                          >
-                            {post.statusKetepatan === 'TERLAMBAT'
-                              ? `Terlambat ${post.keterlambatanMenit}m`
-                              : 'Tepat Waktu'}
-                          </span>
-                          <span aria-hidden="true" className="text-slate-400">·</span>
-                          <span className="font-mono tabular-nums text-slate-500 dark:text-slate-400">
-                            Sesi {post.sessionsCompletedToday}/{post.sessionsTotalToday}
-                          </span>
+                    {/* 3. Session and location verification status */}
+                    <div className="px-3.5 sm:px-4 pt-3 pb-2.5 space-y-3">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="inline-flex items-center rounded-md bg-blue-50 dark:bg-blue-950/50 px-2.5 py-1 text-[11px] font-bold text-blue-800 dark:text-blue-200">
+                          {post.namaSesi} · {post.sessionsCompletedToday}/{post.sessionsTotalToday} sesi
+                        </span>
+                        <span
+                          className={`inline-flex items-center rounded-md px-2.5 py-1 text-[11px] font-semibold ${
+                            post.statusKetepatan === 'TERLAMBAT'
+                              ? 'bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300'
+                              : 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300'
+                          }`}
+                        >
+                          {post.statusKetepatan === 'TERLAMBAT'
+                            ? `Terlambat ${post.keterlambatanMenit} menit`
+                            : 'Tepat waktu'}
+                        </span>
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-semibold ${
+                            post.jarakKantorMeter === null
+                              ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                              : post.dalamGeofence
+                                ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300'
+                                : 'bg-rose-50 dark:bg-rose-950/50 text-rose-800 dark:text-rose-300'
+                          }`}
+                        >
+                          <MapPin className="w-3 h-3" />
+                          {post.jarakKantorMeter === null
+                            ? 'GPS tidak tersedia'
+                            : post.dalamGeofence
+                              ? 'Dalam radius'
+                              : 'Di luar radius'}
+                        </span>
+                      </div>
+
+                      {/* 4. Activity caption and concise location footer */}
+                      <div className="rounded-lg bg-slate-50 dark:bg-slate-800/60 px-3 py-2.5">
+                        <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                          {post.tipeAktivitas === 'CHECK_IN'
+                            ? 'Absen masuk'
+                            : post.tipeAktivitas === 'STANDBY'
+                              ? 'Status standby'
+                              : 'Aktivitas pekerjaan'}
+                        </p>
+                        <p className="text-sm leading-relaxed text-slate-800 dark:text-slate-200 whitespace-pre-wrap break-words">
+                          {post.deskripsiAktivitas.trim() || 'Tidak ada keterangan aktivitas.'}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-3 pt-0.5">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                            Lokasi absensi
+                          </p>
+                          <p className="mt-0.5 text-[11px] leading-snug text-slate-600 dark:text-slate-300 line-clamp-2">
+                            {post.kantorAlamat || post.kantorNama}
+                          </p>
+                          {post.lat !== null && post.lng !== null && (
+                            <p className="mt-1 text-[10px] font-mono tabular-nums text-slate-400 dark:text-slate-500">
+                              GPS {post.lat.toFixed(5)}, {post.lng.toFixed(5)}
+                            </p>
+                          )}
+                          {post.jarakKantorMeter !== null && (
+                            <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
+                              Jarak dari kantor: {formatDistance(post.jarakKantorMeter)}
+                            </p>
+                          )}
                         </div>
                         <button
                           type="button"
                           onClick={() => setLightboxPost(post)}
-                          className="text-xs font-semibold text-blue-700 dark:text-blue-400 hover:underline shrink-0"
+                          className="min-h-[38px] shrink-0 inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 px-3 text-[11px] font-semibold text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40"
                         >
-                          Detail Lokasi
+                          <MapPin className="w-3.5 h-3.5" />
+                          Detail lokasi
                         </button>
-                      </div>
-
-                      {/* Instagram-Style Bold Name + Activity Caption */}
-                      <p className="text-sm text-slate-800 dark:text-slate-200 leading-snug">
-                        <span className="font-bold text-slate-900 dark:text-white mr-1.5">
-                          {post.namaLengkap}
-                        </span>
-                        <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 mr-1.5">
-                          [{post.tipeAktivitas === 'CHECK_IN'
-                            ? 'Absen Masuk'
-                            : post.tipeAktivitas === 'STANDBY'
-                            ? 'Standby'
-                            : 'Aktivitas'}]
-                        </span>
-                        {post.deskripsiAktivitas}
-                      </p>
-
-                      {/* Quiet Location & Coordinates Footer */}
-                      <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                        <span className="truncate">
-                          {post.kantorAlamat}
-                          {post.lat !== null && post.lng !== null
-                            ? ` · GPS ${post.lat.toFixed(4)}, ${post.lng.toFixed(4)}`
-                            : ''}
-                        </span>
-                        <span className="font-medium text-slate-600 dark:text-slate-300 shrink-0">
-                          {post.jabatan}
-                        </span>
                       </div>
                     </div>
                   </article>
