@@ -7,7 +7,7 @@
 Suite berisi 24 test (16 inti + 8 production) dan dijalankan menggunakan `tsx --test tests/*.test.ts`. Perubahan terbaru menambah cakupan batas akhir sesi dan kualitas GPS. Jalankan ulang secara lokal setelah menarik commit terbaru; angka kelulusan harus berasal dari hasil perintah aktual.
 
 ### A. Suite Inti Bisnis (`tests/core.test.ts` — 16 Test)
-1. **Standalone Superadmin migration & role linkage** — Migrasi memisahkan akun pemilik dari profil pegawai, mengarsipkan profil lama tanpa menghapus bukti historis, mempertahankan foreign key, dan menolak relasi role/pegawai yang tidak sesuai.
+1. **Standalone Admin Operasional & Superadmin migration** — Migrasi memisahkan Admin Operasional dan akun pemilik dari profil pegawai, mengarsipkan profil lama tanpa menghapus bukti historis, mempertahankan foreign key, dan menolak relasi role/pegawai yang tidak sesuai.
 2. **Geofence Haversine distance calculation** — Perhitungan jarak meter antara koordinat GPS karyawan dan kantor.
 3. **Session time window** — Absensi hanya diizinkan sejak `jam_mulai` hingga `jam_selesai` (inklusif); setelah `jam_selesai` menjadi `EXPIRED`.
 4. **GPS accuracy margin** — Akurasi browser maksimum ±100m dan jarak + nilai akurasi harus tetap berada dalam radius kantor saat sesi wajib kantor.
@@ -26,10 +26,10 @@ Suite berisi 24 test (16 inti + 8 production) dan dijalankan menggunakan `tsx --
 
 ### B. Suite Hardening Production (`tests/production.test.ts` — 8 Test)
 Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
-1. **Idempotent migrations & clean production seeding** — 13 versi migrasi aman dijalankan ulang; `seedProductionBaseline` membuat hanya 1 Superadmin awal dengan `izin_demo_login = 0` dan kata sandi ter-hash `scrypt`.
+1. **Idempotent migrations & clean production seeding** — 14 versi migrasi aman dijalankan ulang; `seedProductionBaseline` membuat hanya 1 Superadmin awal dengan `izin_demo_login = 0` dan kata sandi ter-hash `scrypt`.
 2. **Health check & HttpOnly cookie login** — `/api/v1/health` (200 OK WIB), sandi salah ditolak (401), login benar menerbitkan cookie `HttpOnly; SameSite=Lax`.
 3. **Brute-force rate limiting** — Percobaan gagal ke-9 pada login memicu HTTP `429` dengan header `Retry-After`.
-4. **Account lifecycle & Registration ACC workflow** — Pembuatan akun karyawan/admin mewajibkan sandi >= 6 karakter, avatar dengan magic bytes palsu ditolak (`400`), akun `PENDING` & `REJECTED` diblokir saat login (`403`), dan `ACC` oleh Superadmin langsung mengaktifkan login.
+4. **Account lifecycle & Registration ACC workflow** — Pembuatan akun Karyawan/Admin mewajibkan sandi >= 6 karakter; Admin dapat mendaftar tanpa NIK, kantor, bidang, atau profil pegawai; Karyawan tetap memerlukan penempatan; avatar dengan magic bytes palsu ditolak (`400`); akun `PENDING` & `REJECTED` diblokir saat login (`403`); ACC Admin membuat akun mandiri dengan `karyawan_id = NULL` dan tanpa NIK.
 5. **RBAC isolation, query-token guard, token revocation & Admin work-field editing** — `?token=` ditolak pada `/api/v1/auth/me` (`401`), diizinkan pada `/api/v1/avatars/*`; Karyawan & Admin ditolak (`403`) pada endpoint Superadmin; Admin dapat mengubah master bidang dan memindahkan teknisi ke bidang lain; token kedaluwarsa ditolak; ganti kata sandi & logout langsung merevoke token lama; penonaktifan akun memutus sesi aktif.
 6. **SVG XSS protection, browser-camera-only, `jam_mulai` gate & strict geofence** — SVG mengandung `<script>` ditolak (`400`); logo SVG bersih disajikan dengan `X-Content-Type-Options: nosniff` + CSP; absensi sebelum `jam_mulai` dan setelah `jam_selesai` ditolak (`400`); `FILE_UPLOAD` ditolak (`400`); GPS wajib tersedia dengan akurasi maksimum ±100m; lokasi di luar radius atau area yang tidak bisa dipastikan berada dalam radius ditolak meskipun request mengirim mode legacy `CATAT_DENGAN_FLAG`; seluruh kantor lama dinormalisasi oleh migrasi `004` ke `TOLAK_LUAR_RADIUS`; migrasi `005` menambahkan aturan lokasi per kebijakan; PNG kamera valid tersimpan dengan SHA-256 checksum.
 7. **Special work, Off Pengganti, Payroll closing & post-closing override** — Kuota off pengganti terkunci saat pengajuan dan berstatus `DIPAKAI` setelah approval Admin; override pada bulan `CLOSED` membutuhkan flag `koreksiSetelahClosing` (`409` vs `201`) dan tercatat pada modul `CLOSING_KOREKSI`.
@@ -51,7 +51,8 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
 ## 3. Skenario UAT Manual Sebelum Go-Live
 
 1. **UAT Pendaftaran & ACC (HP Browser + Desktop Superadmin):**
-   - Karyawan & Admin mendaftar via halaman login (unggah foto profil PNG/JPG).
+   - Daftarkan Karyawan melalui halaman login dengan kantor, bidang, jabatan, dan foto profil; setelah ACC, akun memperoleh profil pegawai.
+   - Daftarkan Admin Operasional tanpa isian kantor/bidang/jabatan atau NIK; setelah ACC, pastikan akun dapat login dengan `karyawan_id = NULL` dan tidak memiliki profil absensi pribadi.
    - Verifikasi login gagal sebelum di-ACC, lalu Superadmin melakukan ACC dan akun berhasil login.
 2. **UAT Absensi Kamera Browser & Beranda Feed (iOS Safari / Android Chrome HTTPS):**
    - Uji akses kamera depan/belakang browser, pastikan izin GPS aktif.
@@ -146,21 +147,23 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
 7. Tekan **Reset Default** pada favicon, simpan, lalu pastikan favicon kembali ke ikon default.
 8. Login sebagai ADMIN dan KARYAWAN; keduanya tidak boleh dapat membaca atau mengubah endpoint pengaturan sistem (`GET/PUT /api/v1/settings` harus ditolak).
 
-## 5. UAT Identitas SUPERADMIN sebagai Pemilik Sistem
+## 5. UAT Identitas Admin Operasional & SUPERADMIN sebagai Akun Non-Pegawai
 
-1. Jalankan migrasi database; pastikan versi `010_separate_superadmin_accounts_from_employee_records`, `011_exclude_legacy_superadmin_profiles_from_employee_master`, dan `012_enforce_role_employee_link_invariant` diterapkan.
+1. Jalankan migrasi database; pastikan versi `010_separate_superadmin_accounts_from_employee_records`, `011_exclude_legacy_superadmin_profiles_from_employee_master`, `012_enforce_role_employee_link_invariant`, dan `014_separate_admin_operational_accounts_from_employee_records` diterapkan.
 2. Login dengan akun Superadmin lama; profil tetap bisa dibuka, tetapi menampilkan identitas **Akun Pemilik Sistem / SUPERADMIN**, bukan NIK, jabatan pegawai, kantor, atau bidang kerja.
 3. Pastikan akun SUPERADMIN tidak tampil di Pegawai Hari Ini, roster, pilihan pegawai, rekap payroll sebagai pegawai, atau daftar absensi pribadi.
-4. Uji akses `GET /api/v1/attendance/today`, `POST /api/v1/attendance/session`, dan `PUT /api/v1/profile/photo` dengan token SUPERADMIN; request harus ditolak.
-5. Buka **Kelola Akun & ACC**, buat akun baru dengan role SUPERADMIN. Form tidak meminta NIK, foto, kantor, bidang, atau jabatan.
+4. Uji akses `GET /api/v1/attendance/today` dan `POST /api/v1/attendance/session` dengan token SUPERADMIN maupun ADMIN; request harus ditolak. Endpoint `PUT /api/v1/profile/photo` tetap boleh digunakan keduanya untuk foto profil akun mandiri.
+5. Buka **Kelola Akun & ACC**, buat akun baru dengan role SUPERADMIN. Form tidak meminta NIK, kantor, bidang, atau jabatan; foto profil akun dapat diunggah secara terpisah.
 6. Pastikan akun SUPERADMIN baru muncul pada daftar akun sebagai **Akun Sistem / Non-Pegawai**, `karyawan_id` bernilai NULL, dan tidak membuat baris pada tabel `karyawan`.
 7. Uji perubahan nama tampilan, username, email, nomor HP, aktif/nonaktif, serta reset password akun Superadmin lain.
 8. Pastikan akun Superadmin yang sedang dipakai tidak dapat menonaktifkan dirinya sendiri dan sistem menolak penonaktifan Superadmin aktif terakhir.
 9. Pastikan setiap pembuatan/perubahan/reset akun tercatat pada Audit Trail sebagai aktor SUPERADMIN.
-10. Pastikan akun ADMIN dan KARYAWAN tetap menjadi akun pegawai dan semua fitur absensi mereka tetap berjalan.
-11. Pada profil SUPERADMIN, unggah foto PNG/JPG/WEBP maksimal 2 MB. Pastikan foto muncul di header profil, navigasi, dan daftar Kelola Akun, serta kolom foto tersimpan pada `pengguna`, bukan `karyawan`.
-12. Tekan **Reset Foto** dan pastikan avatar kembali ke inisial default tanpa mengubah `karyawan_id = NULL`.
-13. Pastikan database menolak `INSERT/UPDATE` yang mencoba menghubungkan SUPERADMIN ke `karyawan_id`, dan menolak akun ADMIN/KARYAWAN tanpa `karyawan_id`.
+10. Pastikan hanya KARYAWAN yang memiliki profil pegawai dan fitur absensi pribadi. ADMIN (Admin Operasional) harus `karyawan_id = NULL`, tidak memiliki NIK/penempatan/absensi pribadi, tetapi tetap dapat mengelola operasi karyawan sesuai hak akses.
+11. Pada profil ADMIN dan SUPERADMIN, unggah foto PNG/JPG/WEBP maksimal 2 MB. Pastikan foto muncul di header profil, navigasi, dan daftar Kelola Akun, serta kolom foto tersimpan pada `pengguna`, bukan `karyawan`.
+12. Tekan **Reset Foto** untuk ADMIN dan SUPERADMIN; pastikan avatar kembali ke inisial default tanpa mengubah `karyawan_id = NULL`.
+13. Pastikan database menolak `INSERT/UPDATE` yang mencoba menghubungkan ADMIN atau SUPERADMIN ke `karyawan_id`, dan menolak KARYAWAN tanpa `karyawan_id`.
+14. Buat akun Admin Operasional melalui halaman registrasi tanpa kantor/bidang; ACC oleh Superadmin harus menghasilkan akun `ADMIN` mandiri dengan `nik_diberikan = NULL`, `karyawan_id = NULL`, dan tidak menambah baris aktif pada master pegawai.
+15. Ubah role akun Admin menjadi Karyawan melalui Kelola Akun; pastikan profil pegawai dibuat atau arsip lama yang cocok diaktifkan kembali. Ubah kembali menjadi Admin; pastikan profil pegawai diarsipkan dan akun kembali mandiri. Riwayat absensi dan audit historis tidak boleh dihapus.
 
 ## 6. UAT Admin Edit Bidang & Jam Absensi Mobile
 
