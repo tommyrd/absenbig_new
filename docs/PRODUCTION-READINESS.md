@@ -14,7 +14,8 @@
 | Standalone Production Boot | Perlu verifikasi ulang | Jalankan server production dan cek healthcheck setelah build terbaru. |
 | Session Time Window & GPS Quality | Diperbarui | Frontend dan backend memakai waktu WIB server; batas `jam_selesai` dikunci; GPS wajib akurasi maksimum ±100m dan margin akurasi tetap di dalam radius pada sesi yang diwajibkan kantor. |
 | Attendance Location Policy | Diperbarui | Admin dapat memilih Sesi 1 wajib kantor (default, sesi 2+ fleksibel) atau semua sesi wajib kantor; diterapkan di API dan UI. |
-| Browser GPS & Address | Diperbarui | Koordinat, akurasi, jarak dan link Google Maps ditampilkan dari Geolocation browser. Alamat teks opsional melalui Google Geocoding server-side jika API key dan billing dikonfigurasi. |
+| Browser GPS & Address | Diperbarui | Koordinat, akurasi, jarak dan link peta dari Geolocation browser. Alamat aktual diperkirakan via Geoapify dan disimpan per sesi; alamat kantor penempatan ditampilkan terpisah. |
+| Attendance Location Snapshot | Diperbarui | Migrasi 006 menambahkan `absensi_sesi.lokasi_alamat`; feed menampilkan lokasi aktual hasil reverse geocoding dan kantor penempatan secara terpisah. Catatan lama dapat di-resolve saat Detail Lokasi dibuka. |
 | Employee History Calendar | Diperbarui | Kalender Senin–Minggu berwarna dari resolver harian, dapat dipilih untuk membuka timeline, dengan penanda Admin Override. |
 | Employee Login & Session Navigation | Diperbarui | Menggunakan waktu server WIB; masuk ke Absensi hanya ketika sesi berikutnya sedang terbuka; setelah check-in kembali ke Beranda bila sesi selanjutnya belum terbuka; Beranda memeriksa jadwal setiap 15 detik. |
 | Mobile GPS Prompt & Photo Viewer | Diperbarui | GPS tidak diminta otomatis; izin diminta setelah aksi pengguna; lightbox foto berada di tengah viewport dan konten detail dapat discroll. |
