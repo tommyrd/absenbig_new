@@ -72,7 +72,7 @@ export interface AuthUser {
   email: string;
   no_hp?: string;
   role: Role;
-  karyawan_id: number;
+  karyawan_id: number | null;
   nama_lengkap: string;
   nik: string;
   jabatan: string;
@@ -113,21 +113,21 @@ export interface PendaftaranAkun {
 
 export interface ManagedAccount {
   user_id: number;
-  karyawan_id: number;
-  nik: string;
+  karyawan_id: number | null;
+  nik: string | null;
   username: string;
   email: string;
   nama_lengkap: string;
   no_hp: string;
   jabatan: string;
   role: Role;
-  kantor_id: number;
-  kantor_nama: string;
-  bidang_id: number;
-  bidang_nama: string;
-  tanggal_masuk: string;
+  kantor_id: number | null;
+  kantor_nama: string | null;
+  bidang_id: number | null;
+  bidang_nama: string | null;
+  tanggal_masuk: string | null;
   user_aktif: number;
-  karyawan_aktif: number;
+  karyawan_aktif: number | null;
   has_foto_profil: boolean;
   foto_profil_updated_at: string | null;
   created_at: string;
