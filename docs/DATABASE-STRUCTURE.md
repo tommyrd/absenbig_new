@@ -24,7 +24,7 @@ Master data kepegawaian dan foto profil.
 
 ### 1.5 `pengguna`
 Akun autentikasi dan hak akses role.
-- `id` (`INTEGER PK`), `username` (`TEXT UNIQUE`), `email` (`TEXT UNIQUE`), `password_hash`, `role` (`CHECK IN ('KARYAWAN','ADMIN','SUPERADMIN')`), `karyawan_id` (`FK -> karyawan.id`), `aktif`, `token_version` (`DEFAULT 1`), `created_at`.
+- `id` (`INTEGER PK`), `username` (`TEXT UNIQUE`), `email` (`TEXT UNIQUE`), `password_hash`, `role` (`CHECK IN ('KARYAWAN','ADMIN','SUPERADMIN')`), `karyawan_id` (`FK -> karyawan.id`, nullable), `nama_tampilan`, `no_hp`, `aktif`, `token_version` (`DEFAULT 1`), `created_at`. Akun `KARYAWAN` dan `ADMIN` tetap terhubung ke profil pegawai; akun `SUPERADMIN` adalah identitas pemilik sistem yang berdiri sendiri, tidak memiliki NIK/penempatan/absensi dan disimpan dengan `karyawan_id = NULL`.
 
 ### 1.6 `revoked_tokens`
 Daftar `jti` token sesi yang telah direvoke sebelum kedaluwarsa (mis. setelah logout).
