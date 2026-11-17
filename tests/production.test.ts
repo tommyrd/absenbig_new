@@ -447,7 +447,7 @@ test('6. SVG logo XSS sanitization, attendance camera-only, jam_mulai gate, geof
   assert.equal(logoFetch.headers.get('x-content-type-options'), 'nosniff');
   assert.match(logoFetch.headers.get('content-security-policy') || '', /default-src 'none'/i);
 
-  // Create strict geofence office (TOLAK_LUAR_RADIUS) and move employee into it (7-day work week to be deterministic even on Sunday)
+  // Create a legacy CATAT_DENGAN_FLAG office; strict server enforcement must still reject outside-radius attendance.
   const officeRes = await apiJson<{ id: number }>('/api/v1/master/offices', {
     method: 'POST',
     token: adminToken,
@@ -458,11 +458,15 @@ test('6. SVG logo XSS sanitization, attendance camera-only, jam_mulai gate, geof
       lat: -6.2,
       lng: 106.8,
       radius_meter: 100,
-      geofence_mode: 'TOLAK_LUAR_RADIUS',
+      geofence_mode: 'CATAT_DENGAN_FLAG',
     },
   });
   assert.equal(officeRes.status, 201);
   strictOfficeId = officeRes.data.id;
+  const persistedGeofence = db
+    .prepare(`SELECT geofence_mode FROM kantor WHERE id = ?`)
+    .get(strictOfficeId) as { geofence_mode: string };
+  assert.equal(persistedGeofence.geofence_mode, 'TOLAK_LUAR_RADIUS');
   db.prepare(`UPDATE kalender_kerja SET status_hari = 'HARI_KERJA' WHERE kantor_id = ?`).run(strictOfficeId);
   db.prepare(`UPDATE karyawan SET kantor_id = ? WHERE id = ?`).run(strictOfficeId, karyawanId);
 
