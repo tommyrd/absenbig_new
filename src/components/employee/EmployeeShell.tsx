@@ -52,6 +52,7 @@ export function EmployeeShell({
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
   const [focusAttendanceId, setFocusAttendanceId] = useState<number | null>(null);
   const suppressedAutoOpenSessionRef = useRef<string | null>(null);
+  const clearFocusedAttendance = useCallback(() => setFocusAttendanceId(null), []);
 
   const fetchToday = useCallback(
     () =>
@@ -298,7 +299,7 @@ export function EmployeeShell({
             user={user}
             myDay={myDay}
             focusAttendanceId={focusAttendanceId}
-            onFocusHandled={() => setFocusAttendanceId(null)}
+            onFocusHandled={clearFocusedAttendance}
             onGoToAbsensi={() => setTab('absensi')}
           />
         )}
