@@ -596,7 +596,8 @@ export function registerApiRoutes(app: Express) {
 
     const scope = req.query.scope === 'today' ? 'today' : 'recent';
     let postSql = `
-      SELECT s.*, k.nik, k.nama_lengkap, k.jabatan, k.kantor_id, k.bidang_id, k.foto_profil_updated_at,
+      SELECT s.*, COALESCE(NULLIF(s.lokasi_alamat, ''), alc.alamat) as lokasi_aktual_alamat,
+             k.nik, k.nama_lengkap, k.jabatan, k.kantor_id, k.bidang_id, k.foto_profil_updated_at,
              kt.nama as kantor_nama, kt.alamat as kantor_alamat,
              b.nama as bidang_nama,
              COALESCE(u.role, 'KARYAWAN') as role
@@ -604,6 +605,7 @@ export function registerApiRoutes(app: Express) {
       JOIN karyawan k ON s.karyawan_id = k.id
       JOIN kantor kt ON k.kantor_id = kt.id
       JOIN bidang_kerja b ON k.bidang_id = b.id
+      LEFT JOIN absensi_lokasi_cache alc ON alc.absensi_sesi_id = s.id
       LEFT JOIN pengguna u ON u.karyawan_id = k.id AND u.aktif = 1
       WHERE k.aktif = 1
     `;
@@ -635,7 +637,7 @@ export function registerApiRoutes(app: Express) {
       kantor_id: number;
       kantor_nama: string;
       kantor_alamat: string;
-      lokasi_alamat: string | null;
+      lokasi_aktual_alamat: string | null;
       tanggal: string;
       urutan_sesi: number;
       nama_sesi: string;
@@ -666,7 +668,7 @@ export function registerApiRoutes(app: Express) {
         kantorId: p.kantor_id,
         kantorNama: p.kantor_nama,
         kantorAlamat: p.kantor_alamat,
-        lokasiAktualAlamat: p.lokasi_alamat ?? null,
+        lokasiAktualAlamat: p.lokasi_aktual_alamat ?? null,
         tanggal: p.tanggal,
         urutanSesi: p.urutan_sesi,
         namaSesi: p.nama_sesi,
@@ -757,6 +759,103 @@ export function registerApiRoutes(app: Express) {
       res.status(502).json({ error: 'Gagal mengambil alamat lokasi. Koordinat GPS tetap tersedia.' });
     }
   });
+
+  // Resolve missing address labels for feed cards in small batches. The client
+  // submits session IDs only; GPS coordinates are read from immutable records.
+  // Legacy derived addresses are stored in a separate cache table, not by
+  // mutating the historical attendance proof row.
+  app.post('/api/v1/feed/location-addresses', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), asyncRoute(async (req, res) => {
+    const rawIds = (req.body as { sessionIds?: unknown }).sessionIds;
+    if (!Array.isArray(rawIds) || rawIds.length < 1 || rawIds.length > 10) {
+      res.status(400).json({ error: 'Kirim 1 sampai 10 ID sesi absensi per permintaan.' });
+      return;
+    }
+    if (rawIds.some((id) => !Number.isSafeInteger(id) || Number(id) <= 0)) {
+      res.status(400).json({ error: 'Daftar ID sesi absensi tidak valid.' });
+      return;
+    }
+    const sessionIds = [...new Set(rawIds as number[])];
+    if (sessionIds.length < 1 || sessionIds.length > 10) {
+      res.status(400).json({ error: 'Jumlah ID sesi absensi tidak valid.' });
+      return;
+    }
+
+    const placeholders = sessionIds.map(() => '?').join(', ');
+    const rows = db.prepare(
+      `SELECT s.id, s.karyawan_id, s.tanggal, s.lat, s.lng,
+              COALESCE(NULLIF(s.lokasi_alamat, ''), alc.alamat) as alamat
+       FROM absensi_sesi s
+       LEFT JOIN absensi_lokasi_cache alc ON alc.absensi_sesi_id = s.id
+       WHERE s.id IN (${placeholders})`
+    ).all(...sessionIds) as {
+      id: number;
+      karyawan_id: number;
+      tanggal: string;
+      lat: number | null;
+      lng: number | null;
+      alamat: string | null;
+    }[];
+
+    const currentUser = req.authUser!;
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const items: { sessionId: number; address: string | null; configured: boolean }[] = [];
+
+    for (const row of rows) {
+      // Match existing employee photo permissions: own records are available;
+      // coworker records are limited to the latest 30 days. Admin/Superadmin
+      // can resolve all feed records.
+      if (
+        currentUser.role === 'KARYAWAN' &&
+        row.karyawan_id !== currentUser.karyawan_id &&
+        row.tanggal < cutoff
+      ) {
+        continue;
+      }
+
+      if (row.alamat) {
+        items.push({ sessionId: row.id, address: row.alamat, configured: true });
+        continue;
+      }
+      if (row.lat === null || row.lng === null) {
+        items.push({
+          sessionId: row.id,
+          address: null,
+          configured: Boolean(process.env.GEOAPIFY_API_KEY?.trim()),
+        });
+        continue;
+      }
+
+      try {
+        const resolved = await getGeoapifyAddress(row.lat, row.lng);
+        if (resolved.address) {
+          db.prepare(
+            `INSERT INTO absensi_lokasi_cache
+              (absensi_sesi_id, lat, lng, alamat, provider, resolved_at)
+             VALUES (?, ?, ?, ?, 'GEOAPIFY', ?)
+             ON CONFLICT(absensi_sesi_id) DO UPDATE SET
+               lat = excluded.lat,
+               lng = excluded.lng,
+               alamat = excluded.alamat,
+               provider = excluded.provider,
+               resolved_at = excluded.resolved_at`
+          ).run(row.id, row.lat, row.lng, resolved.address, getWibIsoString());
+        }
+        items.push({
+          sessionId: row.id,
+          address: resolved.address,
+          configured: resolved.configured,
+        });
+      } catch {
+        items.push({
+          sessionId: row.id,
+          address: null,
+          configured: Boolean(process.env.GEOAPIFY_API_KEY?.trim()),
+        });
+      }
+    }
+
+    res.json({ items });
+  }));
 
   app.post('/api/v1/attendance/session', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), asyncRoute(async (req, res) => {
     const user = req.authUser!;
