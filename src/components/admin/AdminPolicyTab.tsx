@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Edit3, Plus, ShieldCheck, X } from 'lucide-react';
 import { apiFetch } from '../../lib/api';
-import type { BidangKerja, Karyawan, KebijakanAbsensi, PolicyLevel, SesiConfig } from '../../shared/types';
+import type { AttendanceLocationRule, BidangKerja, Karyawan, KebijakanAbsensi, PolicyLevel, SesiConfig } from '../../shared/types';
 
 function makeDefaultSesi(count: number): SesiConfig[] {
   return Array.from({ length: count }).map((_, i) => ({
@@ -31,6 +31,7 @@ export function AdminPolicyTab() {
     jumlah_sesi: 3,
     min_sesi_hadir: 2,
     toleransi_terlambat_menit: 15,
+    aturan_lokasi: 'SESI_PERTAMA_KANTOR' as AttendanceLocationRule,
     wajib_foto_semua_sesi: true,
     wajib_aktivitas_sesi_lanjut: true,
     libur_dihitung_masuk: true,
@@ -72,6 +73,7 @@ export function AdminPolicyTab() {
       jumlah_sesi: 3,
       min_sesi_hadir: 2,
       toleransi_terlambat_menit: 15,
+      aturan_lokasi: 'SESI_PERTAMA_KANTOR',
       wajib_foto_semua_sesi: true,
       wajib_aktivitas_sesi_lanjut: true,
       libur_dihitung_masuk: true,
@@ -94,6 +96,7 @@ export function AdminPolicyTab() {
       jumlah_sesi: p.jumlah_sesi,
       min_sesi_hadir: p.min_sesi_hadir,
       toleransi_terlambat_menit: p.toleransi_terlambat_menit,
+      aturan_lokasi: p.aturan_lokasi || 'SESI_PERTAMA_KANTOR',
       wajib_foto_semua_sesi: Boolean(p.wajib_foto_semua_sesi),
       wajib_aktivitas_sesi_lanjut: Boolean(p.wajib_aktivitas_sesi_lanjut),
       libur_dihitung_masuk: Boolean(p.libur_dihitung_masuk),
@@ -206,6 +209,15 @@ export function AdminPolicyTab() {
                     {p.toleransi_terlambat_menit} Menit
                   </p>
                 </div>
+              </div>
+
+              <div className="rounded-lg border border-blue-100 dark:border-blue-900/60 bg-blue-50/60 dark:bg-blue-950/20 px-3 py-2.5 text-xs">
+                <p className="font-semibold text-slate-800 dark:text-slate-200">Aturan Lokasi Absensi</p>
+                <p className="mt-1 text-slate-600 dark:text-slate-300">
+                  {p.aturan_lokasi === 'SEMUA_SESI_KANTOR'
+                    ? 'Semua sesi wajib dilakukan di dalam radius kantor.'
+                    : 'Sesi 1 wajib di kantor; Sesi 2 dan seterusnya boleh dari lokasi lain.'}
+                </p>
               </div>
 
               <div className="text-xs text-slate-600 dark:text-slate-300 space-y-1">
@@ -367,6 +379,29 @@ export function AdminPolicyTab() {
                     className="w-full min-h-[44px] sm:h-10 px-3 text-sm font-mono bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
                   />
                 </div>
+              </div>
+
+              <div className="space-y-2 rounded-xl border border-blue-100 dark:border-blue-900/60 bg-blue-50/50 dark:bg-blue-950/20 p-3.5">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-800 dark:text-slate-200 mb-1.5">
+                    Aturan Lokasi Absensi
+                  </label>
+                  <select
+                    value={form.aturan_lokasi}
+                    onChange={(e) =>
+                      setForm({ ...form, aturan_lokasi: e.target.value as AttendanceLocationRule })
+                    }
+                    className="w-full min-h-[44px] px-3 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
+                  >
+                    <option value="SESI_PERTAMA_KANTOR">Sesi 1 wajib di kantor; sesi berikutnya fleksibel</option>
+                    <option value="SEMUA_SESI_KANTOR">Semua sesi wajib di kantor</option>
+                  </select>
+                </div>
+                <p className="text-[11px] leading-relaxed text-slate-600 dark:text-slate-400">
+                  {form.aturan_lokasi === 'SEMUA_SESI_KANTOR'
+                    ? 'Karyawan harus melakukan seluruh absensi dalam radius kantor. Lokasi dengan GPS tidak akurat akan ditolak.'
+                    : 'Pengaturan default perusahaan: absensi pertama wajib dalam radius kantor. Sesi 2 dan seterusnya boleh dari lokasi kerja lain; koordinat dan akurasi GPS tetap direkam sebagai informasi lokasi.'}
+                </p>
               </div>
 
               {/* Session Rows */}
