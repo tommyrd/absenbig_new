@@ -144,6 +144,8 @@ export interface SystemSettings {
   footer_login: string;
   has_custom_logo: boolean;
   logo_updated_at: string | null;
+  has_custom_favicon: boolean;
+  favicon_updated_at: string | null;
   retensi_foto_hari: number;
   wajib_gps_absensi: number;
   izin_demo_login: number;
