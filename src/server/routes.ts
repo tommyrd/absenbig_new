@@ -1870,8 +1870,8 @@ export function registerApiRoutes(app: Express) {
       return;
     }
 
-    db.exec('BEGIN IMMEDIATE');
     try {
+      db.exec('BEGIN IMMEDIATE');
       const before = db.prepare(`SELECT * FROM kantor WHERE id = ?`).get(id) as
         | { id: number; kode: string; nama: string }
         | undefined;
@@ -1997,8 +1997,8 @@ export function registerApiRoutes(app: Express) {
       return;
     }
 
-    db.exec('BEGIN IMMEDIATE');
     try {
+      db.exec('BEGIN IMMEDIATE');
       const before = db.prepare(`SELECT * FROM bidang_kerja WHERE id = ?`).get(id) as
         | { id: number; kode: string; nama: string; deskripsi: string }
         | undefined;
