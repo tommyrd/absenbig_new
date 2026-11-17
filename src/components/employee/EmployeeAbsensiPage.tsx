@@ -140,9 +140,11 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   const [submitting, setSubmitting] = useState(false);
   const [submitMsg, setSubmitMsg] = useState<{ type: 'loading' | 'ok' | 'err'; text: string } | null>(null);
 
-  const loadToday = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const loadToday = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const res = await apiFetch<TodayResponse>('/api/v1/attendance/today');
       setData(res);
@@ -154,14 +156,18 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
         setLiveWibHm(res.serverTime.slice(0, 5));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gagal memuat status absensi.');
+      if (!silent) setError(err instanceof Error ? err.message : 'Gagal memuat status absensi.');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    loadToday();
+    void loadToday();
+    // Pick up a newly issued Admin check-in permission without forcing the
+    // employee to sign out or reopen the page.
+    const refreshId = window.setInterval(() => void loadToday(true), 15000);
+    return () => window.clearInterval(refreshId);
   }, [loadToday]);
 
   useEffect(() => {
@@ -272,10 +278,14 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
 
     const next = data?.day.policySnapshot.sesiList[data.day.sessionsCompleted];
     const currentMinute = parseHm(liveWibHm);
-    if (!next || currentMinute < parseHm(next.jam_mulai) || currentMinute > parseHm(next.jam_selesai)) {
+    if (
+      !next ||
+      currentMinute < parseHm(next.jam_mulai) ||
+      (currentMinute > parseHm(next.jam_selesai) && !data?.day.checkinOverride?.active)
+    ) {
       setCameraError(
         next
-          ? `Waktu absensi hanya ${next.jam_mulai}–${next.jam_selesai} WIB. Sesi belum dibuka atau sudah dikunci.`
+          ? `Waktu absensi hanya ${next.jam_mulai}–${next.jam_selesai} WIB. Sesi belum dibuka atau sudah dikunci. Minta Admin membuka akses check-in khusus bila diperlukan.`
           : 'Tidak ada sesi absensi berikutnya.'
       );
       return;
@@ -448,11 +458,15 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
       });
       return;
     }
-    if (nextSesiCfg && currentMinute > parseHm(nextSesiCfg.jam_selesai)) {
+    if (
+      nextSesiCfg &&
+      currentMinute > parseHm(nextSesiCfg.jam_selesai) &&
+      !data.day.checkinOverride?.active
+    ) {
       stopCamera();
       setSubmitMsg({
         type: 'err',
-        text: `Waktu absensi ${nextSesiCfg.nama} sudah berakhir pukul ${nextSesiCfg.jam_selesai} WIB. Hubungi Admin bila ada kendala perangkat untuk Admin Override payroll.`,
+        text: `Waktu absensi ${nextSesiCfg.nama} sudah berakhir pukul ${nextSesiCfg.jam_selesai} WIB. Hubungi Admin untuk meminta akses check-in khusus.`,
       });
       return;
     }
@@ -607,8 +621,9 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   const nextWindowState = nextSesi
     ? getSessionWindowState(nowMin, nextSesi.jam_mulai, nextSesi.jam_selesai)
     : 'INVALID';
-  const nextSessionExpired = nextWindowState === 'EXPIRED';
-  const nextSessionStarted = nextWindowState === 'OPEN';
+  const hasActiveCheckinOverride = Boolean(day.checkinOverride?.active);
+  const nextSessionExpired = nextWindowState === 'EXPIRED' && !hasActiveCheckinOverride;
+  const nextSessionStarted = nextWindowState === 'OPEN' || hasActiveCheckinOverride;
   const minutesUntilStart = nextSesi ? Math.max(0, nextStartMin - nowMin) : 0;
   const photoRequired = Boolean(
     nextSesi &&
@@ -781,7 +796,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                     className={`p-3.5 rounded-xl border transition-colors ${
                       record
                         ? 'bg-emerald-50/60 dark:bg-emerald-950/35 border-emerald-200 dark:border-emerald-800/70'
-                        : isNext && sesiStarted
+                        : isNext && (sesiStarted || hasActiveCheckinOverride)
                         ? 'bg-blue-50/70 dark:bg-blue-950/40 border-blue-600 dark:border-blue-500'
                         : isNext
                         ? 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700/70'
@@ -801,6 +816,11 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                         <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
                           <CheckCircle2 className="w-4 h-4" />
                           {record.waktu_server.slice(11, 16)}
+                        </span>
+                      ) : isNext && hasActiveCheckinOverride ? (
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 dark:text-blue-400">
+                          <CheckCircle2 className="w-4 h-4" />
+                          Izin Admin Aktif
                         </span>
                       ) : isNext && sesiStarted ? (
                         <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 dark:text-blue-400">
@@ -902,7 +922,22 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                   </div>
 
                   {/* Session time-window notice */}
-                  {nextSessionExpired ? (
+                  {hasActiveCheckinOverride ? (
+                    <div className="p-4 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/70 flex items-start gap-3">
+                      <CheckCircle2 className="w-5 h-5 text-blue-700 dark:text-blue-400 shrink-0 mt-0.5" />
+                      <div className="space-y-1 text-xs">
+                        <p className="font-bold text-blue-950 dark:text-blue-100">
+                          Izin Check-in Khusus dari Admin Aktif
+                        </p>
+                        <p className="text-blue-900 dark:text-blue-200 leading-relaxed">
+                          Admin {day.checkinOverride?.adminNama} membuka akses untuk {nextSesi.nama}.
+                          Selesaikan absensi sebelum pukul <span className="font-mono font-semibold">{day.checkinOverride?.berlakuSampai.slice(11, 16)} WIB</span>.
+                          Waktu aktual tetap dicatat dan status keterlambatan tidak dihapus.
+                        </p>
+                        <p className="text-blue-800 dark:text-blue-300">Alasan: {day.checkinOverride?.alasan}</p>
+                      </div>
+                    </div>
+                  ) : nextSessionExpired ? (
                     <div className="p-4 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/70 flex items-start gap-3">
                       <Lock className="w-5 h-5 text-red-700 dark:text-red-400 shrink-0 mt-0.5" />
                       <div className="space-y-1 text-xs">
@@ -911,8 +946,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                         </p>
                         <p className="text-red-900 dark:text-red-200 leading-relaxed">
                           Sesi {nextSesi.nama} ditutup pukul <span className="font-mono font-semibold">{nextSesi.jam_selesai} WIB</span>.
-                          Absensi mandiri dikunci. Bila HP rusak, GPS bermasalah, atau ada keadaan khusus,
-                          hubungi Admin untuk Admin Override payroll dengan alasan dan audit trail.
+                          Absensi mandiri dikunci. Hubungi Admin untuk meminta akses check-in khusus bila ada keadaan operasional yang dapat dipertanggungjawabkan.
                         </p>
                       </div>
                     </div>
