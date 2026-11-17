@@ -1,5 +1,16 @@
 # Changelog — Absensi BIGNET
 
+## 2026-11-17 — Admin edit bidang kerja & perbaikan jam absensi mobile
+
+- ADMIN operasional dapat mengubah kode, nama, dan deskripsi master bidang kerja dari **Master Karyawan, Kantor & Bidang**; perubahan masuk ke Audit Trail.
+- Form edit karyawan tetap memungkinkan ADMIN memindahkan pegawai ke bidang kerja lain. Backend memvalidasi kantor/bidang yang dipilih dan mengembalikan HTTP 400 untuk referensi tidak valid, bukan membiarkan kegagalan foreign key menjadi error server.
+- Jam pembukaan sesi pada halaman Absensi sekarang mengikuti waktu server melalui `performance.now()` yang monoton, bukan jam dinding perangkat + offset yang dihitung sekali.
+- Waktu dan jadwal disinkronkan ulang setelah izin GPS, saat tab kembali fokus/visible, `pageshow`, serta secara berkala. Jam header mengikuti mekanisme server-clock yang sama.
+- Server tetap menjadi otoritas final: endpoint kirim absensi tetap memvalidasi ulang jam sesi, urutan, GPS, geofence, kamera, dan bukti sebelum menyimpan.
+- Ditambahkan tes regresi untuk clock drift/resume browser dan integrasi ADMIN untuk edit master bidang serta assignment bidang teknisi.
+
+# Changelog — Absensi BIGNET
+
 ## 2026-11-17 — Foto profil SUPERADMIN mandiri
 
 - Tombol **Ganti Foto Profil** kini tersedia untuk akun SUPERADMIN.
