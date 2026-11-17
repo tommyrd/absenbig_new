@@ -84,6 +84,17 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   const readCurrentGps = useCallback(
     () =>
       new Promise<{ lat: number; lng: number; accuracy: number }>((resolve, reject) => {
+        const localTrustedHosts = ['localhost', '127.0.0.1', '::1'];
+        const isTrustedLocalHost = localTrustedHosts.includes(window.location.hostname);
+        if (!window.isSecureContext && !isTrustedLocalHost) {
+          reject(
+            new Error(
+              'GPS dan kamera memerlukan koneksi HTTPS. Alamat HTTP melalui IP lokal (192.168.x.x) tidak dapat meminta lokasi presisi dari browser. Buka aplikasi melalui HTTPS untuk melakukan absensi.'
+            )
+          );
+          return;
+        }
+
         if (!navigator.geolocation) {
           reject(new Error('Browser tidak mendukung Geolocation.'));
           return;
