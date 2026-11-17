@@ -439,6 +439,7 @@ export function SuperadminConsole({
         >
           <UserAvatar
             karyawanId={user.karyawan_id}
+            userId={user.karyawan_id === null ? user.id : null}
             name={user.nama_lengkap}
             role={user.role}
             version={user.foto_profil_updated_at}
@@ -527,6 +528,7 @@ export function SuperadminConsole({
             >
               <UserAvatar
                 karyawanId={user.karyawan_id}
+                userId={user.karyawan_id === null ? user.id : null}
                 name={user.nama_lengkap}
                 role={user.role}
                 version={user.foto_profil_updated_at}
@@ -613,6 +615,7 @@ export function SuperadminConsole({
             >
               <UserAvatar
                 karyawanId={user.karyawan_id}
+                userId={user.karyawan_id === null ? user.id : null}
                 name={user.nama_lengkap}
                 role={user.role}
                 version={user.foto_profil_updated_at}
