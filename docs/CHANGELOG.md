@@ -89,3 +89,12 @@
 - Foto memakai tinggi maksimum konsisten dan `object-contain` agar bukti foto utuh tanpa crop agresif.
 - Status sesi, ketepatan waktu, dan geofence memakai label visual terpisah; lokasi, koordinat GPS, jarak, dan Detail lokasi tetap dipertahankan.
 - Jarak di atas 1 km diringkas dalam kilometer agar lebih mudah dibaca.
+
+## 2026-11-17 — Separate actual attendance location from assigned office address
+
+- Menemukan bahwa feed sebelumnya memakai `kt.alamat` (alamat kantor penempatan) sebagai alamat lokasi absensi. Ini menyebabkan koordinat GPS Pontianak tampil bersama alamat kantor Jakarta.
+- Migrasi 006 menambahkan `absensi_sesi.lokasi_alamat` untuk menyimpan snapshot alamat perkiraan Geoapify pada saat absensi dibuat.
+- API feed mengembalikan `lokasiAktualAlamat` terpisah dari `kantorAlamat`; card menampilkan Lokasi saat absen dan Kantor penempatan sebagai dua informasi berbeda.
+- Geoapify lookup dijalankan best-effort dan memakai cache/deduplikasi; kegagalan geocoding tidak memblokir absensi atau mengubah geofence.
+- Catatan absensi lama tanpa snapshot dapat di-resolve ketika Detail Lokasi dibuka; card tidak lagi menyamarkan alamat kantor sebagai lokasi aktual.
+- Atribusi Geoapify dan OpenStreetMap ditambahkan pada informasi alamat.
