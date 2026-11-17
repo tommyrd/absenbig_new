@@ -2991,25 +2991,43 @@ export function registerApiRoutes(app: Express) {
 
       try {
         db.exec('BEGIN IMMEDIATE');
-        db.prepare(`UPDATE karyawan SET nama_lengkap = ?, email = ?, no_hp = ? WHERE id = ?`).run(
-          cleanName,
-          cleanEmail,
-          cleanHp,
-          user.karyawan_id
-        );
-        db.prepare(`UPDATE pengguna SET email = ? WHERE id = ?`).run(cleanEmail, user.id);
-
-        writeAuditLog(db, {
-          actor: user,
-          req,
-          modul: 'PROFIL_AKUN',
-          aksi: 'UPDATE_PROFILE',
-          targetEntity: 'karyawan',
-          targetId: user.karyawan_id,
-          karyawanId: user.karyawan_id,
-          before,
-          after: { nama_lengkap: cleanName, email: cleanEmail, no_hp: cleanHp },
-        });
+        if (user.karyawan_id === null) {
+          db.prepare(
+            `UPDATE pengguna SET nama_tampilan = ?, email = ?, no_hp = ? WHERE id = ?`
+          ).run(cleanName, cleanEmail, cleanHp, user.id);
+          writeAuditLog(db, {
+            actor: user,
+            req,
+            modul: 'PROFIL_AKUN',
+            aksi: 'UPDATE_SUPERADMIN_PROFILE',
+            targetEntity: 'pengguna',
+            targetId: user.id,
+            before,
+            after: { nama_lengkap: cleanName, email: cleanEmail, no_hp: cleanHp },
+            alasan: 'Pembaruan identitas akun Superadmin tanpa profil karyawan',
+          });
+        } else {
+          db.prepare(`UPDATE karyawan SET nama_lengkap = ?, email = ?, no_hp = ? WHERE id = ?`).run(
+            cleanName,
+            cleanEmail,
+            cleanHp,
+            user.karyawan_id
+          );
+          db.prepare(`UPDATE pengguna SET email = ?, nama_tampilan = ?, no_hp = ? WHERE id = ?`).run(
+            cleanEmail, cleanName, cleanHp, user.id
+          );
+          writeAuditLog(db, {
+            actor: user,
+            req,
+            modul: 'PROFIL_AKUN',
+            aksi: 'UPDATE_PROFILE',
+            targetEntity: 'karyawan',
+            targetId: user.karyawan_id,
+            karyawanId: user.karyawan_id,
+            before,
+            after: { nama_lengkap: cleanName, email: cleanEmail, no_hp: cleanHp },
+          });
+        }
         db.exec('COMMIT');
       } catch (err) {
         db.exec('ROLLBACK');
