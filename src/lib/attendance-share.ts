@@ -237,12 +237,13 @@ export async function createAttendanceShareImage(post: AttendanceFeedPost): Prom
 
   const isLate = post.statusKetepatan === 'TERLAMBAT';
   const badgeText = isLate ? `TERLAMBAT ${post.keterlambatanMenit} MENIT` : 'TEPAT WAKTU';
-  roundedRect(ctx, PADDING, HEIGHT - 175, 310, 58, 18);
+  const badgeY = Math.max(HEIGHT - 175, addressEnd + 85);
+  roundedRect(ctx, PADDING, badgeY, 310, 58, 18);
   ctx.fillStyle = isLate ? '#fff7ed' : '#ecfdf5';
   ctx.fill();
   ctx.fillStyle = isLate ? '#9a3412' : '#047857';
   ctx.font = '700 22px Arial, sans-serif';
-  ctx.fillText(badgeText, PADDING + 20, HEIGHT - 138);
+  ctx.fillText(badgeText, PADDING + 20, badgeY + 37);
 
   const geoText = post.jarakKantorMeter === null
     ? 'STATUS LOKASI TIDAK TERSEDIA'
@@ -250,12 +251,12 @@ export async function createAttendanceShareImage(post: AttendanceFeedPost): Prom
   ctx.fillStyle = '#64748b';
   ctx.font = '700 18px Arial, sans-serif';
   ctx.textAlign = 'right';
-  ctx.fillText(geoText, WIDTH - PADDING, HEIGHT - 138);
+  ctx.fillText(geoText, WIDTH - PADDING, badgeY + 37);
   ctx.textAlign = 'left';
 
   ctx.fillStyle = '#94a3b8';
   ctx.font = '18px Arial, sans-serif';
-  ctx.fillText('Alamat perkiraan dari GPS · Powered by Geoapify · © OpenStreetMap contributors', PADDING, HEIGHT - 83);
+  ctx.fillText('Alamat perkiraan dari GPS · Powered by Geoapify · © OpenStreetMap contributors', PADDING, HEIGHT - 52);
 
   const blob = await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((value) => {
