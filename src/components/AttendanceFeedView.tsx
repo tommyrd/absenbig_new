@@ -137,6 +137,7 @@ export function AttendanceFeedView({
   useEffect(() => {
     const missing = (feed?.posts || []).filter(
       (post) =>
+        !post.lokasiAlamatLookupDone &&
         !post.lokasiAktualAlamat &&
         !resolvedLocationByPost[post.id] &&
         post.lat !== null &&
