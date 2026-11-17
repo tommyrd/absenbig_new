@@ -9,8 +9,6 @@
 - Server tetap menjadi otoritas final: endpoint kirim absensi tetap memvalidasi ulang jam sesi, urutan, GPS, geofence, kamera, dan bukti sebelum menyimpan.
 - Ditambahkan tes regresi untuk clock drift/resume browser dan integrasi ADMIN untuk edit master bidang serta assignment bidang teknisi.
 
-# Changelog — Absensi BIGNET
-
 ## 2026-11-17 — Foto profil SUPERADMIN mandiri
 
 - Tombol **Ganti Foto Profil** kini tersedia untuk akun SUPERADMIN.
