@@ -105,3 +105,11 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
    - Jika Geoapify tidak terkonfigurasi atau gagal, absensi tetap tersimpan; feed menampilkan koordinat dan penjelasan bahwa alamat aktual tidak tersedia.
    - Geofence tetap dihitung dari lat/lng dan koordinat kantor; alamat hasil geocoding tidak boleh memengaruhi kelulusan radius.
    - Pastikan atribusi Powered by Geoapify dan © OpenStreetMap contributors tetap terlihat.
+
+12. **Automatic Feed Address & Centered History Preview (Mobile):**
+   - Feed Beranda otomatis mencari alamat untuk record lama saat feed dimuat; tidak perlu membuka Detail Lokasi.
+   - Client hanya mengirim ID sesi ke batch endpoint; koordinat dibaca dari database server.
+   - Hasil positif dan negatif disimpan pada `absensi_lokasi_cache`; refresh Beranda tidak mengulang request Geoapify selama cache enam jam valid.
+   - Record baru menyimpan alamat saat submit pada `absensi_sesi.lokasi_alamat`.
+   - Card Beranda tidak menampilkan kantor penempatan; hanya alamat saat absen, koordinat GPS, dan jarak aktual ke kantor.
+   - Modal foto History di mobile tampil di tengah layar dengan jarak dari tepi, bukan bottom sheet yang menempel ke bawah.
