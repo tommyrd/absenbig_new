@@ -244,7 +244,11 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   useEffect(() => {
     if (!data) return;
     const next = data.day.policySnapshot.sesiList[data.day.sessionsCompleted];
-    if (next && parseHm(liveWibHm) > parseHm(next.jam_selesai)) {
+    if (
+      next &&
+      parseHm(liveWibHm) > parseHm(next.jam_selesai) &&
+      !data.day.checkinOverride?.active
+    ) {
       stopCamera();
       setPhotoDataUrl(null);
     }
