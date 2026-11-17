@@ -101,15 +101,24 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
 11. **Actual Check-in Address vs Assigned Office (Feed):**
    - Buat absensi dengan koordinat GPS Pontianak untuk karyawan yang kantor penempatannya Jakarta. Feed harus menampilkan alamat GPS Pontianak sebagai Lokasi saat absen dan Jakarta hanya sebagai Kantor penempatan.
    - Pastikan kolom `lokasi_alamat` tersimpan pada record sesi dan tetap muncul setelah restart server.
-   - Untuk record lama yang `lokasi_alamat` null, card tidak boleh menampilkan alamat kantor sebagai lokasi aktual; Detail Lokasi mencoba reverse geocoding dari koordinat historis.
+   - Untuk record lama yang `lokasi_alamat` null dan tidak memiliki cache alamat lama, card menampilkan keterangan alamat tidak tersimpan serta koordinat GPS; Beranda tidak melakukan reverse geocoding.
    - Jika Geoapify tidak terkonfigurasi atau gagal, absensi tetap tersimpan; feed menampilkan koordinat dan penjelasan bahwa alamat aktual tidak tersedia.
    - Geofence tetap dihitung dari lat/lng dan koordinat kantor; alamat hasil geocoding tidak boleh memengaruhi kelulusan radius.
    - Pastikan atribusi Powered by Geoapify dan © OpenStreetMap contributors tetap terlihat.
 
-12. **Automatic Feed Address & Centered History Preview (Mobile):**
-   - Feed Beranda otomatis mencari alamat untuk record lama saat feed dimuat; tidak perlu membuka Detail Lokasi.
-   - Client hanya mengirim ID sesi ke batch endpoint; koordinat dibaca dari database server.
-   - Hasil positif dan negatif disimpan pada `absensi_lokasi_cache`; refresh Beranda tidak mengulang request Geoapify selama cache enam jam valid.
-   - Record baru menyimpan alamat saat submit pada `absensi_sesi.lokasi_alamat`.
-   - Card Beranda tidak menampilkan kantor penempatan; hanya alamat saat absen, koordinat GPS, dan jarak aktual ke kantor.
-   - Modal foto History di mobile tampil di tengah layar dengan jarak dari tepi, bukan bottom sheet yang menempel ke bawah.
+12. **Submit-Time GPS Address Snapshot (No Geoapify Request from Beranda):**
+   - Memperbarui lokasi pada halaman Absensi hanya membaca Geolocation browser; tidak ada request Geoapify.
+   - Saat submit, backend melakukan paling banyak satu reverse-geocoding untuk koordinat sesi, lalu menyimpan hasil ke `absensi_sesi.lokasi_alamat`.
+   - Kegagalan/timeout Geoapify tidak menggagalkan penyimpanan absensi; koordinat mentah tetap tersimpan dan digunakan geofence.
+   - Membuka, memuat ulang, atau melakukan filter Beranda tidak memanggil endpoint Geoapify. Feed hanya membaca snapshot database.
+   - Catatan lama dengan alamat yang pernah tersimpan tetap dapat dibaca; catatan lama tanpa snapshot/cache hanya menampilkan koordinat dan keterangan alamat tidak tersimpan.
+
+13. **Share Card & Redirect to Newly Published Attendance:**
+   - Setelah submit berhasil, response mengembalikan `sessionId`; pengguna kembali ke Beranda dan card sesi yang baru dibuat otomatis di-scroll ke tengah serta di-highlight.
+   - Setiap post memiliki tombol Bagikan; PNG 4:5 berisi foto, identitas, sesi/waktu, aktivitas, alamat GPS, koordinat, dan jarak aktual.
+   - Pada Android/ browser yang mendukung Web Share file, tombol Bagikan membuka system share sheet dan WhatsApp/Telegram dapat dipilih.
+   - Pada browser yang tidak mendukung file sharing, PNG diunduh dengan instruksi melampirkannya secara manual.
+   - Verifikasi foto bukti dapat diambil menggunakan token otorisasi; jika foto gagal dimuat, kartu tetap dibuat dengan placeholder.
+
+14. **Centered History Preview (Mobile):**
+   - Modal foto History tampil di tengah layar dengan jarak dari tepi, bukan bottom sheet yang menempel ke bawah.
