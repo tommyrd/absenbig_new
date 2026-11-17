@@ -36,6 +36,11 @@ export function SuperadminSettingsTab({ onSettingsUpdated }: SuperadminSettingsT
   const [resetLogo, setResetLogo] = useState(false);
   const [hasCustomLogo, setHasCustomLogo] = useState(false);
 
+  const [faviconPreview, setFaviconPreview] = useState<string>(`/api/v1/assets/favicon?v=${Date.now()}`);
+  const [pendingFaviconBase64, setPendingFaviconBase64] = useState<string | null>(null);
+  const [resetFavicon, setResetFavicon] = useState(false);
+  const [hasCustomFavicon, setHasCustomFavicon] = useState(false);
+
   const loadSettings = useCallback(async () => {
     setLoading(true);
     try {
@@ -53,6 +58,8 @@ export function SuperadminSettingsTab({ onSettingsUpdated }: SuperadminSettingsT
       setIzinDemoLogin(Boolean(s.izin_demo_login));
       setHasCustomLogo(s.has_custom_logo);
       setLogoPreview(`/api/v1/assets/logo?v=${encodeURIComponent(s.logo_updated_at || '1')}`);
+      setHasCustomFavicon(s.has_custom_favicon);
+      setFaviconPreview(`/api/v1/assets/favicon?v=${encodeURIComponent(s.favicon_updated_at || '1')}`);
     } finally {
       setLoading(false);
     }
@@ -86,6 +93,45 @@ export function SuperadminSettingsTab({ onSettingsUpdated }: SuperadminSettingsT
     setLogoPreview(`/api/v1/assets/logo?reset=1&v=${Date.now()}`);
   };
 
+  const handleFaviconFile = (file: File | undefined) => {
+    if (!file) return;
+    if (file.size > 512 * 1024) {
+      setMsg({ type: 'err', text: 'Ukuran favicon maksimal 512 KB.' });
+      return;
+    }
+
+    const extension = file.name.split('.').pop()?.toLowerCase();
+    const isIco = extension === 'ico' || file.type === 'image/x-icon' || file.type === 'image/vnd.microsoft.icon';
+    const isPng = file.type === 'image/png' || extension === 'png';
+    const isSvg = file.type === 'image/svg+xml' || extension === 'svg';
+    if (!isIco && !isPng && !isSvg) {
+      setMsg({ type: 'err', text: 'Format favicon harus PNG, SVG, atau ICO.' });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        let dataUrl = reader.result;
+        if (isIco && !dataUrl.startsWith('data:image/x-icon;') && !dataUrl.startsWith('data:image/vnd.microsoft.icon;')) {
+          dataUrl = `data:image/x-icon;base64,${dataUrl.split(',').pop() || ''}`;
+        }
+        setPendingFaviconBase64(dataUrl);
+        setFaviconPreview(dataUrl);
+        setResetFavicon(false);
+        setMsg(null);
+      }
+    };
+    reader.onerror = () => setMsg({ type: 'err', text: 'File favicon tidak dapat dibaca.' });
+    reader.readAsDataURL(file);
+  };
+
+  const handleResetFavicon = () => {
+    setPendingFaviconBase64(null);
+    setResetFavicon(true);
+    setFaviconPreview(`/api/v1/assets/favicon?reset=1&v=${Date.now()}`);
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -106,6 +152,8 @@ export function SuperadminSettingsTab({ onSettingsUpdated }: SuperadminSettingsT
           izin_demo_login: izinDemoLogin,
           logoBase64: pendingLogoBase64,
           resetLogo,
+          faviconBase64: pendingFaviconBase64,
+          resetFavicon,
         }),
       });
       setPendingLogoBase64(null);
@@ -113,6 +161,12 @@ export function SuperadminSettingsTab({ onSettingsUpdated }: SuperadminSettingsT
       setHasCustomLogo(res.settings.has_custom_logo);
       setLogoPreview(
         `/api/v1/assets/logo?v=${encodeURIComponent(res.settings.logo_updated_at || String(Date.now()))}`
+      );
+      setPendingFaviconBase64(null);
+      setResetFavicon(false);
+      setHasCustomFavicon(res.settings.has_custom_favicon);
+      setFaviconPreview(
+        `/api/v1/assets/favicon?v=${encodeURIComponent(res.settings.favicon_updated_at || String(Date.now()))}`
       );
       onSettingsUpdated(res.settings);
       setMsg({
@@ -244,6 +298,63 @@ export function SuperadminSettingsTab({ onSettingsUpdated }: SuperadminSettingsT
           <p className="text-[11px] text-slate-500 dark:text-slate-400">
             PNG, JPG, WEBP, atau SVG maksimal 2 MB. Logo langsung tampil di dashboard login dan header seluruh role.
           </p>
+          <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3">
+            <div>
+              <h3 className="font-display text-xs font-bold text-slate-900 dark:text-slate-100">
+                Favicon / Ikon Tab Browser
+              </h3>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                Ikon kecil yang tampil pada tab browser dan bookmark website.
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+              <div className="w-16 h-16 shrink-0 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex items-center justify-center">
+                <img
+                  src={faviconPreview}
+                  alt="Pratinjau favicon"
+                  className="w-10 h-10 object-contain"
+                />
+              </div>
+              <div className="min-w-0 flex-1 space-y-2">
+                <div className="inline-flex max-w-full items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+                  <img src={faviconPreview} alt="" className="w-4 h-4 object-contain shrink-0" />
+                  <span className="text-[11px] text-slate-700 dark:text-slate-200 truncate">
+                    {namaAplikasi || 'Absensi BIGNET'}
+                  </span>
+                  <span className="text-xs text-slate-400">×</span>
+                </div>
+                <div className="flex flex-col sm:flex-row flex-wrap gap-2">
+                  <label className="min-h-[40px] px-3.5 py-2 bg-navy-900 hover:bg-navy-800 dark:bg-blue-700 dark:hover:bg-blue-600 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-2 cursor-pointer">
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>Unggah Favicon</span>
+                    <input
+                      type="file"
+                      accept=".ico,image/x-icon,image/vnd.microsoft.icon,image/png,image/svg+xml"
+                      className="hidden"
+                      onChange={(e) => {
+                        handleFaviconFile(e.target.files?.[0]);
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                  {(hasCustomFavicon || pendingFaviconBase64) && (
+                    <button
+                      type="button"
+                      onClick={handleResetFavicon}
+                      className="min-h-[40px] px-3.5 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Reset Default</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              Gunakan PNG, SVG, atau ICO maksimal 512 KB. Disarankan ikon persegi 32×32 atau 48×48 piksel. Perubahan diterapkan setelah menekan Simpan Pengaturan.
+            </p>
+          </div>
         </div>
 
         {/* Right: System Branding, Login Copy & Operational Parameters */}
