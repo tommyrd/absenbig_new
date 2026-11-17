@@ -205,6 +205,21 @@ export const SCHEMA_SQL = `
     aktif INTEGER NOT NULL DEFAULT 1
   );
 
+  CREATE TABLE IF NOT EXISTS override_akses_absensi (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    karyawan_id INTEGER NOT NULL REFERENCES karyawan(id),
+    tanggal TEXT NOT NULL,
+    urutan_sesi INTEGER NOT NULL CHECK(urutan_sesi BETWEEN 1 AND 4),
+    nama_sesi TEXT NOT NULL,
+    alasan TEXT NOT NULL,
+    admin_id INTEGER NOT NULL REFERENCES pengguna(id),
+    status TEXT NOT NULL DEFAULT 'AKTIF' CHECK(status IN ('AKTIF','DIGUNAKAN','KEDALUWARSA','DICABUT')),
+    berlaku_sampai TEXT NOT NULL,
+    used_at TEXT,
+    used_session_id INTEGER REFERENCES absensi_sesi(id),
+    created_at TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS periode_payroll (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     bulan TEXT NOT NULL,
@@ -293,6 +308,8 @@ export const SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_pengajuan_dates ON pengajuan(karyawan_id, status, tanggal_mulai, tanggal_akhir);
   CREATE INDEX IF NOT EXISTS idx_audit_waktu ON audit_log(waktu_server DESC);
   CREATE INDEX IF NOT EXISTS idx_override_emp_date ON override_kehadiran(karyawan_id, tanggal, aktif);
+  CREATE INDEX IF NOT EXISTS idx_override_akses_emp_date
+    ON override_akses_absensi(karyawan_id, tanggal, urutan_sesi, status, berlaku_sampai);
   CREATE INDEX IF NOT EXISTS idx_pendaftaran_status ON pendaftaran_akun(status, created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_revoked_tokens_exp ON revoked_tokens(expires_at);
 `;
