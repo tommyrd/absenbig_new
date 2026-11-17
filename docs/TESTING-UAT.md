@@ -4,26 +4,27 @@
 
 ## 1. Cakupan Pengujian Otomatis (`npm test`)
 
-Suite berisi 22 test (14 inti + 8 production) dan dijalankan menggunakan `tsx --test tests/*.test.ts`. Perubahan terbaru menambah cakupan batas akhir sesi dan kualitas GPS. Jalankan ulang secara lokal setelah menarik commit terbaru; angka kelulusan harus berasal dari hasil perintah aktual.
+Suite berisi 23 test (15 inti + 8 production) dan dijalankan menggunakan `tsx --test tests/*.test.ts`. Perubahan terbaru menambah cakupan batas akhir sesi dan kualitas GPS. Jalankan ulang secara lokal setelah menarik commit terbaru; angka kelulusan harus berasal dari hasil perintah aktual.
 
-### A. Suite Inti Bisnis (`tests/core.test.ts` — 14 Test)
-1. **Geofence Haversine distance calculation** — Perhitungan jarak meter antara koordinat GPS karyawan dan kantor.
-2. **Session time window** — Absensi hanya diizinkan sejak `jam_mulai` hingga `jam_selesai` (inklusif); setelah `jam_selesai` menjadi `EXPIRED`.
-3. **GPS accuracy margin** — Akurasi browser maksimum ±100m dan jarak + nilai akurasi harus tetap berada dalam radius kantor saat sesi wajib kantor.
-4. **Attendance location policy** — Default mewajibkan Sesi 1 di kantor dan mengizinkan Sesi 2+ di lokasi lain; mode `SEMUA_SESI_KANTOR` mewajibkan seluruh sesi berada di kantor.
-5. **Policy Hierarchy resolves `KARYAWAN > BIDANG > DEFAULT`** — Prioritas kebijakan sesi (2, 3, atau 4 sesi) berjalan akurat.
-6. **Kantor A Sunday is `HARI_LIBUR`, Kantor B Sunday is 2 sessions** — Kalender kantor berbeda tidak salah menghitung `TIDAK_HADIR`.
-7. **Workforce feed strips sensitive data** — GPS mentah, path foto internal, dan alasan pengajuan pribadi tidak bocor.
-8. **Monthly summary totals `HARI MASUK` and `TIDAK HADIR` consistently** — Sinkronisasi hasil kalkulasi bulanan.
-9. **Audit log strictly append-only via SQLite triggers** — Trigger SQLite memblokir `UPDATE` dan `DELETE` pada tabel `audit_log`.
-10. **System settings default initialization** — Pengaturan branding dan login terinisialisasi konsisten.
-11. **Registration table and profile photo columns** — Kolom profil dan tabel `pendaftaran_akun` tersedia.
-12. **Employee entry routing** — Saat login, karyawan diarahkan ke Absensi hanya jika sesi berikutnya sedang berada dalam jendela waktu server; jika belum waktunya, sesi berakhir, atau semua sesi selesai, mulai dari Beranda.
-13. **System settings RBAC & Feed access across all roles** — Endpoint settings terproteksi khusus `SUPERADMIN`, Beranda Feed dan foto dapat diakses lintas role, validasi sumber kamera & jam mulai sesi berjalan.
+### A. Suite Inti Bisnis (`tests/core.test.ts` — 15 Test)
+1. **Standalone Superadmin migration & role linkage** — Migrasi memisahkan akun pemilik dari profil pegawai, mengarsipkan profil lama tanpa menghapus bukti historis, mempertahankan foreign key, dan menolak relasi role/pegawai yang tidak sesuai.
+2. **Geofence Haversine distance calculation** — Perhitungan jarak meter antara koordinat GPS karyawan dan kantor.
+3. **Session time window** — Absensi hanya diizinkan sejak `jam_mulai` hingga `jam_selesai` (inklusif); setelah `jam_selesai` menjadi `EXPIRED`.
+4. **GPS accuracy margin** — Akurasi browser maksimum ±100m dan jarak + nilai akurasi harus tetap berada dalam radius kantor saat sesi wajib kantor.
+5. **Attendance location policy** — Default mewajibkan Sesi 1 di kantor dan mengizinkan Sesi 2+ di lokasi lain; mode `SEMUA_SESI_KANTOR` mewajibkan seluruh sesi berada di kantor.
+6. **Policy Hierarchy resolves `KARYAWAN > BIDANG > DEFAULT`** — Prioritas kebijakan sesi (2, 3, atau 4 sesi) berjalan akurat.
+7. **Kantor A Sunday is `HARI_LIBUR`, Kantor B Sunday is 2 sessions** — Kalender kantor berbeda tidak salah menghitung `TIDAK_HADIR`.
+8. **Workforce feed strips sensitive data** — GPS mentah, path foto internal, dan alasan pengajuan pribadi tidak bocor.
+9. **Monthly summary totals `HARI MASUK` and `TIDAK HADIR` consistently** — Sinkronisasi hasil kalkulasi bulanan.
+10. **Audit log strictly append-only via SQLite triggers** — Trigger SQLite memblokir `UPDATE` dan `DELETE` pada tabel `audit_log`.
+11. **System settings default initialization** — Pengaturan branding dan login terinisialisasi konsisten.
+12. **Registration table and profile photo columns** — Kolom profil dan tabel `pendaftaran_akun` tersedia.
+13. **Employee entry routing** — Saat login, karyawan diarahkan ke Absensi hanya jika sesi berikutnya sedang berada dalam jendela waktu server; jika belum waktunya, sesi berakhir, atau semua sesi selesai, mulai dari Beranda.
+14. **System settings RBAC & Feed access across all roles** — Endpoint settings terproteksi khusus `SUPERADMIN`, Beranda Feed dan foto dapat diakses lintas role, validasi sumber kamera & jam mulai sesi berjalan.
 
 ### B. Suite Hardening Production (`tests/production.test.ts` — 8 Test)
 Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
-1. **Idempotent migrations & clean production seeding** — 5 versi migrasi aman dijalankan ulang; `seedProductionBaseline` membuat hanya 1 Superadmin awal dengan `izin_demo_login = 0` dan kata sandi ter-hash `scrypt`.
+1. **Idempotent migrations & clean production seeding** — 12 versi migrasi aman dijalankan ulang; `seedProductionBaseline` membuat hanya 1 Superadmin awal dengan `izin_demo_login = 0` dan kata sandi ter-hash `scrypt`.
 2. **Health check & HttpOnly cookie login** — `/api/v1/health` (200 OK WIB), sandi salah ditolak (401), login benar menerbitkan cookie `HttpOnly; SameSite=Lax`.
 3. **Brute-force rate limiting** — Percobaan gagal ke-9 pada login memicu HTTP `429` dengan header `Retry-After`.
 4. **Account lifecycle & Registration ACC workflow** — Pembuatan akun karyawan/admin mewajibkan sandi >= 6 karakter, avatar dengan magic bytes palsu ditolak (`400`), akun `PENDING` & `REJECTED` diblokir saat login (`403`), dan `ACC` oleh Superadmin langsung mengaktifkan login.
