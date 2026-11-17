@@ -76,7 +76,7 @@
 ## 2026-11-17 — Browser GPS address and employee monthly history calendar
 
 - Halaman Absensi menampilkan koordinat browser, akurasi, jarak kantor, dan tautan membuka titik koordinat di Google Maps.
-- Alamat teks perkiraan tersedia melalui endpoint reverse geocoding server-side yang opsional menggunakan Google Maps Geocoding API; API key tidak diekspos ke browser, hasil dicache enam jam, dan lookup hanya berjalan setelah Perbarui Lokasi ditekan.
+- Alamat teks perkiraan tersedia melalui endpoint reverse geocoding server-side yang opsional menggunakan Google Maps Geocoding API; API key tidak diekspos ke browser, hasil dicache enam jam, dibatasi maksimal 10 request/detik, dan lookup hanya berjalan setelah Perbarui Lokasi ditekan.
 - Tanpa API key, alamat teks memberi penjelasan belum dikonfigurasi dan absensi tetap memakai koordinat GPS browser.
 - Halaman History menampilkan kalender Senin–Minggu dengan status dari resolver, hari hadir hijau, tidak hadir merah, belum selesai amber, kategori non-kerja dengan warna tersendiri, dan Admin Override ditandai O.
 - Tanggal pada kalender dapat dipilih untuk memfilter timeline dan bukti foto. Hari mendatang tanpa hasil resolver tidak ditandai alfa.
