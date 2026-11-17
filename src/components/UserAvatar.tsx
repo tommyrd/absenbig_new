@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { getAuthorizedAvatarUrl } from '../lib/api';
+import { getAuthorizedAvatarUrl, getAuthorizedUserAvatarUrl } from '../lib/api';
 
 interface UserAvatarProps {
   karyawanId?: number | null;
+  userId?: number | null;
   name: string;
   role?: string;
   version?: string | null;
@@ -21,6 +22,7 @@ const SIZE_CLASSES: Record<NonNullable<UserAvatarProps['size']>, string> = {
 
 export function UserAvatar({
   karyawanId,
+  userId,
   name,
   role,
   version,
@@ -40,7 +42,7 @@ export function UserAvatar({
 
   const imgSrc =
     srcOverride ||
-    (karyawanId ? getAuthorizedAvatarUrl(karyawanId, version) : null);
+    (karyawanId ? getAuthorizedAvatarUrl(karyawanId, version) : userId ? getAuthorizedUserAvatarUrl(userId, version) : null);
 
   const fallbackBg =
     role === 'SUPERADMIN'
