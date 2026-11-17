@@ -83,6 +83,7 @@ test('Migration detaches legacy Superadmin from employees and archives its old p
     assert.deepEqual(applied, [
       '010_separate_superadmin_accounts_from_employee_records',
       '011_exclude_legacy_superadmin_profiles_from_employee_master',
+      '012_enforce_role_employee_link_invariant',
     ]);
 
     const ownerAccount = db.prepare(
@@ -112,6 +113,27 @@ test('Migration detaches legacy Superadmin from employees and archives its old p
     assert.equal(ordinaryEmployee.is_system_archive, 0);
 
     assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
+
+    assert.throws(
+      () => db.prepare(
+        `INSERT INTO pengguna (username, email, password_hash, role, karyawan_id, aktif, token_version, created_at)
+         VALUES ('bad_owner', 'bad_owner@bignet.id', 'hash', 'SUPERADMIN', 2, 1, 1, '2026-11-17')`
+      ).run(),
+      /SUPERADMIN harus tanpa profil karyawan/i
+    );
+    assert.throws(
+      () => db.prepare(
+        `UPDATE pengguna SET karyawan_id = 2 WHERE username = 'owner'`
+      ).run(),
+      /SUPERADMIN harus tanpa profil karyawan/i
+    );
+    assert.throws(
+      () => db.prepare(
+        `INSERT INTO pengguna (username, email, password_hash, role, karyawan_id, aktif, token_version, created_at)
+         VALUES ('bad_employee', 'bad_employee@bignet.id', 'hash', 'KARYAWAN', NULL, 1, 1, '2026-11-17')`
+      ).run(),
+      /SUPERADMIN harus tanpa profil karyawan/i
+    );
   } finally {
     db.close();
   }
