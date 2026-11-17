@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Clock } from 'lucide-react';
 import { apiFetch } from '../lib/api';
+import { createServerClockSync, getEstimatedServerEpochMs, type ServerClockSync } from '../shared/server-clock';
 
 interface ServerClockProps {
   compact?: boolean;
@@ -8,29 +9,60 @@ interface ServerClockProps {
 }
 
 export function ServerClock({ compact = false, onDark = false }: ServerClockProps) {
-  const [offsetMs, setOffsetMs] = useState(0);
+  const syncRef = useRef<ServerClockSync | null>(null);
   const [nowMs, setNowMs] = useState(Date.now());
 
   useEffect(() => {
     let mounted = true;
-    apiFetch<{ epochMs?: number; serverTimeMs?: number }>('/api/v1/time')
-      .then((res) => {
-        const ms = typeof res?.epochMs === 'number' ? res.epochMs : res?.serverTimeMs;
-        if (mounted && typeof ms === 'number' && Number.isFinite(ms)) {
-          setOffsetMs(ms - Date.now());
-        }
-      })
-      .catch(() => {});
 
-    const timer = setInterval(() => setNowMs(Date.now()), 1000);
+    const synchronize = async () => {
+      const requestStartedAt = performance.now();
+      try {
+        const res = await apiFetch<{ epochMs?: number }>('/api/v1/time');
+        const responseReceivedAt = performance.now();
+        if (!mounted || typeof res.epochMs !== 'number') return;
+        const sync = createServerClockSync(
+          res.epochMs,
+          requestStartedAt,
+          responseReceivedAt
+        );
+        if (!sync) return;
+        syncRef.current = sync;
+        setNowMs(getEstimatedServerEpochMs(sync, performance.now()));
+      } catch {
+        // Keep the last trusted estimate while the network is temporarily unavailable.
+      }
+    };
+
+    void synchronize();
+
+    const timer = window.setInterval(() => {
+      const sync = syncRef.current;
+      if (sync) {
+        setNowMs(getEstimatedServerEpochMs(sync, performance.now()));
+      }
+    }, 1000);
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') void synchronize();
+    };
+    window.addEventListener('focus', refreshWhenVisible);
+    window.addEventListener('pageshow', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+
+    const resyncTimer = window.setInterval(() => void synchronize(), 30000);
+
     return () => {
       mounted = false;
-      clearInterval(timer);
+      window.clearInterval(timer);
+      window.clearInterval(resyncTimer);
+      window.removeEventListener('focus', refreshWhenVisible);
+      window.removeEventListener('pageshow', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
     };
   }, []);
 
-  const targetMs = Number.isFinite(nowMs + offsetMs) ? nowMs + offsetMs : Date.now();
-  const serverDate = new Date(targetMs);
+  const serverDate = new Date(nowMs);
   const formattedTime = new Intl.DateTimeFormat('id-ID', {
     timeZone: 'Asia/Jakarta',
     hour: '2-digit',
@@ -39,7 +71,7 @@ export function ServerClock({ compact = false, onDark = false }: ServerClockProp
     hour12: false,
   })
     .format(serverDate)
-    .replace(/\./g, ':');
+    .replace(/\\./g, ':');
 
   const formattedDate = new Intl.DateTimeFormat('id-ID', {
     timeZone: 'Asia/Jakarta',
