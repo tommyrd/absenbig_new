@@ -4,29 +4,30 @@
 
 ## 1. Cakupan Pengujian Otomatis (`npm test`)
 
-Suite berisi 19 test (11 inti + 8 production) dan dijalankan menggunakan `tsx --test tests/*.test.ts`. Perubahan terbaru menambah cakupan batas akhir sesi dan kualitas GPS. Jalankan ulang secara lokal setelah menarik commit terbaru; angka kelulusan harus berasal dari hasil perintah aktual.
+Suite berisi 20 test (12 inti + 8 production) dan dijalankan menggunakan `tsx --test tests/*.test.ts`. Perubahan terbaru menambah cakupan batas akhir sesi dan kualitas GPS. Jalankan ulang secara lokal setelah menarik commit terbaru; angka kelulusan harus berasal dari hasil perintah aktual.
 
-### A. Suite Inti Bisnis (`tests/core.test.ts` — 11 Test)
+### A. Suite Inti Bisnis (`tests/core.test.ts` — 12 Test)
 1. **Geofence Haversine distance calculation** — Perhitungan jarak meter antara koordinat GPS karyawan dan kantor.
 2. **Session time window** — Absensi hanya diizinkan sejak `jam_mulai` hingga `jam_selesai` (inklusif); setelah `jam_selesai` menjadi `EXPIRED`.
-3. **GPS accuracy margin** — Akurasi browser maksimum ±100m dan jarak + nilai akurasi harus tetap berada dalam radius kantor.
-4. **Policy Hierarchy resolves `KARYAWAN > BIDANG > DEFAULT`** — Prioritas kebijakan sesi (2, 3, atau 4 sesi) berjalan akurat.
-5. **Kantor A Sunday is `HARI_LIBUR`, Kantor B Sunday is 2 sessions** — Kalender kantor berbeda tidak salah menghitung `TIDAK_HADIR`.
-6. **Workforce feed strips sensitive data** — GPS mentah, path foto internal, dan alasan pengajuan pribadi tidak bocor.
-7. **Monthly summary totals `HARI MASUK` and `TIDAK HADIR` consistently** — Sinkronisasi hasil kalkulasi bulanan.
-8. **Audit log strictly append-only via SQLite triggers** — Trigger SQLite memblokir `UPDATE` dan `DELETE` pada tabel `audit_log`.
-9. **System settings default initialization** — Pengaturan branding dan login terinisialisasi konsisten.
-10. **Registration table and profile photo columns** — Kolom profil dan tabel `pendaftaran_akun` tersedia.
-11. **System settings RBAC & Feed access across all roles** — Endpoint settings terproteksi khusus `SUPERADMIN`, Beranda Feed dan foto dapat diakses lintas role, validasi sumber kamera & jam mulai sesi berjalan.
+3. **GPS accuracy margin** — Akurasi browser maksimum ±100m dan jarak + nilai akurasi harus tetap berada dalam radius kantor saat sesi wajib kantor.
+4. **Attendance location policy** — Default mewajibkan Sesi 1 di kantor dan mengizinkan Sesi 2+ di lokasi lain; mode `SEMUA_SESI_KANTOR` mewajibkan seluruh sesi berada di kantor.
+5. **Policy Hierarchy resolves `KARYAWAN > BIDANG > DEFAULT`** — Prioritas kebijakan sesi (2, 3, atau 4 sesi) berjalan akurat.
+6. **Kantor A Sunday is `HARI_LIBUR`, Kantor B Sunday is 2 sessions** — Kalender kantor berbeda tidak salah menghitung `TIDAK_HADIR`.
+7. **Workforce feed strips sensitive data** — GPS mentah, path foto internal, dan alasan pengajuan pribadi tidak bocor.
+8. **Monthly summary totals `HARI MASUK` and `TIDAK HADIR` consistently** — Sinkronisasi hasil kalkulasi bulanan.
+9. **Audit log strictly append-only via SQLite triggers** — Trigger SQLite memblokir `UPDATE` dan `DELETE` pada tabel `audit_log`.
+10. **System settings default initialization** — Pengaturan branding dan login terinisialisasi konsisten.
+11. **Registration table and profile photo columns** — Kolom profil dan tabel `pendaftaran_akun` tersedia.
+12. **System settings RBAC & Feed access across all roles** — Endpoint settings terproteksi khusus `SUPERADMIN`, Beranda Feed dan foto dapat diakses lintas role, validasi sumber kamera & jam mulai sesi berjalan.
 
 ### B. Suite Hardening Production (`tests/production.test.ts` — 8 Test)
 Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
-1. **Idempotent migrations & clean production seeding** — 4 versi migrasi aman dijalankan ulang; `seedProductionBaseline` membuat hanya 1 Superadmin awal dengan `izin_demo_login = 0` dan kata sandi ter-hash `scrypt`.
+1. **Idempotent migrations & clean production seeding** — 5 versi migrasi aman dijalankan ulang; `seedProductionBaseline` membuat hanya 1 Superadmin awal dengan `izin_demo_login = 0` dan kata sandi ter-hash `scrypt`.
 2. **Health check & HttpOnly cookie login** — `/api/v1/health` (200 OK WIB), sandi salah ditolak (401), login benar menerbitkan cookie `HttpOnly; SameSite=Lax`.
 3. **Brute-force rate limiting** — Percobaan gagal ke-9 pada login memicu HTTP `429` dengan header `Retry-After`.
 4. **Account lifecycle & Registration ACC workflow** — Pembuatan akun karyawan/admin mewajibkan sandi >= 6 karakter, avatar dengan magic bytes palsu ditolak (`400`), akun `PENDING` & `REJECTED` diblokir saat login (`403`), dan `ACC` oleh Superadmin langsung mengaktifkan login.
 5. **RBAC isolation, query-token guard & token revocation** — `?token=` ditolak pada `/api/v1/auth/me` (`401`), diizinkan pada `/api/v1/avatars/*`; Karyawan & Admin ditolak (`403`) pada endpoint Superadmin; token kedaluwarsa ditolak; ganti kata sandi & logout langsung merevoke token lama; penonaktifan akun memutus sesi aktif.
-6. **SVG XSS protection, browser-camera-only, `jam_mulai` gate & strict geofence** — SVG mengandung `<script>` ditolak (`400`); logo SVG bersih disajikan dengan `X-Content-Type-Options: nosniff` + CSP; absensi sebelum `jam_mulai` dan setelah `jam_selesai` ditolak (`400`); `FILE_UPLOAD` ditolak (`400`); GPS wajib tersedia dengan akurasi maksimum ±100m; lokasi di luar radius atau area yang tidak bisa dipastikan berada dalam radius ditolak meskipun request mengirim mode legacy `CATAT_DENGAN_FLAG`; seluruh kantor lama dinormalisasi oleh migrasi `004` ke `TOLAK_LUAR_RADIUS`; PNG kamera valid tersimpan dengan SHA-256 checksum.
+6. **SVG XSS protection, browser-camera-only, `jam_mulai` gate & strict geofence** — SVG mengandung `<script>` ditolak (`400`); logo SVG bersih disajikan dengan `X-Content-Type-Options: nosniff` + CSP; absensi sebelum `jam_mulai` dan setelah `jam_selesai` ditolak (`400`); `FILE_UPLOAD` ditolak (`400`); GPS wajib tersedia dengan akurasi maksimum ±100m; lokasi di luar radius atau area yang tidak bisa dipastikan berada dalam radius ditolak meskipun request mengirim mode legacy `CATAT_DENGAN_FLAG`; seluruh kantor lama dinormalisasi oleh migrasi `004` ke `TOLAK_LUAR_RADIUS`; migrasi `005` menambahkan aturan lokasi per kebijakan; PNG kamera valid tersimpan dengan SHA-256 checksum.
 7. **Special work, Off Pengganti, Payroll closing & post-closing override** — Kuota off pengganti terkunci saat pengajuan dan berstatus `DIPAKAI` setelah approval Admin; override pada bulan `CLOSED` membutuhkan flag `koreksiSetelahClosing` (`409` vs `201`) dan tercatat pada modul `CLOSING_KOREKSI`.
 8. **Disaster recovery Backup & Restore end-to-end** — `runBackup()` membuat snapshot database + foto + `manifest.json` + `.tar.gz`; setelah simulasi kehilangan DB & folder `photos/`, `runRestore()` memulihkan DB & seluruh tautan foto (`missingPhotosCount === 0`); modifikasi 1 byte pada arsip backup langsung terdeteksi dan membatalkan restore sebelum menyentuh data aktif.
 
@@ -50,7 +51,7 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
    - Verifikasi login gagal sebelum di-ACC, lalu Superadmin melakukan ACC dan akun berhasil login.
 2. **UAT Absensi Kamera Browser & Beranda Feed (iOS Safari / Android Chrome HTTPS):**
    - Uji akses kamera depan/belakang browser, pastikan izin GPS aktif.
-   - Uji GPS di dalam radius (absen dapat dikirim), di luar radius / akurasi GPS buruk (kamera/kirim terkunci dan API menolak); setelah `jam_selesai` kamera ditutup dan API menolak, serta izin GPS ditolak/tidak tersedia (absensi ditolak). Uji sebelum `jam_mulai` (tombol/submit ditolak), lalu setelah `jam_mulai` berhasil absen dan posting muncul real-time di Beranda Feed akun lain.
+   - Uji mode default: Sesi 1 di luar radius ditolak, Sesi 2+ di luar radius diizinkan dengan GPS tetap direkam; uji mode `SEMUA_SESI_KANTOR`: semua sesi di luar radius ditolak. Untuk sesi yang wajib kantor, uji GPS di dalam radius (absen dapat dikirim), akurasi GPS buruk (kamera/kirim terkunci dan API menolak); setelah `jam_selesai` kamera ditutup dan API menolak, serta izin GPS ditolak/tidak tersedia (absensi ditolak). Uji sebelum `jam_mulai` (tombol/submit ditolak), lalu setelah `jam_mulai` berhasil absen dan posting muncul real-time di Beranda Feed akun lain.
 3. **UAT Dark Mode & Mobile Responsive:**
    - Cek navigasi tab bawah mobile dan toggle dark/light mode di seluruh peran (`KARYAWAN`, `ADMIN`, `SUPERADMIN`).
 4. **UAT Payroll, Export Excel & Audit Log:**
