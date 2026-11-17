@@ -1110,7 +1110,10 @@ test('6. SVG logo/favicon XSS sanitization, attendance camera-only, jam_mulai ga
       todayWithGrant.data.serverWindowState,
       expectedWindowStates[todayWithGrant.data.day.sessionsCompleted] ?? null
     );
-    assert.ok(['NOT_STARTED', 'OPEN', 'EXPIRED', 'INVALID', null].includes(todayWithGrant.data.serverWindowState));
+    assert.ok(
+      todayWithGrant.data.serverWindowState === null ||
+      ['NOT_STARTED', 'OPEN', 'EXPIRED', 'INVALID'].includes(todayWithGrant.data.serverWindowState)
+    );
 
     const lateSessionCheckin = await apiJson<{
       ok: boolean;
