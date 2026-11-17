@@ -11,8 +11,9 @@ interface CacheEntry {
 const cache = new Map<string, CacheEntry>();
 const inFlight = new Map<string, Promise<string | null>>();
 let lastRequestAt = 0;
+let rateLimitQueue: Promise<void> = Promise.resolve();
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
-const MIN_REQUEST_INTERVAL_MS = 100;
+const MIN_REQUEST_INTERVAL_MS = 200;
 const REQUEST_TIMEOUT_MS = 3000;
 
 /**
@@ -41,13 +42,23 @@ export async function getGeoapifyAddress(
     return { address: await pending, configured: true };
   }
 
-  const now = Date.now();
-  if (now - lastRequestAt < MIN_REQUEST_INTERVAL_MS) {
-    const error = new Error('Permintaan reverse geocoding terlalu cepat.');
-    error.name = 'GeoapifyRateLimitError';
-    throw error;
+  // Serialize cache misses at the free-plan-friendly rate of at most
+  // five outbound requests per second, even if several feed batches arrive.
+  let releaseTurn: () => void = () => {};
+  const previousTurn = rateLimitQueue;
+  rateLimitQueue = new Promise<void>((resolve) => {
+    releaseTurn = resolve;
+  });
+  await previousTurn;
+  try {
+    const waitMs = Math.max(0, lastRequestAt + MIN_REQUEST_INTERVAL_MS - Date.now());
+    if (waitMs > 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, waitMs));
+    }
+    lastRequestAt = Date.now();
+  } finally {
+    releaseTurn();
   }
-  lastRequestAt = now;
 
   const request = (async () => {
     const url = new URL('https://api.geoapify.com/v1/geocode/reverse');
