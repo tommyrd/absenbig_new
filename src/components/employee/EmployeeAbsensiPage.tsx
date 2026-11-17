@@ -292,6 +292,8 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
       } catch (gpsErr) {
         const message =
           gpsErr instanceof Error ? gpsErr.message : 'Gagal membaca lokasi GPS.';
+        stopCamera();
+        setPhotoDataUrl(null);
         setCoords(null);
         setGpsStatus('error');
         setGpsError(message);
