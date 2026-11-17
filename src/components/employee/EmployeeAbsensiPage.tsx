@@ -71,6 +71,15 @@ function formatDurationMinutes(diffMin: number): string {
   return `${mins} menit`;
 }
 
+function isFreshServerWindowSnapshot(
+  checkedAt: string | undefined,
+  receivedAtPerformanceMs: number | null
+): boolean {
+  if (!checkedAt || receivedAtPerformanceMs === null) return false;
+  const ageMs = performance.now() - receivedAtPerformanceMs;
+  return ageMs >= 0 && ageMs <= 10000;
+}
+
 export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsensiPageProps) {
   const [data, setData] = useState<TodayResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -307,11 +316,9 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
     if (!data) return;
     const nextIndex = data.day.sessionsCompleted;
     const next = data.day.policySnapshot.sesiList[nextIndex];
-    const receivedAt = serverWindowSyncPerfRef.current;
-    const snapshotFresh = Boolean(
-      data.serverWindowCheckedAt &&
-      receivedAt !== null &&
-      performance.now() - receivedAt <= 10000
+    const snapshotFresh = isFreshServerWindowSnapshot(
+      data.serverWindowCheckedAt,
+      serverWindowSyncPerfRef.current
     );
     const windowState = data.serverSessionWindowStates?.[nextIndex] ?? 'INVALID';
     const hasOverride = Boolean(data.day.checkinOverride?.active);
@@ -351,11 +358,9 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
 
     const next = data?.day.policySnapshot.sesiList[data.day.sessionsCompleted];
     const windowState = data?.serverWindowState ?? 'INVALID';
-    const serverWindowReceivedAt = serverWindowSyncPerfRef.current;
-    const hasServerWindowSnapshot = Boolean(
-      data?.serverWindowCheckedAt &&
-      serverWindowReceivedAt !== null &&
-      performance.now() - serverWindowReceivedAt <= 10000
+    const hasServerWindowSnapshot = isFreshServerWindowSnapshot(
+      data?.serverWindowCheckedAt,
+      serverWindowSyncPerfRef.current
     );
     const hasOverride = Boolean(hasServerWindowSnapshot && data?.day.checkinOverride?.active);
     if (!next || !hasServerWindowSnapshot || (windowState !== 'OPEN' && !hasOverride)) {
@@ -680,11 +685,9 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   const nextSessionIndex = day.sessionsCompleted; // 0-based index of next session
   const nextSesi = day.policySnapshot.sesiList[nextSessionIndex];
   const allSessionsDone = day.sessionsCompleted >= day.policySnapshot.jumlahSesi;
-  const serverWindowReceivedAt = serverWindowSyncPerfRef.current;
-  const serverWindowFresh = Boolean(
-    data.serverWindowCheckedAt &&
-    serverWindowReceivedAt !== null &&
-    performance.now() - serverWindowReceivedAt <= 10000
+  const serverWindowFresh = isFreshServerWindowSnapshot(
+    data.serverWindowCheckedAt,
+    serverWindowSyncPerfRef.current
   );
   const nextWindowState: SessionWindowState = serverWindowFresh
     ? data.serverWindowState ?? 'INVALID'
