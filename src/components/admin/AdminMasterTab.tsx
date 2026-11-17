@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Building2, Edit3, Plus, Users, X } from 'lucide-react';
 import { apiFetch } from '../../lib/api';
-import type { BidangKerja, GeofenceMode, Kantor, Karyawan, Role } from '../../shared/types';
+import type { BidangKerja, Kantor, Karyawan, Role } from '../../shared/types';
 import { DataTable, type ColumnDef } from '../DataTable';
 import { UserAvatar } from '../UserAvatar';
 
@@ -39,7 +39,6 @@ export function AdminMasterTab() {
     lat: -6.2088,
     lng: 106.8456,
     radius_meter: 250,
-    geofence_mode: 'CATAT_DENGAN_FLAG' as GeofenceMode,
   });
 
   // Bidang Modal
@@ -123,7 +122,7 @@ export function AdminMasterTab() {
       if (editingOffice) {
         await apiFetch(`/api/v1/master/offices/${editingOffice.id}`, {
           method: 'PUT',
-          body: JSON.stringify(officeForm),
+          body: JSON.stringify({ ...officeForm, geofence_mode: 'TOLAK_LUAR_RADIUS' }),
         });
       } else {
         await apiFetch('/api/v1/master/offices', {
@@ -278,7 +277,6 @@ export function AdminMasterTab() {
                   lat: -6.2088,
                   lng: 106.8456,
                   radius_meter: 250,
-                  geofence_mode: 'CATAT_DENGAN_FLAG',
                 });
                 setFormErr(null);
                 setOfficeModal(true);
@@ -390,7 +388,6 @@ export function AdminMasterTab() {
                       lat: o.lat,
                       lng: o.lng,
                       radius_meter: o.radius_meter,
-                      geofence_mode: o.geofence_mode,
                     });
                     setFormErr(null);
                     setOfficeModal(true);
@@ -409,9 +406,9 @@ export function AdminMasterTab() {
                   </p>
                 </div>
                 <div>
-                  <span className="text-slate-400 dark:text-slate-500">Radius & Mode:</span>
+                  <span className="text-slate-400 dark:text-slate-500">Aturan Absensi:</span>
                   <p className="font-mono text-slate-800 dark:text-slate-200 mt-0.5">
-                    {o.radius_meter}m · {o.geofence_mode === 'TOLAK_LUAR_RADIUS' ? 'Ketat' : 'Flag'}
+                    {o.radius_meter}m · Wajib dalam radius
                   </p>
                 </div>
               </div>
@@ -714,20 +711,13 @@ export function AdminMasterTab() {
                     className="w-full h-11 sm:h-10 px-3 text-sm font-mono border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg"
                   />
                 </div>
-                <div>
+                <div className="flex flex-col justify-end">
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Mode Geofence
+                    Aturan Geofence
                   </label>
-                  <select
-                    value={officeForm.geofence_mode}
-                    onChange={(e) =>
-                      setOfficeForm({ ...officeForm, geofence_mode: e.target.value as GeofenceMode })
-                    }
-                    className="w-full h-11 sm:h-10 px-2.5 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
-                  >
-                    <option value="CATAT_DENGAN_FLAG">Catat + Flag Luar Radius</option>
-                    <option value="TOLAK_LUAR_RADIUS">Tolak Jika Luar Radius</option>
-                  </select>
+                  <div className="min-h-11 flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
+                    Wajib berada dalam radius
+                  </div>
                 </div>
               </div>
               <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 pt-3">
