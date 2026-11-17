@@ -586,6 +586,24 @@ test('5. Authorization boundaries, query-token restriction, logout jti & token_v
   );
   assert.equal(employeeCannotDeleteOffice.status, 403);
 
+  // Employee-facing master lists must not expose Admin-only usage counters.
+  const employeeOfficeList = await apiJson<{ items: Array<Record<string, unknown>> }>(
+    '/api/v1/master/offices',
+    { token: karyawanToken }
+  );
+  const employeeFieldList = await apiJson<{ items: Array<Record<string, unknown>> }>(
+    '/api/v1/master/bidang',
+    { token: karyawanToken }
+  );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(employeeOfficeList.data.items[0] || {}, 'can_delete'),
+    false
+  );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(employeeFieldList.data.items[0] || {}, 'can_delete'),
+    false
+  );
+
   const officeDeleteAllowed = await apiJson(
     `/api/v1/master/offices/${createOffice.data.id}`,
     { method: 'DELETE', token: adminToken }
