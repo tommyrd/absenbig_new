@@ -799,7 +799,7 @@ export function registerApiRoutes(app: Express) {
         const oldestKey = reverseGeocodeCache.keys().next().value;
         if (oldestKey) reverseGeocodeCache.delete(oldestKey);
       }
-      res.json({ address, configured: true, provider: 'Google Maps' });
+      res.json({ address, configured: true, provider: 'Geoapify' });
     } catch {
       res.status(502).json({ error: 'Gagal mengambil alamat lokasi. Koordinat GPS tetap tersedia.' });
     }
