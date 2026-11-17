@@ -123,11 +123,16 @@ after(async () => {
 test('1. Migrations are idempotent and production baseline enforces zero demo accounts', () => {
   const db = getDb();
   const applied = getAppliedMigrations(db);
-  assert.equal(applied.length, 5);
+  assert.equal(applied.length, 6);
   assert.deepEqual(
     applied.map((m) => m.version),
-    ['001', '002', '003', '004', '005']
+    ['001', '002', '003', '004', '005', '006']
   );
+
+  const attendanceColumns = db
+    .prepare('PRAGMA table_info(absensi_sesi)')
+    .all() as { name: string }[];
+  assert.ok(attendanceColumns.some((column) => column.name === 'lokasi_alamat'));
 
   // Re-running migrations should apply 0 new steps
   const rerun = runMigrations(db);
