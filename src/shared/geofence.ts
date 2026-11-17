@@ -28,3 +28,18 @@ export function isWithinVerifiedGeofence(
     distanceMeters + accuracyMeters <= radiusMeters
   );
 }
+
+export type AttendanceLocationRule = 'SESI_PERTAMA_KANTOR' | 'SEMUA_SESI_KANTOR';
+
+/**
+ * By default only the first check-in must be inside the office geofence.
+ * Admin can tighten a policy so every session must be inside the office.
+ * Unknown/legacy values fall back to the safe default: first session only.
+ */
+export function requiresOfficeGeofence(
+  rule: AttendanceLocationRule | string | null | undefined,
+  sessionNumber: number
+): boolean {
+  if (!Number.isInteger(sessionNumber) || sessionNumber < 1) return true;
+  return sessionNumber === 1 || rule === 'SEMUA_SESI_KANTOR';
+}
