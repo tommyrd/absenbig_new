@@ -175,24 +175,24 @@ export function validateAndSanitizeFaviconBase64(
 ): { ext: 'png' | 'svg' | 'ico'; buf: Buffer } {
   const svgPrefix = 'data:image/svg+xml;base64,';
   if (base64Input.startsWith(svgPrefix)) {
-    const rawB64 = base64Input.slice(svgPrefix.length).replace(/\\s+/g, '');
+    const rawB64 = base64Input.slice(svgPrefix.length).replace(/\s+/g, '');
     const buf = Buffer.from(rawB64, 'base64');
     if (buf.length === 0 || buf.length > maxBytes) {
       throw new Error('Ukuran favicon maksimal 512 KB.');
     }
     const text = buf.toString('utf8');
-    if (!/<svg[\\s>]/i.test(text) || !/<\\/svg>/i.test(text)) {
+    if (!/<svg[\s>]/i.test(text) || !/<\/svg>/i.test(text)) {
       throw new Error('Berkas SVG favicon tidak valid.');
     }
     const dangerousPattern =
-      /<\\s*(script|foreignObject|iframe|object|embed|applet)\\b|on[a-z]+\\s*=|javascript\\s*:|vbscript\\s*:|data\\s*:\\s*text\\/html/i;
+      /<\s*(script|foreignObject|iframe|object|embed|applet)\b|on[a-z]+\s*=|javascript\s*:|vbscript\s*:|data\s*:\s*text\/html/i;
     if (dangerousPattern.test(text)) {
       throw new Error('Favicon SVG ditolak karena mengandung elemen atau skrip aktif yang tidak aman.');
     }
     return { ext: 'svg', buf };
   }
 
-  if (/^data:image\\/png;base64,/i.test(base64Input)) {
+  if (/^data:image\/png;base64,/i.test(base64Input)) {
     const parsed = validateRasterImageBase64(base64Input, { maxBytes, label: 'favicon' });
     if (parsed.ext !== 'png') {
       throw new Error('Favicon raster harus menggunakan format PNG.');
@@ -201,10 +201,10 @@ export function validateAndSanitizeFaviconBase64(
   }
 
   const icoMatch = base64Input.match(
-    /^data:image\\/(?:x-icon|vnd\\.microsoft\\.icon);base64,([A-Za-z0-9+/=\\s]+)$/i
+    /^data:image\/(?:x-icon|vnd\.microsoft\.icon);base64,([A-Za-z0-9+/=\s]+)$/i
   );
   if (icoMatch) {
-    const buf = Buffer.from(icoMatch[1].replace(/\\s+/g, ''), 'base64');
+    const buf = Buffer.from(icoMatch[1].replace(/\s+/g, ''), 'base64');
     if (buf.length < 8 || buf.length > maxBytes) {
       throw new Error('Ukuran favicon ICO harus di bawah 512 KB dan tidak boleh kosong.');
     }
