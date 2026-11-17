@@ -18,6 +18,7 @@ import { getWibDateString } from '../src/server/time.ts';
 import type { Karyawan, Role } from '../src/shared/types.ts';
 import { isGpsAccuracyAcceptable, isWithinVerifiedGeofence, MAX_GPS_ACCURACY_METERS, requiresOfficeGeofence } from '../src/shared/geofence.ts';
 import { getSessionWindowState } from '../src/shared/session-window.ts';
+import { createServerClockSync, getEstimatedServerEpochMs } from '../src/shared/server-clock.ts';
 import { shouldOpenAttendanceOnEntry } from '../src/shared/employee-entry.ts';
 import { getHistoryCalendarStatus } from '../src/shared/history-calendar.ts';
 
@@ -154,6 +155,21 @@ test('Session attendance is allowed only inside the configured inclusive time wi
   assert.equal(getSessionWindowState(9 * 60 + 30, '09:00', '09:30'), 'OPEN');
   assert.equal(getSessionWindowState(9 * 60 + 31, '09:00', '09:30'), 'EXPIRED');
   assert.equal(getSessionWindowState(9 * 60, '09:30', '09:00'), 'INVALID');
+});
+
+test('Attendance gate uses monotonic server time after a mobile browser resumes', () => {
+  const serverEpochAtResponse = Date.UTC(2026, 10, 17, 16, 12, 47);
+  const sync = createServerClockSync(serverEpochAtResponse, 1000, 1400);
+  assert.ok(sync);
+  assert.equal(sync.serverEpochMsAtSync, serverEpochAtResponse + 200);
+
+  // Even if the device wall clock is wrong, only the monotonic elapsed time
+  // is used to move forward from the trusted server timestamp.
+  const estimated = getEstimatedServerEpochMs(sync, 2400);
+  assert.equal(estimated, serverEpochAtResponse + 1200);
+  assert.equal(getEstimatedServerEpochMs(sync, 900), serverEpochAtResponse + 200);
+  assert.equal(createServerClockSync(Number.NaN, 1000, 1400), null);
+  assert.equal(createServerClockSync(serverEpochAtResponse, 1400, 1000), null);
 });
 
 test('Attendance location policy requires office on session 1 by default and can require every session', () => {
