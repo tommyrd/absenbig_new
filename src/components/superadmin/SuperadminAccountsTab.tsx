@@ -211,15 +211,15 @@ export function SuperadminAccountsTab({
   const openEditAccount = (acc: ManagedAccount) => {
     setEditingAccount(acc);
     setAccountForm({
-      nik: acc.nik,
+      nik: acc.nik || '',
       nama_lengkap: acc.nama_lengkap,
       username: acc.username,
       email: acc.email,
       no_hp: acc.no_hp,
       jabatan: acc.jabatan,
       role: acc.role,
-      kantor_id: acc.kantor_id,
-      bidang_id: acc.bidang_id,
+      kantor_id: acc.kantor_id ?? offices[0]?.id ?? 1,
+      bidang_id: acc.bidang_id ?? bidangList[0]?.id ?? 1,
       password: '',
       aktif: acc.user_aktif,
       fotoBase64: null,
@@ -277,12 +277,14 @@ export function SuperadminAccountsTab({
         }
         setBannerMsg(`Data akun @${accountForm.username} berhasil diperbarui.`);
       } else {
-        const res = await apiFetch<{ nik: string }>('/api/v1/superadmin/accounts', {
+        const res = await apiFetch<{ nik?: string }>('/api/v1/superadmin/accounts', {
           method: 'POST',
           body: JSON.stringify(accountForm),
         });
         setBannerMsg(
-          `Akun @${accountForm.username} (${accountForm.role}) berhasil dibuat dengan NIK ${res.nik}.`
+          accountForm.role === 'SUPERADMIN'
+            ? `Akun SUPERADMIN @${accountForm.username} berhasil dibuat sebagai akun pemilik tanpa profil pegawai.`
+            : `Akun @${accountForm.username} (${accountForm.role}) berhasil dibuat dengan NIK ${res.nik}.`
         );
       }
       setAccountModal(false);
@@ -359,8 +361,17 @@ export function SuperadminAccountsTab({
       header: 'Kantor & Bidang',
       render: (r) => (
         <div className="text-xs">
-          <p className="font-medium text-slate-800 dark:text-slate-200">{r.kantor_nama}</p>
-          <p className="text-slate-500 dark:text-slate-400">{r.bidang_nama}</p>
+          {r.role === 'SUPERADMIN' ? (
+            <>
+              <p className="font-medium text-amber-700 dark:text-amber-300">Bukan Pegawai</p>
+              <p className="text-slate-500 dark:text-slate-400">Akun pemilik sistem</p>
+            </>
+          ) : (
+            <>
+              <p className="font-medium text-slate-800 dark:text-slate-200">{r.kantor_nama}</p>
+              <p className="text-slate-500 dark:text-slate-400">{r.bidang_nama}</p>
+            </>
+          )}
         </div>
       ),
     },
@@ -439,10 +450,11 @@ export function SuperadminAccountsTab({
               {r.nama_lengkap}
             </p>
             <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
-              <span className="font-mono font-semibold text-slate-700 dark:text-slate-300">
-                {r.nik}
-              </span>{' '}
-              · @{r.username} · {r.email}
+              {r.nik ? (
+                <span className="font-mono font-semibold text-slate-700 dark:text-slate-300">NIK {r.nik}</span>
+              ) : (
+                <span className="font-semibold text-amber-700 dark:text-amber-300">Akun sistem · Non-Pegawai</span>
+              )}{' '}· @{r.username} · {r.email}
             </p>
           </div>
         </div>
@@ -454,8 +466,8 @@ export function SuperadminAccountsTab({
       sortValue: (r) => r.role,
       render: (r) => (
         <div className="text-xs">
-          <p className="font-bold text-navy-900 dark:text-blue-400">{r.role}</p>
-          <p className="text-slate-500 dark:text-slate-400">{r.jabatan}</p>
+          <p className="font-bold text-navy-900 dark:text-blue-400">{r.role === 'SUPERADMIN' ? 'SUPERADMIN · OWNER' : r.role}</p>
+          <p className="text-slate-500 dark:text-slate-400">{r.role === 'SUPERADMIN' ? 'Akun pengelola sistem' : r.jabatan}</p>
         </div>
       ),
     },
@@ -477,12 +489,12 @@ export function SuperadminAccountsTab({
       render: (r) => (
         <span
           className={`text-xs font-semibold ${
-            r.user_aktif && r.karyawan_aktif
+            r.user_aktif && (r.karyawan_id === null || r.karyawan_aktif === 1)
               ? 'text-emerald-700 dark:text-emerald-400'
               : 'text-red-700 dark:text-red-400'
           }`}
         >
-          {r.user_aktif && r.karyawan_aktif ? 'Aktif' : 'Nonaktif'}
+          {r.user_aktif && (r.karyawan_id === null || r.karyawan_aktif === 1) ? 'Aktif' : 'Nonaktif'}
         </span>
       ),
     },
@@ -669,7 +681,7 @@ export function SuperadminAccountsTab({
           searchPlaceholder="Cari NIK, nama, username, atau email..."
           searchFilter={(r, q) =>
             r.nama_lengkap.toLowerCase().includes(q) ||
-            r.nik.toLowerCase().includes(q) ||
+            (r.nik || '').toLowerCase().includes(q) ||
             r.username.toLowerCase().includes(q) ||
             r.email.toLowerCase().includes(q)
           }
