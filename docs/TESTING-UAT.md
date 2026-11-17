@@ -2,22 +2,22 @@
 
 ---
 
-## 1. Hasil Pengujian Otomatis Terverifikasi (`npm test`)
+## 1. Cakupan Pengujian Otomatis (`npm test`)
 
-Suite dirancang untuk dijalankan menggunakan `tsx --test tests/*.test.ts`. Jalankan ulang secara lokal setelah menarik commit terbaru; angka kelulusan terakhir harus berasal dari hasil perintah aktual.
+Suite berisi 19 test (11 inti + 8 production) dan dijalankan menggunakan `tsx --test tests/*.test.ts`. Perubahan terbaru menambah cakupan batas akhir sesi dan kualitas GPS. Jalankan ulang secara lokal setelah menarik commit terbaru; angka kelulusan harus berasal dari hasil perintah aktual.
 
 ### A. Suite Inti Bisnis (`tests/core.test.ts` — 11 Test)
-1. **Geofence Haversine distance calculation** — Akurasi perhitungan jarak meter antara koordinat GPS karyawan dan kantor.
-2. **Session time window** — Absensi hanya diizinkan sejak `jam_mulai` hingga `jam_selesai` (inklusif); lewat `jam_selesai` menjadi `EXPIRED`.
+1. **Geofence Haversine distance calculation** — Perhitungan jarak meter antara koordinat GPS karyawan dan kantor.
+2. **Session time window** — Absensi hanya diizinkan sejak `jam_mulai` hingga `jam_selesai` (inklusif); setelah `jam_selesai` menjadi `EXPIRED`.
 3. **GPS accuracy margin** — Akurasi browser maksimum ±100m dan jarak + nilai akurasi harus tetap berada dalam radius kantor.
-2. **Policy Hierarchy resolves `KARYAWAN > BIDANG > DEFAULT`** — Prioritas kebijakan sesi (2, 3, atau 4 sesi) berjalan akurat.
-5. **Kantor A Sunday is `HARI_LIBUR`, Kantor B Sunday is 2 sessions** — Kalender kantor yang berbeda tidak menyebabkan salah hitung `TIDAK_HADIR`.
-6. **Workforce feed strips sensitive data** — Data GPS mentah, path foto internal, dan alasan pengajuan pribadi tidak bocor ke endpoint workforce.
+4. **Policy Hierarchy resolves `KARYAWAN > BIDANG > DEFAULT`** — Prioritas kebijakan sesi (2, 3, atau 4 sesi) berjalan akurat.
+5. **Kantor A Sunday is `HARI_LIBUR`, Kantor B Sunday is 2 sessions** — Kalender kantor berbeda tidak salah menghitung `TIDAK_HADIR`.
+6. **Workforce feed strips sensitive data** — GPS mentah, path foto internal, dan alasan pengajuan pribadi tidak bocor.
 7. **Monthly summary totals `HARI MASUK` and `TIDAK HADIR` consistently** — Sinkronisasi hasil kalkulasi bulanan.
 8. **Audit log strictly append-only via SQLite triggers** — Trigger SQLite memblokir `UPDATE` dan `DELETE` pada tabel `audit_log`.
 9. **System settings default initialization** — Pengaturan branding dan login terinisialisasi konsisten.
 10. **Registration table and profile photo columns** — Kolom profil dan tabel `pendaftaran_akun` tersedia.
-11. **System settings RBAC & Feed access across all roles** — Endpoint settings terproteksi khusus `SUPERADMIN`, Beranda Feed & foto dapat diakses lintas role, validasi sumber kamera & jam mulai sesi berjalan.
+11. **System settings RBAC & Feed access across all roles** — Endpoint settings terproteksi khusus `SUPERADMIN`, Beranda Feed dan foto dapat diakses lintas role, validasi sumber kamera & jam mulai sesi berjalan.
 
 ### B. Suite Hardening Production (`tests/production.test.ts` — 8 Test)
 Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
@@ -36,9 +36,10 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
 
 | Verifikasi | Perintah | Hasil |
 |---|---|---|
-| TypeScript Check | `npm run lint` (`tsc --noEmit`) | Lulus (0 error) |
-| Frontend Bundle | `npm run build` (`vite build`) | Lulus (`dist/` bersih tanpa warning) |
-| Production Server Boot | `NODE_ENV=production node server.ts` | Lulus (`/api/v1/health` 200 OK WIB, `/` 200 HTML, `izin_demo_login=0`, security headers aktif) |
+| TypeScript Check | `npm run lint` (`tsc --noEmit`) | Perlu dijalankan ulang setelah commit terbaru |
+| Frontend Bundle | `npm run build` (`vite build`) | Perlu dijalankan ulang setelah commit terbaru |
+| Automated Tests | `npm.cmd test` | Perlu dijalankan ulang; cakupan saat ini 19 test |
+| Production Server Boot | `NODE_ENV=production node server.ts` | Perlu UAT ulang setelah commit terbaru |
 
 ---
 
