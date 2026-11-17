@@ -14,7 +14,7 @@ import {
 } from '../src/server/services/resolver.ts';
 import { getWibDateString } from '../src/server/time.ts';
 import type { Karyawan, Role } from '../src/shared/types.ts';
-import { isGpsAccuracyAcceptable, isWithinVerifiedGeofence, MAX_GPS_ACCURACY_METERS } from '../src/shared/geofence.ts';
+import { isGpsAccuracyAcceptable, isWithinVerifiedGeofence, MAX_GPS_ACCURACY_METERS, requiresOfficeGeofence } from '../src/shared/geofence.ts';
 import { getSessionWindowState } from '../src/shared/session-window.ts';
 
 test('Geofence Haversine distance calculation', () => {
@@ -31,6 +31,18 @@ test('Session attendance is allowed only inside the configured inclusive time wi
   assert.equal(getSessionWindowState(9 * 60 + 30, '09:00', '09:30'), 'OPEN');
   assert.equal(getSessionWindowState(9 * 60 + 31, '09:00', '09:30'), 'EXPIRED');
   assert.equal(getSessionWindowState(9 * 60, '09:30', '09:00'), 'INVALID');
+});
+
+test('Attendance location policy requires office on session 1 by default and can require every session', () => {
+  assert.equal(requiresOfficeGeofence('SESI_PERTAMA_KANTOR', 1), true);
+  assert.equal(requiresOfficeGeofence('SESI_PERTAMA_KANTOR', 2), false);
+  assert.equal(requiresOfficeGeofence('SESI_PERTAMA_KANTOR', 4), false);
+  assert.equal(requiresOfficeGeofence('SEMUA_SESI_KANTOR', 1), true);
+  assert.equal(requiresOfficeGeofence('SEMUA_SESI_KANTOR', 2), true);
+  assert.equal(requiresOfficeGeofence('SEMUA_SESI_KANTOR', 4), true);
+  assert.equal(requiresOfficeGeofence(undefined, 2), false);
+  assert.equal(requiresOfficeGeofence(undefined, 1), true);
+  assert.equal(requiresOfficeGeofence('SESI_PERTAMA_KANTOR', 0), true);
 });
 
 test('GPS accuracy and radius uncertainty are validated conservatively', () => {
