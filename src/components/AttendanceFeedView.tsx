@@ -780,11 +780,11 @@ export function AttendanceFeedView({
       {/* Lightbox Modal for Post Photo & Complete Location Details */}
       {lightboxPost && (
         <div
-          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4"
           onClick={() => setLightboxPost(null)}
         >
           <div
-            className="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-2xl max-w-xl w-full border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[92vh] flex flex-col"
+            className="bg-white dark:bg-slate-900 rounded-2xl max-w-xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden max-h-[calc(100dvh-1.5rem)] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-4 py-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
@@ -815,15 +815,15 @@ export function AttendanceFeedView({
                 <X className="w-5 h-5 text-slate-500 dark:text-slate-400" />
               </button>
             </div>
-            <div className="bg-slate-950 flex items-center justify-center max-h-[56vh]">
+            <div className="bg-slate-950 flex-none flex items-center justify-center max-h-[44dvh] sm:max-h-[52dvh] overflow-hidden">
               <img
                 src={getAuthorizedPhotoUrl(lightboxPost.id)}
                 alt={`Foto absensi ${lightboxPost.namaLengkap}`}
                 referrerPolicy="no-referrer"
-                className="max-h-[56vh] w-full object-contain"
+                className="max-h-[44dvh] sm:max-h-[52dvh] w-full object-contain"
               />
             </div>
-            <div className="p-4 space-y-2 text-xs text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/80">
+            <div className="min-h-0 overflow-y-auto overscroll-contain p-4 space-y-2 text-xs text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/80">
               <p className="text-sm text-slate-900 dark:text-slate-100">
                 <strong>{lightboxPost.namaLengkap}</strong> — {lightboxPost.deskripsiAktivitas}
               </p>
