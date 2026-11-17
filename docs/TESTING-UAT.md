@@ -162,6 +162,18 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
 12. Tekan **Reset Foto** dan pastikan avatar kembali ke inisial default tanpa mengubah `karyawan_id = NULL`.
 13. Pastikan database menolak `INSERT/UPDATE` yang mencoba menghubungkan SUPERADMIN ke `karyawan_id`, dan menolak akun ADMIN/KARYAWAN tanpa `karyawan_id`.
 
+## 7. UAT Hapus Kantor & Bidang Kerja yang Tidak Digunakan
+
+1. Login sebagai ADMIN operasional, buka **Master Karyawan & Kantor → Kantor & Geofence**. Kantor baru yang belum memiliki relasi bisnis harus menampilkan tombol **Hapus** aktif.
+2. Coba hapus kantor yang sudah digunakan pegawai; tombol harus nonaktif dan menampilkan jumlah pegawai. Jika request DELETE dipanggil langsung, backend tetap harus menolak dengan HTTP 409.
+3. Uji juga kantor yang dirujuk pendaftaran akun, hari libur, atau periode payroll. Semua relasi tersebut harus memblokir penghapusan, termasuk pegawai arsip/nonaktif.
+4. Hapus kantor kosong. Pastikan baris kantor dan tujuh baris kalender mingguan bawaannya hilang bersama, dan Audit Trail menyimpan aksi `DELETE_KANTOR`.
+5. Buka tab **Bidang Kerja**. Bidang yang tidak dirujuk data apa pun harus memiliki tombol **Hapus** aktif. Bidang yang digunakan pegawai harus menampilkan jumlah pegawai dan tombol nonaktif.
+6. Uji bidang yang dirujuk kebijakan absensi (aktif atau nonaktif) atau pendaftaran akun. Penghapusan harus ditolak dengan HTTP 409.
+7. Hapus bidang kosong. Pastikan baris bidang hilang dan Audit Trail menyimpan aksi `DELETE_BIDANG`.
+8. Login sebagai Karyawan dan coba memanggil kedua endpoint DELETE; server harus menolak dengan HTTP 403.
+9. Pastikan percobaan menghapus data yang masih memiliki relasi tidak menghapus sebagian data anak maupun master; tidak ada perubahan jika validasi gagal.
+
 ## 6. UAT Admin Edit Bidang & Jam Absensi Mobile
 
 1. Login sebagai ADMIN operasional, buka **Master Karyawan & Kantor → Karyawan**, pilih **Edit** pada teknisi, lalu ubah **Bidang Kerja**. Simpan dan pastikan bidang baru muncul pada master karyawan, kebijakan efektif, dan laporan terkait.
