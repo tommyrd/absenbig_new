@@ -76,19 +76,25 @@ function loadAuthUserById(userId: number): (AuthUser & { tokenVersion: number })
     .prepare(
       `SELECT u.id, u.username, u.email, u.role, u.karyawan_id, u.aktif as user_aktif,
               COALESCE(u.token_version, 1) as token_version,
-              k.nama_lengkap, k.nik, k.jabatan, k.no_hp, k.kantor_id, k.bidang_id, k.aktif as emp_aktif,
+              COALESCE(NULLIF(u.nama_tampilan, ''), k.nama_lengkap, 'Superadmin') as nama_lengkap,
+              COALESCE(k.nik, '') as nik,
+              COALESCE(k.jabatan, 'Pemilik Sistem') as jabatan,
+              COALESCE(k.no_hp, u.no_hp, '') as no_hp,
+              k.kantor_id, k.bidang_id, k.aktif as emp_aktif,
               k.foto_profil_path, k.foto_profil_updated_at,
-              kt.nama as kantor_nama, kt.lat as kantor_lat, kt.lng as kantor_lng,
-              kt.radius_meter as kantor_radius, kt.geofence_mode as kantor_geofence_mode,
-              b.nama as bidang_nama
+              COALESCE(kt.nama, 'Akun Sistem') as kantor_nama,
+              COALESCE(kt.lat, 0) as kantor_lat, COALESCE(kt.lng, 0) as kantor_lng,
+              COALESCE(kt.radius_meter, 0) as kantor_radius,
+              COALESCE(kt.geofence_mode, 'TOLAK_LUAR_RADIUS') as kantor_geofence_mode,
+              COALESCE(b.nama, 'Non-Karyawan') as bidang_nama
        FROM pengguna u
-       JOIN karyawan k ON u.karyawan_id = k.id
-       JOIN kantor kt ON k.kantor_id = kt.id
-       JOIN bidang_kerja b ON k.bidang_id = b.id
-       WHERE u.id = ? AND u.aktif = 1 AND k.aktif = 1`
+       LEFT JOIN karyawan k ON u.karyawan_id = k.id
+       LEFT JOIN kantor kt ON k.kantor_id = kt.id
+       LEFT JOIN bidang_kerja b ON k.bidang_id = b.id
+       WHERE u.id = ? AND u.aktif = 1 AND (u.role = 'SUPERADMIN' OR k.aktif = 1)`
     )
     .get(userId) as
-    | (AuthUser & { user_aktif: number; emp_aktif: number; foto_profil_path: string | null; token_version: number })
+    | (AuthUser & { user_aktif: number; emp_aktif: number | null; foto_profil_path: string | null; token_version: number })
     | undefined;
   if (!row) return null;
   return {
@@ -97,7 +103,7 @@ function loadAuthUserById(userId: number): (AuthUser & { tokenVersion: number })
     email: row.email,
     no_hp: row.no_hp,
     role: row.role,
-    karyawan_id: row.karyawan_id,
+    karyawan_id: row.karyawan_id ?? null,
     nama_lengkap: row.nama_lengkap,
     nik: row.nik,
     jabatan: row.jabatan,
@@ -296,7 +302,7 @@ export function registerApiRoutes(app: Express) {
       .prepare(
         `SELECT u.id, u.password_hash, u.role, u.aktif, COALESCE(u.token_version, 1) as token_version, k.aktif as emp_aktif
          FROM pengguna u
-         JOIN karyawan k ON u.karyawan_id = k.id
+         LEFT JOIN karyawan k ON u.karyawan_id = k.id
          WHERE (LOWER(u.username) = LOWER(?) OR LOWER(u.email) = LOWER(?)) LIMIT 1`
       )
       .get(cleanIdentifier, cleanIdentifier) as
@@ -342,7 +348,7 @@ export function registerApiRoutes(app: Express) {
       return;
     }
 
-    if (row.aktif !== 1 || row.emp_aktif !== 1) {
+    if (row.aktif !== 1 || (row.role !== 'SUPERADMIN' && row.emp_aktif !== 1)) {
       res.status(403).json({ error: 'Akun Anda sedang dinonaktifkan. Hubungi Superadmin.' });
       return;
     }
