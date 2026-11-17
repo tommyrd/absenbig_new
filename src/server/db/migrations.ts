@@ -268,18 +268,6 @@ const MIGRATIONS: MigrationDef[] = [
     },
   },
   {
-    version: '013',
-    name: 'standalone_superadmin_profile_photos',
-    up: (db) => {
-      if (!hasColumn(db, 'pengguna', 'foto_profil_path')) {
-        db.exec(`ALTER TABLE pengguna ADD COLUMN foto_profil_path TEXT;`);
-      }
-      if (!hasColumn(db, 'pengguna', 'foto_profil_updated_at')) {
-        db.exec(`ALTER TABLE pengguna ADD COLUMN foto_profil_updated_at TEXT;`);
-      }
-    },
-  },
-  {
     version: '012',
     name: 'enforce_role_employee_link_invariant',
     up: (db) => {
@@ -311,6 +299,18 @@ const MIGRATIONS: MigrationDef[] = [
           SELECT RAISE(ABORT, 'SUPERADMIN harus tanpa profil karyawan; ADMIN/KARYAWAN wajib terhubung ke karyawan.');
         END;
       `);
+    },
+  },
+  {
+    version: '013',
+    name: 'standalone_superadmin_profile_photos',
+    up: (db) => {
+      if (!hasColumn(db, 'pengguna', 'foto_profil_path')) {
+        db.exec(`ALTER TABLE pengguna ADD COLUMN foto_profil_path TEXT;`);
+      }
+      if (!hasColumn(db, 'pengguna', 'foto_profil_updated_at')) {
+        db.exec(`ALTER TABLE pengguna ADD COLUMN foto_profil_updated_at TEXT;`);
+      }
     },
   },
 ];
