@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Express, Request, Response } from 'express';
 import {
+  buildAuthCookie,
   extractToken,
   hashPassword,
   requireRole,
@@ -11,7 +12,19 @@ import {
   verifyToken,
   type AuthenticatedRequest,
 } from './auth.ts';
-import { ASSETS_DIR, AVATARS_DIR, getDb, PHOTOS_DIR } from './db.ts';
+import { getDb } from './db.ts';
+import { getAssetsDir, getAvatarsDir, getPhotosDir } from './paths.ts';
+import {
+  attendanceLimiter,
+  getClientIp,
+  loginFailLimiter,
+  loginIpLimiter,
+  passwordLimiter,
+  registerLimiter,
+  safeErrorDetail,
+  validateAndSanitizeLogoBase64,
+  validateRasterImageBase64,
+} from './security.ts';
 import { writeAuditLog } from './services/audit.ts';
 import {
   computeMonthlySummary,
@@ -45,11 +58,12 @@ function broadcastWorkforceUpdate(eventType: string) {
   }
 }
 
-function loadAuthUserById(userId: number): AuthUser | null {
+function loadAuthUserById(userId: number): (AuthUser & { tokenVersion: number }) | null {
   const db = getDb();
   const row = db
     .prepare(
       `SELECT u.id, u.username, u.email, u.role, u.karyawan_id, u.aktif as user_aktif,
+              COALESCE(u.token_version, 1) as token_version,
               k.nama_lengkap, k.nik, k.jabatan, k.no_hp, k.kantor_id, k.bidang_id, k.aktif as emp_aktif,
               k.foto_profil_path, k.foto_profil_updated_at,
               kt.nama as kantor_nama, kt.lat as kantor_lat, kt.lng as kantor_lng,
@@ -62,7 +76,7 @@ function loadAuthUserById(userId: number): AuthUser | null {
        WHERE u.id = ? AND u.aktif = 1 AND k.aktif = 1`
     )
     .get(userId) as
-    | (AuthUser & { user_aktif: number; emp_aktif: number; foto_profil_path: string | null })
+    | (AuthUser & { user_aktif: number; emp_aktif: number; foto_profil_path: string | null; token_version: number })
     | undefined;
   if (!row) return null;
   return {
@@ -85,27 +99,30 @@ function loadAuthUserById(userId: number): AuthUser | null {
     bidang_nama: row.bidang_nama,
     has_foto_profil: Boolean(row.foto_profil_path),
     foto_profil_updated_at: row.foto_profil_updated_at ?? null,
+    tokenVersion: row.token_version,
   };
 }
 
+function stripInternalAuthFields(user: AuthUser & { tokenVersion?: number }): AuthUser {
+  const { tokenVersion: _tv, ...clean } = user;
+  return clean;
+}
+
 function saveAvatarBase64(base64Input: string, prefix: string): string {
-  const match = base64Input.match(/^data:image\/(png|jpeg|jpg|webp|svg\+xml);base64,(.+)$/);
-  if (!match) {
-    throw new Error('Format foto profil harus PNG, JPG, WEBP, atau SVG.');
-  }
-  const ext = match[1] === 'svg+xml' ? 'svg' : match[1] === 'jpeg' ? 'jpg' : match[1];
-  const buf = Buffer.from(match[2], 'base64');
-  if (buf.length > 2 * 1024 * 1024) {
-    throw new Error('Ukuran foto profil maksimal 2 MB.');
-  }
-  const fileName = `${prefix}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`;
-  fs.writeFileSync(path.join(AVATARS_DIR, fileName), buf);
+  const { ext, buf } = validateRasterImageBase64(base64Input, {
+    maxBytes: 2 * 1024 * 1024,
+    label: 'foto profil',
+  });
+  const avatarsDir = getAvatarsDir();
+  if (!fs.existsSync(avatarsDir)) fs.mkdirSync(avatarsDir, { recursive: true });
+  const fileName = `${prefix}_${crypto.randomBytes(10).toString('hex')}.${ext}`;
+  fs.writeFileSync(path.join(avatarsDir, fileName), buf);
   return fileName;
 }
 
 function deleteAvatarFile(fileName: string | null | undefined) {
   if (!fileName) return;
-  const safePath = path.join(AVATARS_DIR, path.basename(fileName));
+  const safePath = path.join(getAvatarsDir(), path.basename(fileName));
   if (fs.existsSync(safePath)) {
     fs.unlinkSync(safePath);
   }
@@ -136,9 +153,20 @@ function attachUser(req: AuthenticatedRequest, _res: Response, next: () => void)
   if (token) {
     const payload = verifyToken(token);
     if (payload) {
+      const db = getDb();
+      if (payload.jti) {
+        const revoked = db
+          .prepare(`SELECT 1 FROM revoked_tokens WHERE jti = ? LIMIT 1`)
+          .get(payload.jti);
+        if (revoked) {
+          next();
+          return;
+        }
+      }
       const user = loadAuthUserById(payload.userId);
-      if (user) {
-        req.authUser = user;
+      if (user && (payload.tv ?? 1) === user.tokenVersion) {
+        req.authUser = stripInternalAuthFields(user);
+        req.authTokenPayload = payload;
       }
     }
   }
@@ -162,6 +190,22 @@ export function registerApiRoutes(app: Express) {
   const db = getDb();
   app.use('/api/v1', attachUser);
 
+  // 0. Healthcheck (unauthenticated for load balancers / PM2 / Nginx probes)
+  app.get('/api/v1/health', (_req: Request, res: Response) => {
+    try {
+      db.prepare('SELECT 1').get();
+      res.json({
+        status: 'ok',
+        app: 'Absensi BIGNET',
+        timezone: 'Asia/Jakarta',
+        serverTimeIso: getWibIsoString(),
+        uptimeSeconds: Math.round(process.uptime()),
+      });
+    } catch {
+      res.status(503).json({ status: 'error', error: 'Database tidak tersedia.' });
+    }
+  });
+
   // 1. Server Time
   app.get('/api/v1/time', (_req: Request, res: Response) => {
     const now = new Date();
@@ -176,21 +220,42 @@ export function registerApiRoutes(app: Express) {
 
   // 2. Auth
   app.post('/api/v1/auth/login', (req: Request, res: Response) => {
+    const clientIp = getClientIp(req);
+    const ipLimit = loginIpLimiter.consume(clientIp);
+    if (!ipLimit.allowed) {
+      res.setHeader('Retry-After', String(ipLimit.retryAfterSec));
+      res.status(429).json({
+        error: `Terlalu banyak percobaan login dari jaringan Anda. Coba lagi dalam ${ipLimit.retryAfterSec} detik.`,
+      });
+      return;
+    }
+
     const { identifier, password } = req.body as { identifier?: string; password?: string };
     if (!identifier || !password) {
       res.status(400).json({ error: 'Username/email dan kata sandi wajib diisi.' });
       return;
     }
 
+    const cleanIdentifier = identifier.trim().toLowerCase();
+    const failKey = `${clientIp}:${cleanIdentifier}`;
+    const failLimit = loginFailLimiter.check(failKey);
+    if (!failLimit.allowed) {
+      res.setHeader('Retry-After', String(failLimit.retryAfterSec));
+      res.status(429).json({
+        error: `Akun sementara dikunci karena percobaan gagal berulang. Coba lagi dalam ${failLimit.retryAfterSec} detik.`,
+      });
+      return;
+    }
+
     const row = db
       .prepare(
-        `SELECT u.id, u.password_hash, u.role, u.aktif, k.aktif as emp_aktif
+        `SELECT u.id, u.password_hash, u.role, u.aktif, COALESCE(u.token_version, 1) as token_version, k.aktif as emp_aktif
          FROM pengguna u
          JOIN karyawan k ON u.karyawan_id = k.id
          WHERE (LOWER(u.username) = LOWER(?) OR LOWER(u.email) = LOWER(?)) LIMIT 1`
       )
-      .get(identifier.trim(), identifier.trim()) as
-      | { id: number; password_hash: string; role: Role; aktif: number; emp_aktif: number }
+      .get(cleanIdentifier, cleanIdentifier) as
+      | { id: number; password_hash: string; role: Role; aktif: number; token_version: number; emp_aktif: number }
       | undefined;
 
     if (!row) {
@@ -201,7 +266,7 @@ export function registerApiRoutes(app: Express) {
            WHERE (LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?))
            ORDER BY id DESC LIMIT 1`
         )
-        .get(identifier.trim(), identifier.trim()) as
+        .get(cleanIdentifier, cleanIdentifier) as
         | { status: string; password_hash: string; alasan_keputusan: string | null }
         | undefined;
 
@@ -221,11 +286,13 @@ export function registerApiRoutes(app: Express) {
           return;
         }
       }
+      loginFailLimiter.consume(failKey);
       res.status(401).json({ error: 'Username/email atau kata sandi salah.' });
       return;
     }
 
     if (!verifyPassword(password, row.password_hash)) {
+      loginFailLimiter.consume(failKey);
       res.status(401).json({ error: 'Username/email atau kata sandi salah.' });
       return;
     }
@@ -235,22 +302,22 @@ export function registerApiRoutes(app: Express) {
       return;
     }
 
-    const user = loadAuthUserById(row.id);
-    if (!user) {
+    const userWithMeta = loadAuthUserById(row.id);
+    if (!userWithMeta) {
       res.status(403).json({ error: 'Akun karyawan tidak aktif.' });
       return;
     }
 
+    loginFailLimiter.reset(failKey);
+    const user = stripInternalAuthFields(userWithMeta);
     const token = signToken({
       userId: user.id,
       role: user.role,
+      tv: userWithMeta.tokenVersion,
       exp: Date.now() + 1000 * 60 * 60 * 24 * 7,
     });
 
-    res.setHeader(
-      'Set-Cookie',
-      `bignet_token=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 7}`
-    );
+    res.setHeader('Set-Cookie', buildAuthCookie(token, req, 60 * 60 * 24 * 7));
 
     writeAuditLog(db, {
       actor: user,
@@ -267,6 +334,12 @@ export function registerApiRoutes(app: Express) {
   });
 
   app.post('/api/v1/auth/logout', (req: AuthenticatedRequest, res: Response) => {
+    if (req.authTokenPayload?.jti) {
+      db.prepare(
+        `INSERT OR IGNORE INTO revoked_tokens (jti, expires_at, revoked_at) VALUES (?, ?, ?)`
+      ).run(req.authTokenPayload.jti, req.authTokenPayload.exp, getWibIsoString());
+      db.prepare(`DELETE FROM revoked_tokens WHERE expires_at < ?`).run(Date.now());
+    }
     if (req.authUser) {
       writeAuditLog(db, {
         actor: req.authUser,
@@ -278,7 +351,7 @@ export function registerApiRoutes(app: Express) {
         karyawanId: req.authUser.karyawan_id,
       });
     }
-    res.setHeader('Set-Cookie', 'bignet_token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
+    res.setHeader('Set-Cookie', buildAuthCookie('', req, 0));
     res.json({ ok: true });
   });
 
@@ -297,6 +370,15 @@ export function registerApiRoutes(app: Express) {
   });
 
   app.post('/api/v1/auth/register', (req: Request, res: Response) => {
+    const regLimit = registerLimiter.consume(getClientIp(req));
+    if (!regLimit.allowed) {
+      res.setHeader('Retry-After', String(regLimit.retryAfterSec));
+      res.status(429).json({
+        error: `Terlalu banyak pengiriman pendaftaran. Coba lagi dalam ${regLimit.retryAfterSec} detik.`,
+      });
+      return;
+    }
+
     const {
       nama_lengkap,
       username,
@@ -630,6 +712,14 @@ export function registerApiRoutes(app: Express) {
 
   app.post('/api/v1/attendance/session', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const user = req.authUser!;
+    const attLimit = attendanceLimiter.consume(`att:${user.id}`);
+    if (!attLimit.allowed) {
+      res.setHeader('Retry-After', String(attLimit.retryAfterSec));
+      res.status(429).json({
+        error: `Terlalu banyak percobaan pengiriman absensi. Coba lagi dalam ${attLimit.retryAfterSec} detik.`,
+      });
+      return;
+    }
     const emp = getKaryawanById(user.karyawan_id);
     if (!emp) {
       res.status(404).json({ error: 'Data karyawan tidak ditemukan.' });
@@ -722,7 +812,7 @@ export function registerApiRoutes(app: Express) {
       return;
     }
 
-    // Validate Geofence
+    // Validate Geofence & GPS coordinates bounds
     const office = db.prepare(`SELECT * FROM kantor WHERE id = ?`).get(emp.kantor_id) as {
       lat: number;
       lng: number;
@@ -730,10 +820,20 @@ export function registerApiRoutes(app: Express) {
       geofence_mode: string;
     };
 
+    const hasValidCoords =
+      typeof lat === 'number' &&
+      typeof lng === 'number' &&
+      Number.isFinite(lat) &&
+      Number.isFinite(lng) &&
+      lat >= -90 &&
+      lat <= 90 &&
+      lng >= -180 &&
+      lng <= 180;
+
     let jarakMeter: number | null = null;
     let dalamGeofence = 1;
-    if (typeof lat === 'number' && typeof lng === 'number' && !Number.isNaN(lat) && !Number.isNaN(lng)) {
-      jarakMeter = haversineMeters(lat, lng, office.lat, office.lng);
+    if (hasValidCoords) {
+      jarakMeter = haversineMeters(lat!, lng!, office.lat, office.lng);
       dalamGeofence = jarakMeter <= office.radius_meter ? 1 : 0;
       if (office.geofence_mode === 'TOLAK_LUAR_RADIUS' && dalamGeofence === 0) {
         res.status(400).json({
@@ -742,6 +842,12 @@ export function registerApiRoutes(app: Express) {
         return;
       }
     } else {
+      if (office.geofence_mode === 'TOLAK_LUAR_RADIUS') {
+        res.status(400).json({
+          error: 'Koordinat GPS valid wajib tersedia untuk kantor dengan mode geofence ketat.',
+        });
+        return;
+      }
       dalamGeofence = 0;
     }
 
@@ -751,25 +857,29 @@ export function registerApiRoutes(app: Express) {
     const isLate = expectedNext === 1 && lateDiff > 0;
     const keterlambatanMenit = isLate ? nowMin - startMin : 0;
 
-    // Save photo file securely (camera capture raster image only)
+    // Save photo file securely (camera capture raster image + magic-byte check + unpredictable filename)
     let savedPhotoName: string | null = null;
     let fotoChecksum: string | null = null;
     if (fotoBase64) {
-      const match = fotoBase64.match(/^data:image\/(png|jpeg|jpg|webp);base64,(.+)$/);
-      if (!match) {
+      let ext: 'png' | 'jpg' | 'webp';
+      let buf: Buffer;
+      try {
+        const parsed = validateRasterImageBase64(fotoBase64, {
+          maxBytes: 5 * 1024 * 1024,
+          label: 'foto absensi',
+        });
+        ext = parsed.ext;
+        buf = parsed.buf;
+      } catch (err) {
         res.status(400).json({
-          error: 'Format foto tidak valid. Gunakan tangkapan kamera browser (JPEG/PNG/WEBP).',
+          error: err instanceof Error ? err.message : 'Format foto tidak valid.',
         });
         return;
       }
-      const ext = match[1] === 'jpeg' ? 'jpg' : match[1];
-      const buf = Buffer.from(match[2], 'base64');
-      if (buf.length > 5 * 1024 * 1024) {
-        res.status(400).json({ error: 'Ukuran foto maksimal 5 MB.' });
-        return;
-      }
-      savedPhotoName = `abs_${emp.id}_${today}_s${expectedNext}_${Date.now()}.${ext}`;
-      fs.writeFileSync(path.join(PHOTOS_DIR, savedPhotoName), buf);
+      const photosDir = getPhotosDir();
+      if (!fs.existsSync(photosDir)) fs.mkdirSync(photosDir, { recursive: true });
+      savedPhotoName = `abs_${emp.id}_${today}_s${expectedNext}_${crypto.randomBytes(8).toString('hex')}.${ext}`;
+      fs.writeFileSync(path.join(photosDir, savedPhotoName), buf);
       fotoChecksum = crypto.createHash('sha256').update(buf).digest('hex');
     }
 
@@ -839,7 +949,7 @@ export function registerApiRoutes(app: Express) {
       db.exec('ROLLBACK');
       res.status(409).json({
         error: 'Gagal menyimpan sesi absensi (kemungkinan sesi sudah tercatat).',
-        detail: err instanceof Error ? err.message : undefined,
+        detail: safeErrorDetail(err),
       });
       return;
     }
@@ -871,7 +981,7 @@ export function registerApiRoutes(app: Express) {
     }
 
     const safeFile = path.basename(row.foto_path);
-    const fullPath = path.join(PHOTOS_DIR, safeFile);
+    const fullPath = path.join(getPhotosDir(), safeFile);
     if (!fs.existsSync(fullPath)) {
       res.status(404).json({ error: 'Berkas foto tidak tersedia di penyimpanan.' });
       return;
@@ -887,6 +997,8 @@ export function registerApiRoutes(app: Express) {
         ? 'image/webp'
         : 'image/jpeg';
     res.setHeader('Content-Type', mime);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
     res.setHeader('Cache-Control', 'private, max-age=300');
     fs.createReadStream(fullPath).pipe(res);
   });
@@ -1082,7 +1194,7 @@ export function registerApiRoutes(app: Express) {
       db.exec('ROLLBACK');
       res.status(400).json({
         error: 'Gagal membuat pengajuan.',
-        detail: err instanceof Error ? err.message : undefined,
+        detail: safeErrorDetail(err),
       });
     }
   });
@@ -1408,8 +1520,10 @@ export function registerApiRoutes(app: Express) {
       password?: string;
       role?: Role;
     };
-    if (!nik || !nama_lengkap || !email || !username) {
-      res.status(400).json({ error: 'NIK, nama lengkap, email, dan username wajib diisi.' });
+    if (!nik || !nama_lengkap || !email || !username || !password || password.length < 6) {
+      res.status(400).json({
+        error: 'NIK, nama lengkap, email, username, dan kata sandi (minimal 6 karakter) wajib diisi.',
+      });
       return;
     }
     const nowIso = getWibIsoString();
@@ -1435,9 +1549,9 @@ export function registerApiRoutes(app: Express) {
         );
       const empId = Number(empInfo.lastInsertRowid);
       db.prepare(
-        `INSERT INTO pengguna (username, email, password_hash, role, karyawan_id, aktif, created_at)
-         VALUES (?, ?, ?, ?, ?, 1, ?)`
-      ).run(username.trim().toLowerCase(), email.trim(), hashPassword(password || 'bignet123'), empRole, empId, nowIso);
+        `INSERT INTO pengguna (username, email, password_hash, role, karyawan_id, aktif, token_version, created_at)
+         VALUES (?, ?, ?, ?, ?, 1, 1, ?)`
+      ).run(username.trim().toLowerCase(), email.trim(), hashPassword(password), empRole, empId, nowIso);
 
       writeAuditLog(db, {
         actor: req.authUser!,
@@ -1455,7 +1569,7 @@ export function registerApiRoutes(app: Express) {
       db.exec('ROLLBACK');
       res.status(400).json({
         error: 'Gagal menambah karyawan (NIK/email/username mungkin sudah digunakan).',
-        detail: err instanceof Error ? err.message : undefined,
+        detail: safeErrorDetail(err),
       });
     }
   });
@@ -1862,7 +1976,7 @@ export function registerApiRoutes(app: Express) {
       db.exec('ROLLBACK');
       res.status(400).json({
         error: 'Gagal menetapkan kerja khusus (kemungkinan karyawan sudah memiliki tugas khusus di tanggal tersebut).',
-        detail: err instanceof Error ? err.message : undefined,
+        detail: safeErrorDetail(err),
       });
     }
   });
@@ -2274,7 +2388,7 @@ export function registerApiRoutes(app: Express) {
 
     if (row?.logo_path) {
       const safeFile = path.basename(row.logo_path);
-      const fullPath = path.join(ASSETS_DIR, safeFile);
+      const fullPath = path.join(getAssetsDir(), safeFile);
       if (fs.existsSync(fullPath)) {
         const ext = path.extname(safeFile).toLowerCase();
         const mime =
@@ -2286,6 +2400,8 @@ export function registerApiRoutes(app: Express) {
             ? 'image/webp'
             : 'image/jpeg';
         res.setHeader('Content-Type', mime);
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
         res.setHeader('Cache-Control', 'no-cache');
         fs.createReadStream(fullPath).pipe(res);
         return;
@@ -2293,6 +2409,7 @@ export function registerApiRoutes(app: Express) {
     }
 
     res.setHeader('Content-Type', 'image/svg+xml');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'no-cache');
     res.send(DEFAULT_LOGO_SVG);
   });
@@ -2334,35 +2451,33 @@ export function registerApiRoutes(app: Express) {
     let nextLogoPath = before.logo_path ? String(before.logo_path) : null;
     let nextLogoUpdatedAt = before.logo_updated_at ? String(before.logo_updated_at) : null;
     const nowIso = getWibIsoString();
+    const assetsDir = getAssetsDir();
 
     if (body.resetLogo) {
       if (nextLogoPath) {
-        const oldFile = path.join(ASSETS_DIR, path.basename(nextLogoPath));
+        const oldFile = path.join(assetsDir, path.basename(nextLogoPath));
         if (fs.existsSync(oldFile)) fs.unlinkSync(oldFile);
       }
       nextLogoPath = null;
       nextLogoUpdatedAt = nowIso;
     } else if (body.logoBase64) {
-      const match = body.logoBase64.match(
-        /^data:image\/(png|jpeg|jpg|webp|svg\+xml);base64,(.+)$/
-      );
-      if (!match) {
-        res.status(400).json({ error: 'Format logo harus PNG, JPG, WEBP, atau SVG.' });
+      let ext: 'png' | 'jpg' | 'webp' | 'svg';
+      let buf: Buffer;
+      try {
+        const parsed = validateAndSanitizeLogoBase64(body.logoBase64, 2 * 1024 * 1024);
+        ext = parsed.ext;
+        buf = parsed.buf;
+      } catch (err) {
+        res.status(400).json({ error: err instanceof Error ? err.message : 'Logo tidak valid.' });
         return;
       }
-      const ext =
-        match[1] === 'svg+xml' ? 'svg' : match[1] === 'jpeg' ? 'jpg' : match[1];
-      const buf = Buffer.from(match[2], 'base64');
-      if (buf.length > 2 * 1024 * 1024) {
-        res.status(400).json({ error: 'Ukuran logo maksimal 2 MB.' });
-        return;
-      }
+      if (!fs.existsSync(assetsDir)) fs.mkdirSync(assetsDir, { recursive: true });
       if (nextLogoPath) {
-        const oldFile = path.join(ASSETS_DIR, path.basename(nextLogoPath));
+        const oldFile = path.join(assetsDir, path.basename(nextLogoPath));
         if (fs.existsSync(oldFile)) fs.unlinkSync(oldFile);
       }
-      const fileName = `logo_${Date.now()}.${ext}`;
-      fs.writeFileSync(path.join(ASSETS_DIR, fileName), buf);
+      const fileName = `logo_${crypto.randomBytes(8).toString('hex')}.${ext}`;
+      fs.writeFileSync(path.join(assetsDir, fileName), buf);
       nextLogoPath = fileName;
       nextLogoUpdatedAt = nowIso;
     }
@@ -2480,13 +2595,13 @@ export function registerApiRoutes(app: Express) {
         db.exec('ROLLBACK');
         res.status(400).json({
           error: 'Gagal memperbarui profil (email mungkin sudah digunakan akun lain).',
-          detail: err instanceof Error ? err.message : undefined,
+          detail: safeErrorDetail(err),
         });
         return;
       }
 
       const updatedUser = loadAuthUserById(user.id);
-      res.json({ user: updatedUser });
+      res.json({ user: updatedUser ? stripInternalAuthFields(updatedUser) : null });
     }
   );
 
@@ -2495,6 +2610,13 @@ export function registerApiRoutes(app: Express) {
     requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'),
     (req: AuthenticatedRequest, res: Response) => {
       const user = req.authUser!;
+      const pwLimit = passwordLimiter.consume(`pw:${user.id}`);
+      if (!pwLimit.allowed) {
+        res.setHeader('Retry-After', String(pwLimit.retryAfterSec));
+        res.status(429).json({ error: `Terlalu banyak perubahan sandi. Coba lagi dalam ${pwLimit.retryAfterSec} detik.` });
+        return;
+      }
+
       const { currentPassword, newPassword } = req.body as {
         currentPassword?: string;
         newPassword?: string;
@@ -2518,10 +2640,19 @@ export function registerApiRoutes(app: Express) {
         return;
       }
 
-      db.prepare(`UPDATE pengguna SET password_hash = ? WHERE id = ?`).run(
+      db.prepare(`UPDATE pengguna SET password_hash = ?, token_version = COALESCE(token_version, 1) + 1 WHERE id = ?`).run(
         hashPassword(newPassword),
         user.id
       );
+
+      // Re-issue a fresh token for the caller so their active session continues seamlessly while old tokens are invalidated
+      const nextToken = signToken({
+        userId: user.id,
+        role: user.role,
+        tv: (req.authTokenPayload?.tv ?? 1) + 1,
+        exp: Date.now() + 1000 * 60 * 60 * 24 * 7,
+      });
+      res.setHeader('Set-Cookie', buildAuthCookie(nextToken, req, 60 * 60 * 24 * 7));
 
       writeAuditLog(db, {
         actor: user,
@@ -2531,10 +2662,10 @@ export function registerApiRoutes(app: Express) {
         targetEntity: 'pengguna',
         targetId: user.id,
         karyawanId: user.karyawan_id,
-        alasan: 'Pengguna mengganti kata sandi secara mandiri',
+        alasan: 'Pengguna mengganti kata sandi secara mandiri (seluruh sesi lama direvoke)',
       });
 
-      res.json({ ok: true });
+      res.json({ ok: true, token: nextToken });
     }
   );
 
@@ -2562,7 +2693,7 @@ export function registerApiRoutes(app: Express) {
 
       if (row.foto_profil_path) {
         const safeFile = path.basename(row.foto_profil_path);
-        const fullPath = path.join(AVATARS_DIR, safeFile);
+        const fullPath = path.join(getAvatarsDir(), safeFile);
         if (fs.existsSync(fullPath)) {
           const ext = path.extname(safeFile).toLowerCase();
           const mime =
@@ -2574,6 +2705,8 @@ export function registerApiRoutes(app: Express) {
               ? 'image/webp'
               : 'image/jpeg';
           res.setHeader('Content-Type', mime);
+          res.setHeader('X-Content-Type-Options', 'nosniff');
+          res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
           res.setHeader('Cache-Control', 'no-cache');
           fs.createReadStream(fullPath).pipe(res);
           return;
@@ -2581,6 +2714,7 @@ export function registerApiRoutes(app: Express) {
       }
 
       res.setHeader('Content-Type', 'image/svg+xml');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('Cache-Control', 'no-cache');
       res.send(buildDefaultAvatarSvg(row.nama_lengkap, row.role || 'KARYAWAN'));
     }
@@ -2606,7 +2740,7 @@ export function registerApiRoutes(app: Express) {
 
       if (row.foto_profil_path) {
         const safeFile = path.basename(row.foto_profil_path);
-        const fullPath = path.join(AVATARS_DIR, safeFile);
+        const fullPath = path.join(getAvatarsDir(), safeFile);
         if (fs.existsSync(fullPath)) {
           const ext = path.extname(safeFile).toLowerCase();
           const mime =
@@ -2618,6 +2752,8 @@ export function registerApiRoutes(app: Express) {
               ? 'image/webp'
               : 'image/jpeg';
           res.setHeader('Content-Type', mime);
+          res.setHeader('X-Content-Type-Options', 'nosniff');
+          res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
           res.setHeader('Cache-Control', 'no-cache');
           fs.createReadStream(fullPath).pipe(res);
           return;
@@ -2625,6 +2761,7 @@ export function registerApiRoutes(app: Express) {
       }
 
       res.setHeader('Content-Type', 'image/svg+xml');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('Cache-Control', 'no-cache');
       res.send(buildDefaultAvatarSvg(row.nama_lengkap, row.role_diminta));
     }
@@ -2684,7 +2821,7 @@ export function registerApiRoutes(app: Express) {
       });
 
       const updatedUser = loadAuthUserById(user.id);
-      res.json({ user: updatedUser });
+      res.json({ user: updatedUser ? stripInternalAuthFields(updatedUser) : null });
     }
   );
 
@@ -2795,11 +2932,12 @@ export function registerApiRoutes(app: Express) {
 
       let empFotoPath: string | null = null;
       if (reg.foto_profil_path) {
-        const src = path.join(AVATARS_DIR, path.basename(reg.foto_profil_path));
+        const avatarsDir = getAvatarsDir();
+        const src = path.join(avatarsDir, path.basename(reg.foto_profil_path));
         if (fs.existsSync(src)) {
           const ext = path.extname(src) || '.jpg';
-          empFotoPath = `avatar_${reg.username}_${Date.now()}${ext}`;
-          fs.copyFileSync(src, path.join(AVATARS_DIR, empFotoPath));
+          empFotoPath = `avatar_${reg.username}_${crypto.randomBytes(8).toString('hex')}${ext}`;
+          fs.copyFileSync(src, path.join(avatarsDir, empFotoPath));
         }
       }
 
@@ -2828,8 +2966,8 @@ export function registerApiRoutes(app: Express) {
 
         const userInfo = db
           .prepare(
-            `INSERT INTO pengguna (username, email, password_hash, role, karyawan_id, aktif, created_at)
-             VALUES (?, ?, ?, ?, ?, 1, ?)`
+            `INSERT INTO pengguna (username, email, password_hash, role, karyawan_id, aktif, token_version, created_at)
+             VALUES (?, ?, ?, ?, ?, 1, 1, ?)`
           )
           .run(reg.username, reg.email, reg.password_hash, finalRole, empId, nowIso);
         const newUserId = Number(userInfo.lastInsertRowid);
@@ -2872,7 +3010,7 @@ export function registerApiRoutes(app: Express) {
         db.exec('ROLLBACK');
         res.status(400).json({
           error: 'Gagal menyetujui pendaftaran akun.',
-          detail: err instanceof Error ? err.message : undefined,
+          detail: safeErrorDetail(err),
         });
       }
     }
@@ -3053,7 +3191,7 @@ export function registerApiRoutes(app: Express) {
         deleteAvatarFile(savedFoto);
         res.status(400).json({
           error: 'Gagal membuat akun (NIK, username, atau email sudah digunakan).',
-          detail: err instanceof Error ? err.message : undefined,
+          detail: safeErrorDetail(err),
         });
       }
     }
@@ -3155,9 +3293,13 @@ export function registerApiRoutes(app: Express) {
 
       db.exec('BEGIN IMMEDIATE');
       try {
+        const shouldBumpTokenVersion = nextRole !== existing.role || nextAktif === 0;
         db.prepare(
-          `UPDATE pengguna SET username = ?, email = ?, role = ?, aktif = ? WHERE id = ?`
-        ).run(cleanUser, cleanEmail, nextRole, nextAktif, targetUserId);
+          `UPDATE pengguna
+           SET username = ?, email = ?, role = ?, aktif = ?,
+               token_version = CASE WHEN ? = 1 THEN COALESCE(token_version, 1) + 1 ELSE COALESCE(token_version, 1) END
+           WHERE id = ?`
+        ).run(cleanUser, cleanEmail, nextRole, nextAktif, shouldBumpTokenVersion ? 1 : 0, targetUserId);
 
         db.prepare(
           `UPDATE karyawan
@@ -3209,7 +3351,7 @@ export function registerApiRoutes(app: Express) {
         db.exec('ROLLBACK');
         res.status(400).json({
           error: 'Gagal memperbarui akun (username atau email mungkin sudah dipakai akun lain).',
-          detail: err instanceof Error ? err.message : undefined,
+          detail: safeErrorDetail(err),
         });
       }
     }
@@ -3234,10 +3376,9 @@ export function registerApiRoutes(app: Express) {
         return;
       }
 
-      db.prepare(`UPDATE pengguna SET password_hash = ? WHERE id = ?`).run(
-        hashPassword(newPassword),
-        targetUserId
-      );
+      db.prepare(
+        `UPDATE pengguna SET password_hash = ?, token_version = COALESCE(token_version, 1) + 1 WHERE id = ?`
+      ).run(hashPassword(newPassword), targetUserId);
 
       writeAuditLog(db, {
         actor: req.authUser!,
@@ -3247,7 +3388,7 @@ export function registerApiRoutes(app: Express) {
         targetEntity: 'pengguna',
         targetId: targetUserId,
         karyawanId: target.karyawan_id,
-        alasan: `Reset kata sandi akun @${target.username} oleh Superadmin`,
+        alasan: `Reset kata sandi akun @${target.username} oleh Superadmin (seluruh sesi lama direvoke)`,
       });
 
       res.json({ ok: true });

@@ -53,9 +53,9 @@ const DEMO_ACCOUNTS = [
 export function LoginView({ settings, onSuccess }: LoginViewProps) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
 
-  // Login states
-  const [identifier, setIdentifier] = useState('andi');
-  const [password, setPassword] = useState('bignet123');
+  // Login states (never prefill hardcoded credentials in production)
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -133,7 +133,7 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
   const loginAnnouncement = (settings?.pengumuman_login || '').trim();
   const footerText =
     settings?.footer_login || 'Kantor Pusat Jakarta · Kantor Operasional Bandung';
-  const showDemo = settings ? Boolean(settings.izin_demo_login) : true;
+  const showDemo = Boolean(settings?.izin_demo_login);
   const logoSrc = `/api/v1/assets/logo?v=${encodeURIComponent(
     settings?.logo_updated_at || '1'
   )}`;
@@ -553,7 +553,7 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
                         <span>{regFotoBase64 ? 'Ganti Foto' : 'Pilih Foto Profil'}</span>
                         <input
                           type="file"
-                          accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                          accept="image/png,image/jpeg,image/webp"
                           className="hidden"
                           onChange={(e) => {
                             handleRegPhotoFile(e.target.files?.[0]);

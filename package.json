@@ -1,7 +1,7 @@
 {
-  "name": "react-example",
+  "name": "absensi-bignet",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -9,7 +9,14 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "db:migrate": "tsx src/server/db/cli.ts migrate",
+    "db:status": "tsx src/server/db/cli.ts status",
+    "db:seed:prod": "tsx src/server/db/cli.ts seed-prod",
+    "db:seed:demo": "tsx src/server/db/cli.ts seed-demo",
+    "backup": "tsx scripts/backup/backup.ts",
+    "restore": "tsx scripts/restore/restore.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

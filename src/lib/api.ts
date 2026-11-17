@@ -1,6 +1,12 @@
 import type { AuthUser } from '../shared/types';
 
 const TOKEN_KEY = 'bignet_auth_token';
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
+
+export function buildApiUrl(path: string): string {
+  if (/^https?:\/\//i.test(path)) return path;
+  return `${API_BASE}${path}`;
+}
 
 export function getStoredToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
@@ -24,7 +30,7 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
     headers.set('Authorization', `Bearer ${token}`);
   }
 
-  const res = await fetch(path, {
+  const res = await fetch(buildApiUrl(path), {
     ...options,
     headers,
     credentials: 'include',
@@ -54,7 +60,9 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
 
 export function getAuthorizedPhotoUrl(sessionId: number): string {
   const token = getStoredToken();
-  return token ? `/api/v1/photos/${sessionId}?token=${encodeURIComponent(token)}` : `/api/v1/photos/${sessionId}`;
+  return buildApiUrl(
+    token ? `/api/v1/photos/${sessionId}?token=${encodeURIComponent(token)}` : `/api/v1/photos/${sessionId}`
+  );
 }
 
 export function getAuthorizedAvatarUrl(karyawanId: number, version?: string | null): string {
@@ -63,14 +71,16 @@ export function getAuthorizedAvatarUrl(karyawanId: number, version?: string | nu
   if (token) qs.set('token', token);
   if (version) qs.set('v', version);
   const query = qs.toString();
-  return `/api/v1/avatars/karyawan/${karyawanId}${query ? `?${query}` : ''}`;
+  return buildApiUrl(`/api/v1/avatars/karyawan/${karyawanId}${query ? `?${query}` : ''}`);
 }
 
 export function getAuthorizedRegistrationAvatarUrl(regId: number): string {
   const token = getStoredToken();
-  return token
-    ? `/api/v1/avatars/registration/${regId}?token=${encodeURIComponent(token)}`
-    : `/api/v1/avatars/registration/${regId}`;
+  return buildApiUrl(
+    token
+      ? `/api/v1/avatars/registration/${regId}?token=${encodeURIComponent(token)}`
+      : `/api/v1/avatars/registration/${regId}`
+  );
 }
 
 export async function loginApi(identifier: string, password: string): Promise<{ token: string; user: AuthUser }> {

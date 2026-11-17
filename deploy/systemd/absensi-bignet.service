@@ -1,0 +1,30 @@
+[Unit]
+Description=Absensi BIGNET - PT Borneo Inovasi Gemilang
+Documentation=https://github.com/tommyrd/absenbig_new
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/absensi-bignet
+EnvironmentFile=/var/www/absensi-bignet/.env
+Environment=NODE_ENV=production
+Environment=TZ=Asia/Jakarta
+ExecStart=/usr/bin/node /var/www/absensi-bignet/server.ts
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=15
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=absensi-bignet
+
+# Hardening dasar systemd
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/www/absensi-bignet/data /var/www/absensi-bignet/backups
+
+[Install]
+WantedBy=multi-user.target
