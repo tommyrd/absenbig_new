@@ -201,7 +201,7 @@ const MIGRATIONS: MigrationDef[] = [
           LEFT JOIN karyawan k ON k.id = u.karyawan_id;
 
           UPDATE karyawan
-          SET aktif = 0
+          SET aktif = 0, jabatan = 'Akun Pemilik Sistem (Arsip)'
           WHERE id IN (
             SELECT karyawan_id FROM pengguna
             WHERE role = 'SUPERADMIN' AND karyawan_id IS NOT NULL
@@ -226,7 +226,7 @@ const MIGRATIONS: MigrationDef[] = [
           WHERE role = 'SUPERADMIN';
 
           UPDATE karyawan
-          SET aktif = 0
+          SET aktif = 0, jabatan = 'Akun Pemilik Sistem (Arsip)'
           WHERE id IN (
             SELECT karyawan_id FROM pengguna
             WHERE role = 'SUPERADMIN' AND karyawan_id IS NOT NULL
@@ -240,6 +240,24 @@ const MIGRATIONS: MigrationDef[] = [
       if (violations.length > 0) {
         throw new Error('Migrasi pemisahan akun Superadmin menghasilkan pelanggaran foreign key.');
       }
+    },
+  },
+  {
+    version: '011',
+    name: 'exclude_legacy_superadmin_profiles_from_employee_master',
+    up: (db) => {
+      if (!hasColumn(db, 'karyawan', 'is_system_archive')) {
+        db.exec(`ALTER TABLE karyawan ADD COLUMN is_system_archive INTEGER NOT NULL DEFAULT 0 CHECK(is_system_archive IN (0, 1));`);
+      }
+      // Catch existing installations where migration 010 was applied before this marker existed.
+      db.prepare(
+        `UPDATE karyawan
+         SET is_system_archive = 1,
+             aktif = 0,
+             jabatan = 'Akun Pemilik Sistem (Arsip)'
+         WHERE aktif = 0
+           AND lower(trim(jabatan)) IN ('superadmin / owner', 'owner / ceo', 'akun pemilik sistem (arsip)')`
+      ).run();
     },
   },
 ];
