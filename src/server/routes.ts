@@ -3590,11 +3590,12 @@ export function registerApiRoutes(app: Express) {
       const cleanName = (nama_lengkap || '').trim();
       const cleanUser = (username || '').trim().toLowerCase();
       const cleanEmail = (email || '').trim().toLowerCase();
-      const finalNik = (nik || '').trim().toUpperCase() || generateNextNik();
       const finalRole: Role =
         role === 'SUPERADMIN' || role === 'ADMIN' || role === 'KARYAWAN' ? role : 'KARYAWAN';
+      const finalNik =
+        finalRole === 'SUPERADMIN' ? '' : (nik || '').trim().toUpperCase() || generateNextNik();
 
-      if (!cleanName || !cleanUser || !cleanEmail || !password || password.length < 6) {
+      if (cleanName.length < 2 || !cleanUser || !cleanEmail.includes('@') || !password || password.length < 6) {
         res.status(400).json({
           error: 'Nama lengkap, username, email, dan kata sandi (min. 6 karakter) wajib diisi.',
         });
