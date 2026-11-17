@@ -421,7 +421,7 @@ export function SuperadminConsole({
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex transition-colors">
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex lg:flex-col w-64 bg-navy-950 text-white shrink-0">
+      <aside className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-40 lg:flex lg:flex-col lg:h-screen w-64 bg-navy-950 text-white shrink-0">
         <div className="h-16 px-5 border-b border-white/10 flex items-center gap-2.5">
           <img
             src={logoSrc}
@@ -450,7 +450,7 @@ export function SuperadminConsole({
             <p className="text-slate-400 mt-0.5 text-[11px]">Kelola Profil & Foto</p>
           </div>
         </button>
-        <nav className="flex-1 p-3 space-y-1">
+        <nav className="min-h-0 flex-1 p-3 space-y-1 overflow-y-auto overscroll-contain">
           {menuItems.map((m) => {
             const Icon = m.Icon;
             const active = tab === m.id;
@@ -580,7 +580,7 @@ export function SuperadminConsole({
       )}
 
       {/* Main Workspace */}
-      <div className="flex-1 min-w-0 flex flex-col">
+      <div className="flex-1 min-w-0 flex flex-col lg:ml-64">
         <header className="sticky top-0 z-30 h-12 lg:h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-3 sm:px-6 flex items-center justify-between gap-2 sm:gap-4 transition-colors">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <button
