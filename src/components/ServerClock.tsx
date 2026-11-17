@@ -71,7 +71,7 @@ export function ServerClock({ compact = false, onDark = false }: ServerClockProp
     hour12: false,
   })
     .format(serverDate)
-    .replace(/\\./g, ':');
+    .replace(/\./g, ':');
 
   const formattedDate = new Intl.DateTimeFormat('id-ID', {
     timeZone: 'Asia/Jakarta',
