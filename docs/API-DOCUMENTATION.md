@@ -41,8 +41,9 @@ Seluruh endpoint berada di bawah prefix `/api/v1`. Autentikasi menggunakan heade
 |---|---|---|---|
 | `PUT` | `/api/v1/profile` | Semua Role Terautentikasi | Memperbarui `nama_lengkap`, `email`, dan `no_hp` sendiri + audit `PROFIL_AKUN`. |
 | `PUT` | `/api/v1/profile/password` | Semua Role Terautentikasi (Rate-limited) | Mengganti sandi sendiri, menaikkan `token_version` (merevoke sesi lama), dan mengembalikan token baru. |
-| `PUT` | `/api/v1/profile/photo` | Semua Role Terautentikasi | Mengunggah/mengganti foto profil raster (`PNG/JPG/WEBP <= 2MB`) atau menghapus ke avatar default. |
+| `PUT` | `/api/v1/profile/photo` | `KARYAWAN`, `ADMIN`, `SUPERADMIN` | Mengunggah/mengganti foto profil raster (`PNG/JPG/WEBP <= 2MB`) atau menghapus ke avatar default. Untuk SUPERADMIN, foto disimpan pada record `pengguna`; pegawai tetap disimpan pada record `karyawan`. |
 | `GET` | `/api/v1/avatars/karyawan/:karyawanId` | Semua Role Terautentikasi | Mengambil foto profil karyawan (atau SVG inisial default). |
+| `GET` | `/api/v1/avatars/pengguna/:userId` | Semua Role Terautentikasi | Mengambil foto profil akun mandiri (termasuk SUPERADMIN) atau SVG inisial default. |
 | `GET` | `/api/v1/avatars/registration/:regId` | `SUPERADMIN` | Mengambil foto calon pendaftar saat proses verifikasi ACC. |
 
 ---
