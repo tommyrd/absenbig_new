@@ -693,7 +693,7 @@ test('6. SVG logo XSS sanitization, attendance camera-only, jam_mulai gate, geof
     },
   });
   assert.equal(strictOffsiteAttempt.status, 400);
-  assert.match(String(strictOffsiteAttempt.data.error), /wajib dilakukan di kantor/i);
+  assert.match(String(strictOffsiteAttempt.data.error), /wajib berada di kantor/i);
 
   // Switch back to the default rule: session 1 in office; later sessions are flexible.
   const setFlexiblePolicy = await apiJson(`/api/v1/policies/${futurePol.data.id}`, {
