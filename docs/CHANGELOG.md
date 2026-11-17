@@ -55,3 +55,4 @@
 - Lightbox foto Beranda kini diposisikan di tengah layar pada mobile dan desktop, dengan tinggi dibatasi viewport dan detail dapat discroll.
 - Saat login, aplikasi menggunakan waktu WIB dari endpoint server dan jadwal sesi berikutnya untuk memilih tab awal: Absensi hanya jika sesi berikutnya sedang terbuka; selain itu Beranda.
 - Pengujian unit ditambahkan untuk routing halaman awal berdasarkan status sesi.
+- Setelah absensi sesi berhasil, karyawan kembali ke Beranda jika sesi berikutnya belum dibuka; ketika berada di Beranda, jadwal berikutnya diperiksa setiap 15 detik dan tab Absensi dibuka otomatis saat sesi aktif.
