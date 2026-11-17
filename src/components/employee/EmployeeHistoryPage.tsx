@@ -107,7 +107,8 @@ export function EmployeeHistoryPage() {
   const calendarYear = Number(yearPart);
   const calendarMonth = Number(monthPart);
   const monthDayCount = new Date(Date.UTC(calendarYear, calendarMonth, 0)).getUTCDate();
-  const firstWeekdayOffset = new Date(Date.UTC(calendarYear, calendarMonth - 1, 1)).getUTCDay();
+  // Calendar is Monday-first to match the Indonesian work-week layout.
+  const firstWeekdayOffset = (new Date(Date.UTC(calendarYear, calendarMonth - 1, 1)).getUTCDay() + 6) % 7;
   const calendarCells: (number | null)[] = [
     ...Array.from({ length: firstWeekdayOffset }, () => null),
     ...Array.from({ length: monthDayCount }, (_, index) => index + 1),
@@ -227,7 +228,7 @@ export function EmployeeHistoryPage() {
             </div>
 
             <div className="grid grid-cols-7 gap-1.5 sm:gap-2" role="grid" aria-label={`Kalender kehadiran ${monthTitle}`}>
-              {['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'].map((weekday) => (
+              {['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'].map((weekday) => (
                 <div
                   key={weekday}
                   role="columnheader"
