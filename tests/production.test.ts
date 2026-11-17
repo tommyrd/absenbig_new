@@ -450,7 +450,7 @@ test('5. Authorization boundaries, query-token restriction, logout jti & token_v
   adminToken = adminRelogin.data.token;
 });
 
-test('6. SVG logo XSS sanitization, attendance camera-only, jam_mulai gate, geofence, and photo headers', async () => {
+test('6. SVG logo/favicon XSS sanitization, attendance camera-only, jam_mulai gate, geofence, and photo headers', async () => {
   resetLimiters();
   const db = getDb();
   const today = getWibDateString();
