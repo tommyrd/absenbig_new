@@ -1002,6 +1002,9 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                     <p className="text-[11px] leading-relaxed text-slate-600 dark:text-slate-400">
                       Tekan tombol ini terlebih dahulu. Setelah lokasi terbaca, kamera dan tombol kirim absensi akan dibuka sesuai kebijakan lokasi sesi Anda.
                     </p>
+                    <p className="text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">
+                      Koordinat dan akurasi berasal dari GPS browser. Jika Admin mengaktifkan alamat Google Maps, pencarian alamat akan mengirim koordinat ke Google setelah tombol ini ditekan.
+                    </p>
 
                     {gpsStatus === 'ok' && coords ? (
                       <div className="text-xs text-slate-600 dark:text-slate-300 space-y-1">
