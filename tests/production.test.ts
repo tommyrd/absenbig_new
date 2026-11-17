@@ -151,6 +151,12 @@ test('1. Migrations are idempotent and production baseline enforces zero demo ac
   assert.ok(settingsColumns.some((column) => column.name === 'favicon_updated_at'));
   const employeeColumns = db.prepare('PRAGMA table_info(karyawan)').all() as { name: string }[];
   assert.ok(employeeColumns.some((column) => column.name === 'is_system_archive'));
+  const roleLinkTriggers = db.prepare(
+    `SELECT name FROM sqlite_master WHERE type = 'trigger' AND name IN (
+      'trg_pengguna_role_link_insert', 'trg_pengguna_role_link_update'
+    )`
+  ).all() as { name: string }[];
+  assert.equal(roleLinkTriggers.length, 2);
 
   // Re-running migrations should apply 0 new steps
   const rerun = runMigrations(db);
