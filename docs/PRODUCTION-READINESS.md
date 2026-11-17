@@ -21,7 +21,7 @@
 | Employee History Calendar | Diperbarui | Kalender Senin–Minggu berwarna dari resolver harian, dapat dipilih untuk membuka timeline, dengan penanda Admin Override. |
 | Employee Login & Session Navigation | Diperbarui | Menggunakan waktu server WIB; masuk ke Absensi hanya ketika sesi berikutnya sedang terbuka; setelah check-in kembali ke Beranda bila sesi selanjutnya belum terbuka; Beranda memeriksa jadwal setiap 15 detik. |
 | Mobile GPS Prompt & Photo Viewer | Diperbarui | GPS tidak diminta otomatis; izin diminta setelah aksi pengguna; lightbox foto berada di tengah viewport dan konten detail dapat discroll. |
-| Database Schema, Migrasi & Seed | Lulus | `schema_migrations` mencatat versi `001`–`005`, termasuk migrasi aturan lokasi per kebijakan; `seedProductionBaseline` memisahkan data demo dari production. |
+| Database Schema, Migrasi & Seed | Lulus | `schema_migrations` mencatat versi `001`–`007`, termasuk snapshot alamat GPS sesi dan cache alamat legacy; `seedProductionBaseline` memisahkan data demo dari production. |
 | Keamanan Autentikasi & API | Lulus | `scrypt`, HMAC-SHA256 + `jti` revocation + `token_version`, brute-force `429`, RBAC backend, validasi magic-bytes & sanitasi SVG. |
 | Penyimpanan Foto & Aset Persisten | Lulus | `DATA_DIR` configurable di luar rilis kode; nama file acak kriptografis + SHA-256 checksum. |
 | Backup & Restore Otomatis | Lulus | Snapshot `VACUUM INTO`, integrity check, SHA-256 manifest, `.tar.gz`, verifikasi link foto & safety snapshot pra-restore teruji end-to-end. |
