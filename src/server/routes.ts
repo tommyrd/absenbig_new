@@ -486,12 +486,23 @@ export function registerApiRoutes(app: Express) {
       return;
     }
 
+    // Registration rows retain required office/field foreign keys for compatibility.
+    // A standalone Admin does not choose employee placement; use internal placeholders only.
+    const defaultOffice = requestedRole === 'ADMIN'
+      ? db.prepare(`SELECT id FROM kantor WHERE aktif = 1 ORDER BY id ASC LIMIT 1`).get() as { id: number } | undefined
+      : undefined;
+    const defaultBidang = requestedRole === 'ADMIN'
+      ? (db.prepare(`SELECT id FROM bidang_kerja WHERE kode = 'ADM' ORDER BY id ASC LIMIT 1`).get() as { id: number } | undefined)
+        || (db.prepare(`SELECT id FROM bidang_kerja ORDER BY id ASC LIMIT 1`).get() as { id: number } | undefined)
+      : undefined;
+    const finalKantorId = requestedRole === 'ADMIN' ? defaultOffice?.id : Number(kantor_id);
+    const finalBidangId = requestedRole === 'ADMIN' ? defaultBidang?.id : Number(bidang_id);
     const officeRow = db
       .prepare(`SELECT id FROM kantor WHERE id = ? AND aktif = 1`)
-      .get(Number(kantor_id));
-    const bidangRow = db.prepare(`SELECT id FROM bidang_kerja WHERE id = ?`).get(Number(bidang_id));
+      .get(finalKantorId);
+    const bidangRow = db.prepare(`SELECT id FROM bidang_kerja WHERE id = ?`).get(finalBidangId);
     if (!officeRow || !bidangRow) {
-      res.status(400).json({ error: 'Pilihan kantor dan bidang kerja wajib valid.' });
+      res.status(400).json({ error: 'Penempatan referensi belum tersedia. Hubungi Superadmin.' });
       return;
     }
 
@@ -499,7 +510,7 @@ export function registerApiRoutes(app: Express) {
       .prepare(`SELECT id FROM pengguna WHERE LOWER(username) = ? OR LOWER(email) = ?`)
       .get(cleanUser, cleanEmail);
     const existingEmp = db
-      .prepare(`SELECT id FROM karyawan WHERE LOWER(email) = ?`)
+      .prepare(`SELECT id FROM karyawan WHERE LOWER(email) = ? AND COALESCE(is_system_archive, 0) = 0`)
       .get(cleanEmail);
     const existingPending = db
       .prepare(
@@ -533,9 +544,9 @@ export function registerApiRoutes(app: Express) {
     }
 
     const nowIso = getWibIsoString();
-    const defaultJabatan =
-      (jabatan || '').trim() ||
-      (requestedRole === 'ADMIN' ? 'Admin Operasional' : 'Teknisi Lapangan');
+    const defaultJabatan = requestedRole === 'ADMIN'
+      ? 'Admin Operasional'
+      : (jabatan || '').trim() || 'Teknisi Lapangan';
 
     const info = db
       .prepare(
@@ -552,8 +563,8 @@ export function registerApiRoutes(app: Express) {
         hashPassword(password),
         requestedRole,
         defaultJabatan,
-        Number(kantor_id),
-        Number(bidang_id),
+        Number(finalKantorId),
+        Number(finalBidangId),
         savedFoto,
         (catatan_pendaftar || '').trim(),
         nowIso
