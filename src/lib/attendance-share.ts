@@ -2,7 +2,7 @@ import { getAuthorizedPhotoUrl } from './api';
 import type { AttendanceFeedPost } from '../shared/types';
 
 const WIDTH = 1080;
-const HEIGHT = 1350;
+const HEIGHT = 1440;
 const PADDING = 68;
 
 function roundedRect(
@@ -119,7 +119,7 @@ function formatDistance(meters: number | null): string {
     : `${Math.round(meters).toLocaleString('id-ID')} m`;
 }
 
-/** Build a self-contained 4:5 PNG attendance card for WhatsApp/Telegram sharing. */
+/** Build a self-contained portrait PNG attendance card for WhatsApp/Telegram sharing. */
 export async function createAttendanceShareImage(post: AttendanceFeedPost): Promise<File> {
   const canvas = document.createElement('canvas');
   canvas.width = WIDTH;
@@ -256,7 +256,13 @@ export async function createAttendanceShareImage(post: AttendanceFeedPost): Prom
 
   ctx.fillStyle = '#94a3b8';
   ctx.font = '18px Arial, sans-serif';
-  ctx.fillText('Alamat perkiraan dari GPS · Powered by Geoapify · © OpenStreetMap contributors', PADDING, HEIGHT - 52);
+  ctx.fillText(
+    post.lokasiAktualAlamat
+      ? 'Alamat perkiraan dari GPS · Powered by Geoapify · © OpenStreetMap contributors'
+      : 'Koordinat GPS browser · Alamat belum tersedia',
+    PADDING,
+    Math.min(HEIGHT - 52, badgeY + 84)
+  );
 
   const blob = await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((value) => {
