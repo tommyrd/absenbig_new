@@ -3,6 +3,7 @@ import { getSessionWindowState } from './session-window';
 interface EmployeeEntryDay {
   mustCheckIn: boolean;
   sessionsCompleted: number;
+  checkinOverride?: { active: boolean } | null;
   policySnapshot: {
     jumlahSesi: number;
     sesiList: { jam_mulai: string; jam_selesai: string }[];
@@ -24,6 +25,10 @@ export function shouldOpenAttendanceOnEntry(
   ) {
     return false;
   }
+
+  // An active, Admin-issued one-time permission also opens the attendance page
+  // after the ordinary session window has expired.
+  if (day.checkinOverride?.active) return true;
 
   const nextSession = day.policySnapshot.sesiList[day.sessionsCompleted];
   if (!nextSession || !/^([01]\d|2[0-3]):[0-5]\d/.test(serverTime)) {
