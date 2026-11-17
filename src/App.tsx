@@ -17,17 +17,22 @@ export default function App() {
   const [settings, setSettings] = useState<SystemSettings | null>(null);
   const [checking, setChecking] = useState(true);
 
-  // LoginView and the role-based shell share the same document. Reset the
-  // viewport when an Admin/Superadmin session becomes active so the new
-  // Beranda never inherits the login form's previous scroll position.
+  // LoginView and every role shell share the same document. Reset the
+  // viewport after any role becomes active so no dashboard inherits the
+  // previous login page's scroll position. Repeat on the next frame to
+  // cover layout/scroll restoration performed immediately after rendering.
   useLayoutEffect(() => {
-    if (!user || (user.role !== 'ADMIN' && user.role !== 'SUPERADMIN')) {
-      return;
-    }
+    if (!user) return;
 
-    window.scrollTo(0, 0);
-    document.documentElement.scrollTop = 0;
-    document.body.scrollTop = 0;
+    const resetViewport = () => {
+      window.scrollTo(0, 0);
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+    };
+
+    resetViewport();
+    const frameId = window.requestAnimationFrame(resetViewport);
+    return () => window.cancelAnimationFrame(frameId);
   }, [user?.id, user?.role]);
 
   useEffect(() => {
