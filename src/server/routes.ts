@@ -813,12 +813,14 @@ export function registerApiRoutes(app: Express) {
     }
 
     // Validate Geofence & GPS coordinates bounds
-    const office = db.prepare(`SELECT * FROM kantor WHERE id = ?`).get(emp.kantor_id) as {
-      lat: number;
-      lng: number;
-      radius_meter: number;
-      geofence_mode: string;
-    };
+    const office = db.prepare(`SELECT lat, lng, radius_meter FROM kantor WHERE id = ?`).get(emp.kantor_id) as
+      | { lat: number; lng: number; radius_meter: number }
+      | undefined;
+
+    if (!office) {
+      res.status(400).json({ error: 'Lokasi kantor karyawan tidak ditemukan. Hubungi Admin.' });
+      return;
+    }
 
     const hasValidCoords =
       typeof lat === 'number' &&
@@ -830,25 +832,20 @@ export function registerApiRoutes(app: Express) {
       lng >= -180 &&
       lng <= 180;
 
-    let jarakMeter: number | null = null;
-    let dalamGeofence = 1;
-    if (hasValidCoords) {
-      jarakMeter = haversineMeters(lat!, lng!, office.lat, office.lng);
-      dalamGeofence = jarakMeter <= office.radius_meter ? 1 : 0;
-      if (office.geofence_mode === 'TOLAK_LUAR_RADIUS' && dalamGeofence === 0) {
-        res.status(400).json({
-          error: `Lokasi Anda berjarak ${jarakMeter}m dari kantor (maksimal radius ${office.radius_meter}m).`,
-        });
-        return;
-      }
-    } else {
-      if (office.geofence_mode === 'TOLAK_LUAR_RADIUS') {
-        res.status(400).json({
-          error: 'Koordinat GPS valid wajib tersedia untuk kantor dengan mode geofence ketat.',
-        });
-        return;
-      }
-      dalamGeofence = 0;
+    if (!hasValidCoords) {
+      res.status(400).json({
+        error: 'Lokasi GPS wajib tersedia dan valid. Absensi tidak dapat dilakukan tanpa koordinat GPS.',
+      });
+      return;
+    }
+
+    const jarakMeter = haversineMeters(lat!, lng!, office.lat, office.lng);
+    const dalamGeofence = jarakMeter <= office.radius_meter ? 1 : 0;
+    if (!dalamGeofence) {
+      res.status(400).json({
+        error: `Absensi ditolak. Lokasi Anda berjarak ${jarakMeter}m dari kantor, sedangkan radius yang diizinkan hanya ${office.radius_meter}m. Silakan datang ke area kantor dan perbarui lokasi GPS.`,
+      });
+      return;
     }
 
     // Check lateness against session start + tolerance
@@ -1389,14 +1386,13 @@ export function registerApiRoutes(app: Express) {
   });
 
   app.post('/api/v1/master/offices', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
-    const { kode, nama, alamat, lat, lng, radius_meter, geofence_mode } = req.body as {
+    const { kode, nama, alamat, lat, lng, radius_meter } = req.body as {
       kode: string;
       nama: string;
       alamat: string;
       lat: number;
       lng: number;
       radius_meter: number;
-      geofence_mode: string;
     };
     if (!kode || !nama) {
       res.status(400).json({ error: 'Kode dan nama kantor wajib diisi.' });
@@ -1404,7 +1400,7 @@ export function registerApiRoutes(app: Express) {
     }
     const info = db
       .prepare(
-        `INSERT INTO kantor (kode, nama, alamat, lat, lng, radius_meter, geofence_mode) VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO kantor (kode, nama, alamat, lat, lng, radius_meter, geofence_mode) VALUES (?, ?, ?, ?, ?, ?, 'TOLAK_LUAR_RADIUS')`
       )
       .run(
         kode.trim().toUpperCase(),
@@ -1412,8 +1408,7 @@ export function registerApiRoutes(app: Express) {
         (alamat || '').trim(),
         Number(lat) || -6.2088,
         Number(lng) || 106.8456,
-        Number(radius_meter) || 250,
-        geofence_mode === 'TOLAK_LUAR_RADIUS' ? 'TOLAK_LUAR_RADIUS' : 'CATAT_DENGAN_FLAG'
+        Number(radius_meter) || 250
       );
     const officeId = Number(info.lastInsertRowid);
     for (let d = 0; d <= 6; d++) {
@@ -1440,17 +1435,16 @@ export function registerApiRoutes(app: Express) {
       res.status(404).json({ error: 'Kantor tidak ditemukan.' });
       return;
     }
-    const { nama, alamat, lat, lng, radius_meter, geofence_mode } = req.body as {
+    const { nama, alamat, lat, lng, radius_meter } = req.body as {
       nama: string;
       alamat: string;
       lat: number;
       lng: number;
       radius_meter: number;
-      geofence_mode: string;
     };
     db.prepare(
-      `UPDATE kantor SET nama = ?, alamat = ?, lat = ?, lng = ?, radius_meter = ?, geofence_mode = ? WHERE id = ?`
-    ).run(nama, alamat, Number(lat), Number(lng), Number(radius_meter), geofence_mode, id);
+      `UPDATE kantor SET nama = ?, alamat = ?, lat = ?, lng = ?, radius_meter = ?, geofence_mode = 'TOLAK_LUAR_RADIUS' WHERE id = ?`
+    ).run(nama, alamat, Number(lat), Number(lng), Number(radius_meter), id);
     const after = db.prepare(`SELECT * FROM kantor WHERE id = ?`).get(id);
     writeAuditLog(db, {
       actor: req.authUser!,
