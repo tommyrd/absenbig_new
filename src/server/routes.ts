@@ -34,6 +34,7 @@ import {
 } from './services/resolver.ts';
 import { getWibDateString, getWibIsoString, getWibTimeString, parseHmToMinutes } from './time.ts';
 import { isGpsAccuracyAcceptable, isWithinVerifiedGeofence, MAX_GPS_ACCURACY_METERS } from '../shared/geofence.ts';
+import { getSessionWindowState } from '../shared/session-window.ts';
 import type {
   AttendanceFeedPost,
   AttendanceFeedRosterItem,
@@ -781,26 +782,30 @@ export function registerApiRoutes(app: Express) {
     // Enforce the complete session window using server WIB time.
     // The session is open from jam_mulai through jam_selesai (inclusive).
     const nowMin = parseHmToMinutes(nowTime.slice(0, 5));
-    const startMin = parseHmToMinutes(targetSesiConfig.jam_mulai);
-    const endMin = parseHmToMinutes(targetSesiConfig.jam_selesai);
-    if (endMin < startMin) {
+    const sessionWindow = getSessionWindowState(
+      nowMin,
+      targetSesiConfig.jam_mulai,
+      targetSesiConfig.jam_selesai
+    );
+    if (sessionWindow === 'INVALID') {
       res.status(400).json({
         error: `Konfigurasi waktu ${targetSesiConfig.nama} tidak valid. Admin harus memperbaiki jam mulai dan jam selesai.`,
       });
       return;
     }
-    if (nowMin < startMin) {
+    if (sessionWindow === 'NOT_STARTED') {
       res.status(400).json({
         error: `Absensi ${targetSesiConfig.nama} belum dimulai. Sesi ini baru dapat dilakukan mulai pukul ${targetSesiConfig.jam_mulai} WIB (waktu server saat ini ${nowTime.slice(0, 5)} WIB).`,
       });
       return;
     }
-    if (nowMin > endMin) {
+    if (sessionWindow === 'EXPIRED') {
       res.status(400).json({
         error: `Waktu absensi ${targetSesiConfig.nama} sudah berakhir pada pukul ${targetSesiConfig.jam_selesai} WIB. Absensi mandiri untuk sesi ini telah dikunci. Jika terjadi kendala perangkat atau keadaan khusus, hubungi Admin untuk Admin Override payroll.`,
       });
       return;
     }
+    const startMin = parseHmToMinutes(targetSesiConfig.jam_mulai);
 
     // Validate activity/standby description for session >= 2 if required
     const requireActivity =
