@@ -2760,7 +2760,7 @@ export function registerApiRoutes(app: Express) {
     const row =
       req.query.reset === '1'
         ? undefined
-        : (db.prepare(\`SELECT favicon_path FROM pengaturan_aplikasi WHERE id = 1\`).get() as
+        : (db.prepare(`SELECT favicon_path FROM pengaturan_aplikasi WHERE id = 1`).get() as
             | { favicon_path: string | null }
             | undefined);
 
