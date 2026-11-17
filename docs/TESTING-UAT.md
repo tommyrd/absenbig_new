@@ -70,3 +70,9 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
    - Jika sesi berikutnya belum dimulai, sudah berakhir, atau seluruh sesi selesai, tampilkan Beranda.
    - Setelah submit sesi berhasil, kembali ke Beranda jika belum ada sesi berikutnya yang sedang terbuka.
    - Saat karyawan tetap berada di Beranda, sistem mengecek jadwal server secara berkala (15 detik) dan otomatis membuka Absensi ketika sesi berikutnya mulai.
+
+7. **Browser Camera Front/Back UAT (Android Chrome/Brave):**
+   - Uji izin kamera pertama kali; izin ditolak; kamera tidak tersedia; kamera sedang dipakai aplikasi lain.
+   - Uji buka kamera depan, tunggu frame siap, ambil foto, pratinjau, hapus/ulang, dan pengiriman foto.
+   - Uji pergantian kamera depan ke belakang dan kembali ke depan. Pastikan pratinjau benar-benar berubah dan tombol ambil foto baru aktif setelah frame tersedia.
+   - Uji Batal, navigasi keluar halaman, GPS refresh, sesi kedaluwarsa, dan pergantian kamera ketika permintaan izin masih berjalan. Pastikan indikator kamera perangkat mati setelah stream dihentikan.
