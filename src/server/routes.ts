@@ -1845,6 +1845,51 @@ export function registerApiRoutes(app: Express) {
     res.status(201).json({ id: Number(info.lastInsertRowid) });
   });
 
+  app.put('/api/v1/master/bidang/:id', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const id = Number(req.params.id);
+    const before = db.prepare(`SELECT * FROM bidang_kerja WHERE id = ?`).get(id) as
+      | { id: number; kode: string; nama: string; deskripsi: string }
+      | undefined;
+    if (!Number.isInteger(id) || id <= 0 || !before) {
+      res.status(404).json({ error: 'Bidang kerja tidak ditemukan.' });
+      return;
+    }
+
+    const body = req.body as { kode?: string; nama?: string; deskripsi?: string };
+    const kode = (body.kode || '').trim().toUpperCase();
+    const nama = (body.nama || '').trim();
+    const deskripsi = (body.deskripsi || '').trim();
+    if (!kode || kode.length > 20 || !nama || nama.length > 100 || deskripsi.length > 500) {
+      res.status(400).json({ error: 'Kode (maks. 20), nama (maks. 100), dan deskripsi (maks. 500 karakter) harus valid.' });
+      return;
+    }
+
+    try {
+      db.prepare(
+        `UPDATE bidang_kerja SET kode = ?, nama = ?, deskripsi = ? WHERE id = ?`
+      ).run(kode, nama, deskripsi, id);
+    } catch (err) {
+      res.status(400).json({
+        error: 'Kode bidang sudah digunakan atau perubahan tidak dapat disimpan.',
+        detail: safeErrorDetail(err),
+      });
+      return;
+    }
+
+    const after = db.prepare(`SELECT * FROM bidang_kerja WHERE id = ?`).get(id);
+    writeAuditLog(db, {
+      actor: req.authUser!,
+      req,
+      modul: 'MASTER_BIDANG',
+      aksi: 'UPDATE_BIDANG',
+      targetEntity: 'bidang_kerja',
+      targetId: id,
+      before,
+      after,
+    });
+    res.json({ ok: true });
+  });
+
   app.get('/api/v1/master/employees', requireRole('ADMIN', 'SUPERADMIN'), (_req: Request, res: Response) => {
     const items = db
       .prepare(
