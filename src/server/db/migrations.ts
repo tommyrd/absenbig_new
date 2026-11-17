@@ -79,6 +79,17 @@ const MIGRATIONS: MigrationDef[] = [
       db.exec(`UPDATE kantor SET geofence_mode = 'TOLAK_LUAR_RADIUS'`);
     },
   },
+  {
+    version: '005',
+    name: 'configurable_office_requirement_per_attendance_policy',
+    up: (db) => {
+      if (!hasColumn(db, 'kebijakan_absensi', 'aturan_lokasi')) {
+        db.exec(
+          `ALTER TABLE kebijakan_absensi ADD COLUMN aturan_lokasi TEXT NOT NULL DEFAULT 'SESI_PERTAMA_KANTOR';`
+        );
+      }
+    },
+  },
 ];
 
 export function runMigrations(db: DatabaseSync): string[] {
