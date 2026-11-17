@@ -123,10 +123,10 @@ after(async () => {
 test('1. Migrations are idempotent and production baseline enforces zero demo accounts', () => {
   const db = getDb();
   const applied = getAppliedMigrations(db);
-  assert.equal(applied.length, 12);
+  assert.equal(applied.length, 13);
   assert.deepEqual(
     applied.map((m) => m.version),
-    ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012']
+    ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013']
   );
 
   const attendanceColumns = db
@@ -150,6 +150,9 @@ test('1. Migrations are idempotent and production baseline enforces zero demo ac
   assert.ok(settingsColumns.some((column) => column.name === 'favicon_path'));
   assert.ok(settingsColumns.some((column) => column.name === 'favicon_updated_at'));
   const employeeColumns = db.prepare('PRAGMA table_info(karyawan)').all() as { name: string }[];
+  const userColumns = db.prepare('PRAGMA table_info(pengguna)').all() as { name: string }[];
+  assert.ok(userColumns.some((column) => column.name === 'foto_profil_path'));
+  assert.ok(userColumns.some((column) => column.name === 'foto_profil_updated_at'));
   assert.ok(employeeColumns.some((column) => column.name === 'is_system_archive'));
   const roleLinkTriggers = db.prepare(
     `SELECT name FROM sqlite_master WHERE type = 'trigger' AND name IN (
@@ -218,6 +221,31 @@ test('2. Health check and initial Superadmin authentication work with HttpOnly c
   assert.match(setCookie, /HttpOnly/i);
   assert.match(setCookie, /SameSite=Lax/i);
   superToken = okLogin.data.token;
+
+  // The standalone owner account can upload, display, and reset its own profile photo without an employee profile.
+  const owner = db.prepare(`SELECT id, karyawan_id FROM pengguna WHERE username = 'owner_prod'`)
+    .get() as { id: number; karyawan_id: number | null };
+  assert.equal(owner.karyawan_id, null);
+  const ownerPhoto = await apiJson<{ user: { karyawan_id: number | null; has_foto_profil: boolean } }>(
+    '/api/v1/profile/photo',
+    { method: 'PUT', token: superToken, body: { fotoBase64: SAMPLE_PNG_BASE64 } }
+  );
+  assert.equal(ownerPhoto.status, 200);
+  assert.equal(ownerPhoto.data.user.karyawan_id, null);
+  assert.equal(ownerPhoto.data.user.has_foto_profil, true);
+
+  const avatarFetch = await fetch(`${baseUrl}/api/v1/avatars/pengguna/${owner.id}`, {
+    headers: { Authorization: `Bearer ${superToken}` },
+  });
+  assert.equal(avatarFetch.status, 200);
+  assert.equal(avatarFetch.headers.get('content-type'), 'image/png');
+
+  const resetOwnerPhoto = await apiJson<{ user: { has_foto_profil: boolean } }>(
+    '/api/v1/profile/photo',
+    { method: 'PUT', token: superToken, body: { removePhoto: true } }
+  );
+  assert.equal(resetOwnerPhoto.status, 200);
+  assert.equal(resetOwnerPhoto.data.user.has_foto_profil, false);
 });
 
 test('3. Brute-force protection locks repeated failed login attempts with 429 and Retry-After', async () => {
