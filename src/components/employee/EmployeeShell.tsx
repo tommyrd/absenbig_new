@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { apiFetch } from '../../lib/api';
 import type { AuthUser, ResolvedDay, SystemSettings } from '../../shared/types';
+import { shouldOpenAttendanceOnEntry } from '../../shared/employee-entry';
 import { ServerClock } from '../ServerClock';
 import { ThemeToggle } from '../ThemeToggle';
 import { UserAvatar } from '../UserAvatar';
@@ -44,27 +45,63 @@ export function EmployeeShell({
 }: EmployeeShellProps) {
   const [tab, setTab] = useState<EmployeeTab>('beranda');
   const [myDay, setMyDay] = useState<ResolvedDay | null>(null);
+  const [serverWibHm, setServerWibHm] = useState<string | null>(null);
+  const [initialRouteReady, setInitialRouteReady] = useState(false);
+
+  const fetchToday = useCallback(
+    () =>
+      apiFetch<{ day: ResolvedDay; serverTime: string; serverEpochMs?: number }>(
+        '/api/v1/attendance/today'
+      ),
+    []
+  );
 
   const refreshMyDay = useCallback(async () => {
     try {
-      const res = await apiFetch<{ day: ResolvedDay }>('/api/v1/attendance/today');
+      const res = await fetchToday();
       setMyDay(res.day);
+      if (res.serverTime) setServerWibHm(res.serverTime.slice(0, 5));
     } catch {
-      // ignore
+      // Keep the last successfully loaded day if a refresh temporarily fails.
     }
-  }, []);
+  }, [fetchToday]);
 
+  // Select the first page from the server's WIB time and the employee's next
+  // incomplete session. Never briefly render Beranda before redirecting.
   useEffect(() => {
-    refreshMyDay();
-  }, [refreshMyDay]);
+    let active = true;
+    fetchToday()
+      .then((res) => {
+        if (!active) return;
+        setMyDay(res.day);
+        setServerWibHm(res.serverTime?.slice(0, 5) || null);
+        setTab(
+          shouldOpenAttendanceOnEntry(res.day, res.serverTime)
+            ? 'absensi'
+            : 'beranda'
+        );
+      })
+      .catch(() => {
+        if (active) setTab('beranda');
+      })
+      .finally(() => {
+        if (active) setInitialRouteReady(true);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [fetchToday]);
 
   const nextSesi = myDay ? myDay.policySnapshot.sesiList[myDay.sessionsCompleted] : null;
-  const nowWibHm = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Asia/Jakarta',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(new Date());
+  const nowWibHm =
+    serverWibHm ||
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Jakarta',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(new Date());
   const nextSesiStarted = nextSesi ? nowWibHm >= nextSesi.jam_mulai : false;
 
   const showIncompleteReminder =
@@ -72,6 +109,19 @@ export function EmployeeShell({
     myDay?.mustCheckIn &&
     myDay.sessionsCompleted < myDay.policySnapshot.jumlahSesi &&
     nextSesiStarted;
+
+  if (!initialRouteReady) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center">
+        <div className="text-center space-y-3">
+          <div className="w-8 h-8 border-2 border-navy-900 dark:border-blue-400 border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+            Memeriksa jadwal absensi hari ini...
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const appName = settings?.nama_aplikasi || 'Absensi BIGNET';
   const logoSrc = `/api/v1/assets/logo?v=${encodeURIComponent(
