@@ -82,8 +82,8 @@ Seluruh endpoint berada di bawah prefix `/api/v1`. Autentikasi menggunakan heade
 | Method | Endpoint | Akses | Keterangan |
 |---|---|---|---|
 | `GET` | `/api/v1/master/offices` | Semua Role | Daftar kantor & konfigurasi geofence. |
-| `POST` / `PUT` | `/api/v1/master/offices`, `/offices/:id` | `ADMIN` | Tambah / ubah kantor (otomatis inisialisasi 7 hari `kalender_kerja` saat tambah kantor). |
-| `GET` / `POST` / `PUT` | `/api/v1/master/bidang`, `/bidang/:id` | `GET`: Semua / `POST`, `PUT`: `ADMIN` | Melihat, menambah, dan mengubah kode/nama/deskripsi bidang kerja. Setiap perubahan dicatat di Audit Trail. |
+| `POST` / `PUT` / `DELETE` | `/api/v1/master/offices`, `/offices/:id` | `ADMIN` | Tambah/ubah kantor. `DELETE` hanya bila tidak ada pegawai, pendaftaran, hari libur, atau periode payroll yang merujuk; 7 baris kalender mingguan bawaan ikut dihapus dalam transaksi. |
+| `GET` / `POST` / `PUT` / `DELETE` | `/api/v1/master/bidang`, `/bidang/:id` | `GET`: Semua / `POST`, `PUT`, `DELETE`: `ADMIN` | Melihat, menambah, mengubah, dan menghapus bidang kerja. `DELETE` ditolak bila masih dirujuk pegawai, kebijakan absensi, atau pendaftaran akun; semua penghapusan dicatat di Audit Trail. |
 | `GET` | `/api/v1/master/employees` | `ADMIN`, `SUPERADMIN` | Daftar karyawan aktif & nonaktif. |
 | `POST` | `/api/v1/master/employees` | `SUPERADMIN` | Membuat karyawan + akun pengguna (password >= 6 karakter wajib eksplisit). |
 | `PUT` | `/api/v1/master/employees/:id` | `ADMIN` | Memperbarui data operasional karyawan, termasuk kantor dan `bidang_id`; backend memvalidasi kedua referensi sebelum menyimpan. |
