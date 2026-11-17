@@ -145,7 +145,7 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
 
 ## 5. UAT Identitas SUPERADMIN sebagai Pemilik Sistem
 
-1. Jalankan migrasi database; pastikan versi `010_separate_superadmin_accounts_from_employee_records` diterapkan.
+1. Jalankan migrasi database; pastikan versi `010_separate_superadmin_accounts_from_employee_records` dan `011_exclude_legacy_superadmin_profiles_from_employee_master` diterapkan.
 2. Login dengan akun Superadmin lama; profil tetap bisa dibuka, tetapi menampilkan identitas **Akun Pemilik Sistem / SUPERADMIN**, bukan NIK, jabatan pegawai, kantor, atau bidang kerja.
 3. Pastikan akun SUPERADMIN tidak tampil di Pegawai Hari Ini, roster, pilihan pegawai, rekap payroll sebagai pegawai, atau daftar absensi pribadi.
 4. Uji akses `GET /api/v1/attendance/today`, `POST /api/v1/attendance/session`, dan `PUT /api/v1/profile/photo` dengan token SUPERADMIN; request harus ditolak.
