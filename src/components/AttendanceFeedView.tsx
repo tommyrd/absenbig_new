@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Camera,
   CheckCircle2,
@@ -77,6 +77,7 @@ export function AttendanceFeedView({
   const [locationLookupStatus, setLocationLookupStatus] = useState<
     Record<number, 'loading' | 'unconfigured' | 'not-found' | 'error'>
   >({});
+  const requestedLocationIdsRef = useRef<Set<number>>(new Set());
 
   const loadFeed = useCallback(async () => {
     setError(null);
@@ -130,59 +131,73 @@ export function AttendanceFeedView({
     };
   }, [loadFeed]);
 
-  // Legacy feed records predate the persisted location-address snapshot.
-  // Resolve those addresses only when someone opens Detail Lokasi to avoid
-  // spending Geoapify credits for every historical post in the feed.
+  // Automatically resolve older feed records as soon as the feed loads.
+  // The backend stores successful results in absensi_lokasi_cache, so each
+  // legacy attendance record is geocoded once rather than on every page visit.
   useEffect(() => {
-    const post = lightboxPost;
-    if (
-      !post ||
-      post.lokasiAktualAlamat ||
-      resolvedLocationByPost[post.id] ||
-      post.lat === null ||
-      post.lng === null
-    ) {
-      return;
+    const missing = (feed?.posts || []).filter(
+      (post) =>
+        !post.lokasiAktualAlamat &&
+        !resolvedLocationByPost[post.id] &&
+        post.lat !== null &&
+        post.lng !== null &&
+        !requestedLocationIdsRef.current.has(post.id)
+    );
+    if (missing.length === 0) return;
+
+    const batches: AttendanceFeedPost[][] = [];
+    for (let index = 0; index < missing.length; index += 10) {
+      batches.push(missing.slice(index, index + 10));
     }
 
-    let active = true;
-    setLocationLookupStatus((current) => ({ ...current, [post.id]: 'loading' }));
-    const params = new URLSearchParams({ lat: String(post.lat), lng: String(post.lng) });
-    apiFetch<{ address: string | null; configured: boolean }>(
-      `/api/v1/location/reverse?${params.toString()}`
-    )
-      .then((result) => {
-        if (!active) return;
-        if (result.address) {
-          setResolvedLocationByPost((current) => ({ ...current, [post.id]: result.address! }));
-          setLocationLookupStatus((current) => {
+    const markStatus = (ids: number[], status: 'loading' | 'unconfigured' | 'not-found' | 'error') => {
+      setLocationLookupStatus((current) => {
+        const next = { ...current };
+        for (const id of ids) next[id] = status;
+        return next;
+      });
+    };
+
+    const resolveLegacyAddresses = async () => {
+      for (const batch of batches) {
+        const ids = batch.map((post) => post.id);
+        ids.forEach((id) => requestedLocationIdsRef.current.add(id));
+        markStatus(ids, 'loading');
+
+        try {
+          const result = await apiFetch<{
+            items: { sessionId: number; address: string | null; configured: boolean }[];
+          }>('/api/v1/feed/location-addresses', {
+            method: 'POST',
+            body: JSON.stringify({ sessionIds: ids }),
+          });
+
+          setResolvedLocationByPost((current) => {
             const next = { ...current };
-            delete next[post.id];
+            for (const item of result.items) {
+              if (item.address) next[item.sessionId] = item.address;
+            }
             return next;
           });
-        } else {
-          setLocationLookupStatus((current) => ({
-            ...current,
-            [post.id]: result.configured ? 'not-found' : 'unconfigured',
-          }));
+          setLocationLookupStatus((current) => {
+            const next = { ...current };
+            for (const item of result.items) {
+              if (item.address) {
+                delete next[item.sessionId];
+              } else {
+                next[item.sessionId] = item.configured ? 'not-found' : 'unconfigured';
+              }
+            }
+            return next;
+          });
+        } catch {
+          markStatus(ids, 'error');
         }
-      })
-      .catch(() => {
-        if (active) {
-          setLocationLookupStatus((current) => ({ ...current, [post.id]: 'error' }));
-        }
-      });
-
-    return () => {
-      active = false;
+      }
     };
-  }, [
-    lightboxPost?.id,
-    lightboxPost?.lat,
-    lightboxPost?.lng,
-    lightboxPost?.lokasiAktualAlamat,
-    resolvedLocationByPost,
-  ]);
+
+    void resolveLegacyAddresses();
+  }, [feed?.posts, resolvedLocationByPost]);
 
   const sortedRoster = useMemo(() => {
     const list = [...(feed?.roster || [])];
@@ -622,7 +637,15 @@ export function AttendanceFeedView({
                           </p>
                           <p className="mt-0.5 text-[11px] leading-snug text-slate-700 dark:text-slate-200 line-clamp-2">
                             {actualLocationAddress ||
-                              'Alamat aktual belum tersimpan pada catatan lama. Buka Detail lokasi untuk mencarinya dari GPS.'}
+                              (locationLookupStatus[post.id] === 'loading'
+                                ? 'Sedang mencari alamat dari koordinat GPS...'
+                                : locationLookupStatus[post.id] === 'unconfigured'
+                                  ? 'Alamat belum dikonfigurasi pada server. Koordinat GPS tetap tersedia.'
+                                  : locationLookupStatus[post.id] === 'not-found'
+                                    ? 'Alamat tidak ditemukan dari koordinat ini.'
+                                    : locationLookupStatus[post.id] === 'error'
+                                      ? 'Gagal mengambil alamat. Coba muat ulang Beranda.'
+                                      : 'Alamat aktual tidak tersedia untuk catatan ini.')}
                           </p>
                           {(actualLocationAddress || post.lat !== null) && (
                             <p className="mt-1 text-[9px] text-slate-400 dark:text-slate-500">
@@ -635,12 +658,6 @@ export function AttendanceFeedView({
                               GPS {post.lat.toFixed(5)}, {post.lng.toFixed(5)}
                             </p>
                           )}
-                          <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                            Kantor penempatan
-                          </p>
-                          <p className="mt-0.5 text-[11px] leading-snug text-slate-600 dark:text-slate-300 line-clamp-2">
-                            {post.kantorNama} · {post.kantorAlamat}
-                          </p>
                           {post.jarakKantorMeter !== null && (
                             <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
                               Jarak aktual ke kantor: {formatDistance(post.jarakKantorMeter)}
