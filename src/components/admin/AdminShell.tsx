@@ -75,7 +75,7 @@ export function AdminShell({
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex transition-colors">
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex lg:flex-col w-64 bg-navy-900 dark:bg-slate-900 text-white border-r border-navy-800 dark:border-slate-800 shrink-0">
+      <aside className="hidden lg:sticky lg:top-0 lg:flex lg:flex-col lg:h-screen w-64 bg-navy-900 dark:bg-slate-900 text-white border-r border-navy-800 dark:border-slate-800 shrink-0">
         <div className="h-16 px-5 border-b border-navy-800 dark:border-slate-800 flex items-center gap-2.5">
           <img
             src={logoSrc}
