@@ -83,10 +83,10 @@ Seluruh endpoint berada di bawah prefix `/api/v1`. Autentikasi menggunakan heade
 |---|---|---|---|
 | `GET` | `/api/v1/master/offices` | Semua Role | Daftar kantor & konfigurasi geofence. |
 | `POST` / `PUT` | `/api/v1/master/offices`, `/offices/:id` | `ADMIN` | Tambah / ubah kantor (otomatis inisialisasi 7 hari `kalender_kerja` saat tambah kantor). |
-| `GET` / `POST` | `/api/v1/master/bidang` | `GET`: Semua / `POST`: `ADMIN` | Master bidang kerja. |
+| `GET` / `POST` / `PUT` | `/api/v1/master/bidang`, `/bidang/:id` | `GET`: Semua / `POST`, `PUT`: `ADMIN` | Melihat, menambah, dan mengubah kode/nama/deskripsi bidang kerja. Setiap perubahan dicatat di Audit Trail. |
 | `GET` | `/api/v1/master/employees` | `ADMIN`, `SUPERADMIN` | Daftar karyawan aktif & nonaktif. |
 | `POST` | `/api/v1/master/employees` | `SUPERADMIN` | Membuat karyawan + akun pengguna (password >= 6 karakter wajib eksplisit). |
-| `PUT` | `/api/v1/master/employees/:id` | `ADMIN` | Memperbarui data operasional karyawan. |
+| `PUT` | `/api/v1/master/employees/:id` | `ADMIN` | Memperbarui data operasional karyawan, termasuk kantor dan `bidang_id`; backend memvalidasi kedua referensi sebelum menyimpan. |
 | `GET` | `/api/v1/policies` | `ADMIN`, `SUPERADMIN` | Daftar kebijakan absensi & konfigurasi sesi. |
 | `POST` / `PUT` | `/api/v1/policies`, `/policies/:id` | `ADMIN` | Membuat/mengubah kebijakan & jadwal sesi (2, 3, atau 4 sesi). |
 | `GET` / `PUT` | `/api/v1/calendars`, `/calendars/:id` | `GET`: Semua / `PUT`: `ADMIN` | Pengaturan hari kerja/libur mingguan per kantor. |
