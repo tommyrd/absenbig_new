@@ -78,6 +78,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   const serverClockSyncRef = useRef<ServerClockSync | null>(null);
   const serverWindowSyncPerfRef = useRef<number | null>(null);
   const todayRequestIdRef = useRef(0);
+  const [, setServerFreshnessTick] = useState(0);
   const [liveWibHm, setLiveWibHm] = useState('--:--');
 
   // GPS State
@@ -226,6 +227,9 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
           getWibHmFromEpoch(getEstimatedServerEpochMs(sync, performance.now()))
         );
       }
+      // Re-render every second so a stale server gate expires after 10 seconds
+      // even while the displayed WIB minute itself has not changed.
+      setServerFreshnessTick((tick) => tick + 1);
     }, 1000);
     return () => window.clearInterval(id);
   }, []);
