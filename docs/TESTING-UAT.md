@@ -90,3 +90,10 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
    - Dengan Google Geocoding API aktif, verifikasi alamat perkiraan tampil. Pastikan key hanya berada di environment server dan alamat hanya diminta setelah pengguna menekan Perbarui Lokasi.
    - Kalender History memakai status resolver: hijau HADIR, merah TIDAK HADIR, amber BELUM SELESAI, dan warna khusus untuk libur/off/cuti/izin/sakit/off pengganti.
    - Hari mendatang yang belum dievaluasi tetap netral, tanggal dapat dipilih untuk memfilter timeline, dan Admin Override diberi penanda O serta memakai hasil payroll final untuk warna.
+
+10. **Employee Attendance Feed Card UI (Mobile & Desktop):**
+   - Setiap kartu menampilkan identitas sekali saja: nama, jabatan/bidang, kantor, jam WIB, dan tanggal.
+   - Foto memakai tinggi maksimum yang konsisten dan tidak terpotong; klik foto membuka lightbox.
+   - Badge sesi/progres, tepat waktu/terlambat, dan dalam/di luar radius dibedakan secara visual.
+   - Caption aktivitas tampil pada blok tersendiri; alamat kantor, koordinat GPS, jarak dan tombol Detail lokasi tetap tersedia.
+   - Jarak di atas 1 km ditampilkan dalam kilometer dengan satu desimal; uji layar HP sempit dan desktop serta mode gelap.
