@@ -73,6 +73,10 @@ export function AttendanceFeedView({
   const [liveConnected, setLiveConnected] = useState(false);
   const [lightboxPost, setLightboxPost] = useState<AttendanceFeedPost | null>(null);
   const [failedPhotoIds, setFailedPhotoIds] = useState<Record<number, boolean>>({});
+  const [resolvedLocationByPost, setResolvedLocationByPost] = useState<Record<number, string>>({});
+  const [locationLookupStatus, setLocationLookupStatus] = useState<
+    Record<number, 'loading' | 'unconfigured' | 'not-found' | 'error'>
+  >({});
 
   const loadFeed = useCallback(async () => {
     setError(null);
@@ -125,6 +129,60 @@ export function AttendanceFeedView({
       setLiveConnected(false);
     };
   }, [loadFeed]);
+
+  // Legacy feed records predate the persisted location-address snapshot.
+  // Resolve those addresses only when someone opens Detail Lokasi to avoid
+  // spending Geoapify credits for every historical post in the feed.
+  useEffect(() => {
+    const post = lightboxPost;
+    if (
+      !post ||
+      post.lokasiAktualAlamat ||
+      resolvedLocationByPost[post.id] ||
+      post.lat === null ||
+      post.lng === null
+    ) {
+      return;
+    }
+
+    let active = true;
+    setLocationLookupStatus((current) => ({ ...current, [post.id]: 'loading' }));
+    const params = new URLSearchParams({ lat: String(post.lat), lng: String(post.lng) });
+    apiFetch<{ address: string | null; configured: boolean }>(
+      `/api/v1/location/reverse?${params.toString()}`
+    )
+      .then((result) => {
+        if (!active) return;
+        if (result.address) {
+          setResolvedLocationByPost((current) => ({ ...current, [post.id]: result.address! }));
+          setLocationLookupStatus((current) => {
+            const next = { ...current };
+            delete next[post.id];
+            return next;
+          });
+        } else {
+          setLocationLookupStatus((current) => ({
+            ...current,
+            [post.id]: result.configured ? 'not-found' : 'unconfigured',
+          }));
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setLocationLookupStatus((current) => ({ ...current, [post.id]: 'error' }));
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [
+    lightboxPost?.id,
+    lightboxPost?.lat,
+    lightboxPost?.lng,
+    lightboxPost?.lokasiAktualAlamat,
+    resolvedLocationByPost,
+  ]);
 
   const sortedRoster = useMemo(() => {
     const list = [...(feed?.roster || [])];
@@ -437,6 +495,8 @@ export function AttendanceFeedView({
               {filteredPosts.map((post) => {
                 const photoBroken = failedPhotoIds[post.id];
                 const dateLabel = formatDateLabel(post.tanggal, feed?.tanggal);
+                const actualLocationAddress =
+                  post.lokasiAktualAlamat || resolvedLocationByPost[post.id] || null;
                 return (
                   <article
                     key={post.id}
@@ -561,8 +621,8 @@ export function AttendanceFeedView({
                             Lokasi saat absen
                           </p>
                           <p className="mt-0.5 text-[11px] leading-snug text-slate-700 dark:text-slate-200 line-clamp-2">
-                            {post.lokasiAktualAlamat ||
-                              'Alamat aktual belum tersimpan untuk catatan absensi lama.'}
+                            {actualLocationAddress ||
+                              'Alamat aktual belum tersimpan pada catatan lama. Buka Detail lokasi untuk mencarinya dari GPS.'}
                           </p>
                           {post.lat !== null && post.lng !== null && (
                             <p className="mt-1 text-[10px] font-mono tabular-nums text-slate-400 dark:text-slate-500">
@@ -850,6 +910,12 @@ export function AttendanceFeedView({
               <p className="text-sm text-slate-900 dark:text-slate-100">
                 <strong>{lightboxPost.namaLengkap}</strong> — {lightboxPost.deskripsiAktivitas}
               </p>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                Alamat GPS merupakan hasil perkiraan reverse geocoding. Powered by{' '}
+                <a href="https://www.geoapify.com/" target="_blank" rel="noopener noreferrer" className="font-semibold text-blue-700 dark:text-blue-400 underline">
+                  Geoapify
+                </a>.
+              </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-1 text-[11px] font-mono text-slate-500 dark:text-slate-400 tabular-nums">
                 <span>Waktu: {lightboxPost.tanggal} {lightboxPost.waktuServer.slice(11, 19)} WIB</span>
                 <span>
@@ -859,7 +925,17 @@ export function AttendanceFeedView({
                     : 'Tanpa GPS'}
                 </span>
                 <span className="sm:col-span-2">
-                  Lokasi Saat Absen: {lightboxPost.lokasiAktualAlamat || 'Alamat aktual tidak tersimpan pada catatan absensi lama'}
+                  Lokasi Saat Absen: {lightboxPost.lokasiAktualAlamat || resolvedLocationByPost[lightboxPost.id] || (
+                    locationLookupStatus[lightboxPost.id] === 'loading'
+                      ? 'Sedang mencari alamat dari koordinat GPS...'
+                      : locationLookupStatus[lightboxPost.id] === 'unconfigured'
+                        ? 'Geoapify belum dikonfigurasi pada server'
+                        : locationLookupStatus[lightboxPost.id] === 'not-found'
+                          ? 'Alamat tidak ditemukan untuk koordinat ini'
+                          : locationLookupStatus[lightboxPost.id] === 'error'
+                            ? 'Gagal mengambil alamat. Koordinat GPS tetap menjadi bukti lokasi.'
+                            : 'Alamat belum tersimpan pada catatan absensi lama'
+                  )}
                 </span>
                 <span className="sm:col-span-2">
                   Kantor Penempatan: {lightboxPost.kantorNama} — {lightboxPost.kantorAlamat}
