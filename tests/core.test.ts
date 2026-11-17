@@ -1,0 +1,294 @@
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import test from 'node:test';
+import express from 'express';
+import { signToken } from '../src/server/auth.ts';
+import { getDb } from '../src/server/db.ts';
+import { registerApiRoutes } from '../src/server/routes.ts';
+import {
+  computeMonthlySummary,
+  getEffectivePolicy,
+  getWorkforceToday,
+  haversineMeters,
+  resolveDayForEmployee,
+} from '../src/server/services/resolver.ts';
+import { getWibDateString } from '../src/server/time.ts';
+import type { Karyawan, Role } from '../src/shared/types.ts';
+
+test('Geofence Haversine distance calculation', () => {
+  const distSame = haversineMeters(-6.2088, 106.8456, -6.2088, 106.8456);
+  assert.equal(distSame, 0);
+  const distNear = haversineMeters(-6.2088, 106.8456, -6.2095, 106.8460);
+  assert.ok(distNear > 50 && distNear < 150, `Expected ~90m, got ${distNear}`);
+});
+
+test('Policy Hierarchy resolves KARYAWAN > BIDANG > DEFAULT', () => {
+  const db = getDb();
+  const today = getWibDateString();
+
+  // Dimas (id 5) has KARYAWAN policy (4 sesi)
+  const dimas = db.prepare('SELECT * FROM karyawan WHERE id = 5').get() as unknown as Karyawan;
+  const dimasPolicy = getEffectivePolicy(db, dimas, today);
+  assert.equal(dimasPolicy.level, 'KARYAWAN');
+  assert.equal(dimasPolicy.jumlah_sesi, 4);
+
+  // Andi (id 3) is Teknisi Lapangan (BIDANG policy: 3 sesi)
+  const andi = db.prepare('SELECT * FROM karyawan WHERE id = 3').get() as unknown as Karyawan;
+  const andiPolicy = getEffectivePolicy(db, andi, today);
+  assert.equal(andiPolicy.level, 'BIDANG');
+  assert.equal(andiPolicy.jumlah_sesi, 3);
+
+  // Dewi (id 7) is NOC (DEFAULT policy: 4 sesi)
+  const dewi = db.prepare('SELECT * FROM karyawan WHERE id = 7').get() as unknown as Karyawan;
+  const dewiPolicy = getEffectivePolicy(db, dewi, today);
+  assert.equal(dewiPolicy.level, 'DEFAULT');
+  assert.equal(dewiPolicy.jumlah_sesi, 4);
+});
+
+test('Kantor A Sunday is HARI_LIBUR (not TIDAK_HADIR), Kantor B Sunday is 2 sessions', () => {
+  const db = getDb();
+  const ym = getWibDateString().slice(0, 7);
+  // Find a Sunday in current month
+  let sunday = `${ym}-01`;
+  for (let d = 1; d <= 7; d++) {
+    const cand = `${ym}-${String(d).padStart(2, '0')}`;
+    if (new Date(`${cand}T00:00:00Z`).getUTCDay() === 0) {
+      sunday = cand;
+      break;
+    }
+  }
+
+  // Rina (id 4, Kantor A)
+  const rina = db.prepare('SELECT * FROM karyawan WHERE id = 4').get() as unknown as Karyawan;
+  const rinaSun = resolveDayForEmployee(db, rina, sunday);
+  assert.equal(rinaSun.dayType, 'HARI_LIBUR');
+  assert.notEqual(rinaSun.operationalStatus, 'TIDAK_HADIR');
+
+  // Fajar (id 6, Kantor B)
+  const fajar = db.prepare('SELECT * FROM karyawan WHERE id = 6').get() as unknown as Karyawan;
+  const fajarSun = resolveDayForEmployee(db, fajar, sunday);
+  assert.equal(fajarSun.dayType, 'HARI_KERJA');
+  assert.equal(fajarSun.policySnapshot.jumlahSesi, 2);
+});
+
+test('Workforce feed strips sensitive GPS, photo paths, and leave reasons', () => {
+  const db = getDb();
+  const list = getWorkforceToday(db);
+  assert.ok(list.length > 0);
+  const first = list[0] as unknown as Record<string, unknown>;
+  assert.equal(first.lat, undefined);
+  assert.equal(first.lng, undefined);
+  assert.equal(first.foto_path, undefined);
+  assert.equal(first.alasan, undefined);
+});
+
+test('Monthly summary totals HARI MASUK and TIDAK HADIR consistently', () => {
+  const db = getDb();
+  const ym = getWibDateString().slice(0, 7);
+  const summary = computeMonthlySummary(db, 3, ym);
+  assert.ok(summary !== null);
+  assert.ok(summary.hariMasuk >= 1);
+  assert.equal(typeof summary.tidakHadir, 'number');
+});
+
+test('Audit log is strictly append-only via SQLite triggers', () => {
+  const db = getDb();
+  const firstAudit = db.prepare('SELECT id FROM audit_log ORDER BY id ASC LIMIT 1').get() as { id: number };
+  assert.ok(firstAudit);
+  assert.throws(() => {
+    db.prepare('DELETE FROM audit_log WHERE id = ?').run(firstAudit.id);
+  }, /append-only/i);
+  assert.throws(() => {
+    db.prepare("UPDATE audit_log SET alasan = 'tampered' WHERE id = ?").run(firstAudit.id);
+  }, /append-only/i);
+});
+
+test('System settings table initializes default branding and login config', () => {
+  const db = getDb();
+  const settings = db.prepare('SELECT * FROM pengaturan_aplikasi WHERE id = 1').get() as Record<
+    string,
+    unknown
+  >;
+  assert.ok(settings);
+  assert.equal(settings.nama_aplikasi, 'Absensi BIGNET');
+  assert.equal(Number(settings.izin_demo_login), 1);
+});
+
+test('Registration table and profile photo columns are initialized', () => {
+  const db = getDb();
+  const cols = db.prepare('PRAGMA table_info(karyawan)').all() as { name: string }[];
+  assert.ok(cols.some((c) => c.name === 'foto_profil_path'));
+  assert.ok(cols.some((c) => c.name === 'foto_profil_updated_at'));
+
+  const regTable = db
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='pendaftaran_akun'")
+    .get() as { name: string } | undefined;
+  assert.equal(regTable?.name, 'pendaftaran_akun');
+});
+
+test('System settings API strictly enforces SUPERADMIN access while keeping public settings open', async () => {
+  const db = getDb();
+  const app = express();
+  app.use(express.json({ limit: '8mb' }));
+  registerApiRoutes(app);
+
+  const server = http.createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const getUserByRole = (role: Role) =>
+      db.prepare(`SELECT id, role FROM pengguna WHERE role = ? AND aktif = 1 LIMIT 1`).get(role) as
+        | { id: number; role: Role }
+        | undefined;
+
+    const superadmin = getUserByRole('SUPERADMIN');
+    const admin = getUserByRole('ADMIN');
+    const karyawan = getUserByRole('KARYAWAN');
+    assert.ok(superadmin && admin && karyawan);
+
+    const makeToken = (u: { id: number; role: Role }) =>
+      signToken({ userId: u.id, role: u.role, exp: Date.now() + 60_000 });
+
+    // Server time endpoint returns valid finite epochMs
+    const timeRes = await fetch(`${baseUrl}/api/v1/time`);
+    assert.equal(timeRes.status, 200);
+    const timeData = (await timeRes.json()) as { epochMs?: number };
+    assert.equal(typeof timeData.epochMs, 'number');
+    assert.ok(Number.isFinite(timeData.epochMs));
+
+    // Unknown /api/v1/* endpoint returns 404 JSON instead of HTML
+    const missingRes = await fetch(`${baseUrl}/api/v1/non-existent-route`);
+    assert.equal(missingRes.status, 404);
+    const missingData = (await missingRes.json()) as { error?: string };
+    assert.ok(typeof missingData.error === 'string');
+
+    // Public settings accessible without token
+    const pubRes = await fetch(`${baseUrl}/api/v1/settings/public`);
+    assert.equal(pubRes.status, 200);
+
+    // Unauthenticated /api/v1/settings returns 401
+    const anonRes = await fetch(`${baseUrl}/api/v1/settings`);
+    assert.equal(anonRes.status, 401);
+
+    // ADMIN and KARYAWAN get 403 on GET & PUT /api/v1/settings
+    const adminGetRes = await fetch(`${baseUrl}/api/v1/settings`, {
+      headers: { Authorization: `Bearer ${makeToken(admin)}` },
+    });
+    assert.equal(adminGetRes.status, 403);
+
+    const adminPutRes = await fetch(`${baseUrl}/api/v1/settings`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${makeToken(admin)}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ nama_aplikasi: 'Unauthorized Change' }),
+    });
+    assert.equal(adminPutRes.status, 403);
+
+    const empPutRes = await fetch(`${baseUrl}/api/v1/settings`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${makeToken(karyawan)}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ nama_aplikasi: 'Unauthorized Change' }),
+    });
+    assert.equal(empPutRes.status, 403);
+
+    // SUPERADMIN gets 200 on GET /api/v1/settings
+    const superGetRes = await fetch(`${baseUrl}/api/v1/settings`, {
+      headers: { Authorization: `Bearer ${makeToken(superadmin)}` },
+    });
+    assert.equal(superGetRes.status, 200);
+    const superData = (await superGetRes.json()) as { settings: { nama_aplikasi: string } };
+    assert.equal(superData.settings.nama_aplikasi, 'Absensi BIGNET');
+
+    // Beranda Instagram-style Feed accessible to ALL roles (KARYAWAN, ADMIN, SUPERADMIN)
+    for (const roleUser of [karyawan, admin, superadmin]) {
+      const feedRes = await fetch(`${baseUrl}/api/v1/feed/today`, {
+        headers: { Authorization: `Bearer ${makeToken(roleUser)}` },
+      });
+      assert.equal(feedRes.status, 200);
+      const feedData = (await feedRes.json()) as {
+        posts: { id: number; namaLengkap: string; kantorNama: string; hasFoto: boolean }[];
+        roster: { karyawanId: number; namaLengkap: string }[];
+      };
+      assert.ok(Array.isArray(feedData.posts) && feedData.posts.length > 0);
+      assert.ok(Array.isArray(feedData.roster) && feedData.roster.length > 0);
+      assert.ok(feedData.posts[0].namaLengkap);
+      assert.ok(feedData.posts[0].kantorNama);
+
+      // Every role can view today's attendance feed photos
+      const photoPost = feedData.posts.find((p) => p.hasFoto);
+      assert.ok(photoPost);
+      const photoRes = await fetch(`${baseUrl}/api/v1/photos/${photoPost.id}`, {
+        headers: { Authorization: `Bearer ${makeToken(roleUser)}` },
+      });
+      assert.equal(photoRes.status, 200);
+    }
+
+    // Attendance session enforces camera-only and session start time
+    const empRow = db
+      .prepare(
+        `SELECT u.id, u.role, u.karyawan_id FROM pengguna u WHERE u.role = 'KARYAWAN' AND u.aktif = 1 ORDER BY u.id ASC`
+      )
+      .all() as { id: number; role: Role; karyawan_id: number }[];
+    const fajarUser = empRow.find((e) => e.karyawan_id === 6) || karyawan;
+    const fajarToken = makeToken({ id: fajarUser.id, role: fajarUser.role });
+
+    // 1x1 transparent PNG base64 sample
+    const samplePng =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+    // Temporarily set a future session jam_mulai (23:59) or test non-camera upload
+    const nowTimeRes = await fetch(`${baseUrl}/api/v1/time`);
+    const nowTimeJson = (await nowTimeRes.json()) as { time: string };
+    const nowHm = nowTimeJson.time.slice(0, 5);
+
+    if (nowHm < '08:00') {
+      // Before 08:00 WIB, session 1 must be rejected as not started yet
+      const earlyRes = await fetch(`${baseUrl}/api/v1/attendance/session`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${fajarToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          urutanSesi: 1,
+          fotoBase64: samplePng,
+          fotoSource: 'BROWSER_CAMERA',
+        }),
+      });
+      assert.equal(earlyRes.status, 400);
+      const earlyData = (await earlyRes.json()) as { error: string };
+      assert.match(earlyData.error, /belum dimulai/i);
+    }
+
+    // Reject non-camera upload (e.g., FILE_UPLOAD) when session is open or before/after check
+    // Force an active policy check on an open window by testing with explicit FILE_UPLOAD on default policy if open,
+    // or verify future jam_mulai rejection with an isolated temporary test policy if past 08:00.
+    if (nowHm >= '08:00') {
+      const uploadRes = await fetch(`${baseUrl}/api/v1/attendance/session`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${fajarToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          urutanSesi: 1,
+          fotoBase64: samplePng,
+          fotoSource: 'FILE_UPLOAD',
+        }),
+      });
+      assert.equal(uploadRes.status, 400);
+      const uploadData = (await uploadRes.json()) as { error: string };
+      assert.match(uploadData.error, /kamera browser/i);
+    }
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});

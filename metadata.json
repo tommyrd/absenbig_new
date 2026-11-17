@@ -1,0 +1,6 @@
+{
+  "name": "Absensi BIGNET",
+  "description": "Sistem absensi berbasis sesi, kalender kerja per kantor, pengajuan, kerja khusus, off pengganti, rekap payroll bulanan, dan audit trail.",
+  "requestFramePermissions": ["camera", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
