@@ -123,10 +123,10 @@ after(async () => {
 test('1. Migrations are idempotent and production baseline enforces zero demo accounts', () => {
   const db = getDb();
   const applied = getAppliedMigrations(db);
-  assert.equal(applied.length, 10);
+  assert.equal(applied.length, 11);
   assert.deepEqual(
     applied.map((m) => m.version),
-    ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010']
+    ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011']
   );
 
   const attendanceColumns = db
@@ -149,6 +149,8 @@ test('1. Migrations are idempotent and production baseline enforces zero demo ac
     .all() as { name: string }[];
   assert.ok(settingsColumns.some((column) => column.name === 'favicon_path'));
   assert.ok(settingsColumns.some((column) => column.name === 'favicon_updated_at'));
+  const employeeColumns = db.prepare('PRAGMA table_info(karyawan)').all() as { name: string }[];
+  assert.ok(employeeColumns.some((column) => column.name === 'is_system_archive'));
 
   // Re-running migrations should apply 0 new steps
   const rerun = runMigrations(db);
