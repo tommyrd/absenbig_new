@@ -14,8 +14,7 @@ import {
 } from 'lucide-react';
 import { apiFetch, getAuthorizedPhotoUrl } from '../../lib/api';
 import type { AuthUser, Karyawan, ResolvedDay } from '../../shared/types';
-import { isGpsAccuracyAcceptable, isWithinVerifiedGeofence, MAX_GPS_ACCURACY_METERS } from '../../shared/geofence';
-import { requiresOfficeGeofence } from '../../shared/geofence';
+import { isGpsAccuracyAcceptable, isWithinVerifiedGeofence, MAX_GPS_ACCURACY_METERS, requiresOfficeGeofence } from '../../shared/geofence';
 import { getSessionWindowState } from '../../shared/session-window';
 import { StatusBadge } from '../StatusBadge';
 
