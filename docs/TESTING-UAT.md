@@ -39,7 +39,7 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
 |---|---|---|
 | TypeScript Check | `npm run lint` (`tsc --noEmit`) | Perlu dijalankan ulang setelah commit terbaru |
 | Frontend Bundle | `npm run build` (`vite build`) | Perlu dijalankan ulang setelah commit terbaru |
-| Automated Tests | `npm.cmd test` | Perlu dijalankan ulang; cakupan saat ini 19 test |
+| Automated Tests | `npm.cmd test` | Perlu dijalankan ulang; cakupan saat ini 20 test |
 | Production Server Boot | `NODE_ENV=production node server.ts` | Perlu UAT ulang setelah commit terbaru |
 
 ---
