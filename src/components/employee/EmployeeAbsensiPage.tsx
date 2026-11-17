@@ -79,6 +79,36 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   const [gpsStatus, setGpsStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle');
   const [gpsError, setGpsError] = useState<string | null>(null);
 
+  const readCurrentGps = useCallback(
+    () =>
+      new Promise<{ lat: number; lng: number; accuracy: number }>((resolve, reject) => {
+        if (!navigator.geolocation) {
+          reject(new Error('Browser tidak mendukung Geolocation.'));
+          return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+          (pos) =>
+            resolve({
+              lat: Number(pos.coords.latitude.toFixed(6)),
+              lng: Number(pos.coords.longitude.toFixed(6)),
+              accuracy: Math.round(pos.coords.accuracy),
+            }),
+          (err) => {
+            reject(
+              new Error(
+                err.code === 1
+                  ? 'Izin lokasi ditolak oleh browser. Aktifkan izin lokasi untuk melakukan absensi.'
+                  : 'Tidak dapat membaca GPS perangkat. Periksa sinyal dan izin lokasi, lalu coba lagi.'
+              )
+            );
+          },
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+      }),
+    []
+  );
+
   // Camera & Photo State (Browser Camera ONLY — no file upload allowed)
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -137,33 +167,20 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   }, [stopCamera]);
 
   const requestGps = useCallback(() => {
-    if (!navigator.geolocation) {
-      setGpsStatus('error');
-      setGpsError('Browser tidak mendukung Geolocation.');
-      return;
-    }
     setGpsStatus('loading');
     setGpsError(null);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setCoords({
-          lat: Number(pos.coords.latitude.toFixed(6)),
-          lng: Number(pos.coords.longitude.toFixed(6)),
-          accuracy: Math.round(pos.coords.accuracy),
-        });
+    setCoords(null);
+    readCurrentGps()
+      .then((position) => {
+        setCoords(position);
         setGpsStatus('ok');
-      },
-      (err) => {
+      })
+      .catch((err) => {
+        setCoords(null);
         setGpsStatus('error');
-        setGpsError(
-          err.code === 1
-            ? 'Izin lokasi ditolak oleh browser. Aktifkan izin lokasi untuk validasi geofence.'
-            : 'Tidak dapat membaca GPS perangkat saat ini.'
-        );
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 15000 }
-    );
-  }, []);
+        setGpsError(err instanceof Error ? err.message : 'Gagal membaca lokasi GPS.');
+      });
+  }, [readCurrentGps]);
 
   useEffect(() => {
     requestGps();
@@ -172,6 +189,25 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   const startCamera = async (requestedFacing: 'user' | 'environment' = facingMode) => {
     setCameraError(null);
     stopCamera();
+
+    if (gpsStatus !== 'ok' || !coords) {
+      setCameraError(gpsError || 'Lokasi GPS wajib terbaca sebelum kamera absensi dapat dibuka.');
+      return;
+    }
+
+    const currentDistance = haversineClient(
+      coords.lat,
+      coords.lng,
+      user.kantor_lat,
+      user.kantor_lng
+    );
+    if (currentDistance > user.kantor_radius) {
+      setCameraError(
+        `Kamera absensi dikunci. Lokasi Anda ${currentDistance}m dari kantor, melebihi radius ${user.kantor_radius}m.`
+      );
+      return;
+    }
+
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setCameraError(
         'Browser Anda tidak mendukung akses kamera langsung (getUserMedia). Gunakan browser modern dengan izin kamera aktif.'
@@ -246,13 +282,36 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
     setSubmitting(true);
     setSubmitMsg(null);
     try {
+      // Re-read GPS at the moment of submission; do not trust a stale page-load coordinate.
+      setGpsStatus('loading');
+      const freshCoords = await readCurrentGps();
+      setCoords(freshCoords);
+      setGpsStatus('ok');
+      setGpsError(null);
+
+      const freshDistance = haversineClient(
+        freshCoords.lat,
+        freshCoords.lng,
+        user.kantor_lat,
+        user.kantor_lng
+      );
+      if (freshDistance > user.kantor_radius) {
+        stopCamera();
+        setPhotoDataUrl(null);
+        setSubmitMsg({
+          type: 'err',
+          text: `Absensi ditolak. Lokasi Anda ${freshDistance}m dari kantor, sedangkan radius yang diizinkan hanya ${user.kantor_radius}m. Absensi hanya dapat dilakukan dari dalam radius kantor.`,
+        });
+        return;
+      }
+
       await apiFetch('/api/v1/attendance/session', {
         method: 'POST',
         body: JSON.stringify({
           urutanSesi: nextUrutan,
-          lat: coords?.lat ?? null,
-          lng: coords?.lng ?? null,
-          accuracyMeter: coords?.accuracy ?? null,
+          lat: freshCoords.lat,
+          lng: freshCoords.lng,
+          accuracyMeter: freshCoords.accuracy,
           tipeAktivitas: nextUrutan === 1 ? 'CHECK_IN' : tipeAktivitas,
           deskripsiAktivitas: deskripsiAktivitas.trim(),
           fotoBase64: photoDataUrl,
@@ -268,9 +327,13 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
       await loadToday();
       onSessionSubmitted();
     } catch (err) {
+      const message = err instanceof Error ? err.message : 'Gagal mengirim absensi sesi.';
+      setGpsStatus('error');
+      setCoords(null);
+      setGpsError(message);
       setSubmitMsg({
         type: 'err',
-        text: err instanceof Error ? err.message : 'Gagal mengirim absensi sesi.',
+        text: message,
       });
     } finally {
       setSubmitting(false);
@@ -316,6 +379,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
     ? haversineClient(coords.lat, coords.lng, user.kantor_lat, user.kantor_lng)
     : null;
   const withinRadius = distanceMeters !== null ? distanceMeters <= user.kantor_radius : false;
+  const canCheckInByLocation = gpsStatus === 'ok' && coords !== null && withinRadius;
 
   return (
     <div className="space-y-5 sm:space-y-6">
@@ -596,14 +660,10 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                           <span>Jarak ke kantor:</span>
                           <span className="font-mono tabular-nums text-slate-900 dark:text-slate-100">{distanceMeters} m</span>
                           <span className="text-slate-400">·</span>
-                          <span className={withinRadius ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400'}>
+                          <span className={withinRadius ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}>
                             {withinRadius
-                              ? `Dalam radius (${user.kantor_radius}m)`
-                              : `Di luar radius ${user.kantor_radius}m (${
-                                  user.kantor_geofence_mode === 'TOLAK_LUAR_RADIUS'
-                                    ? 'Wajib dalam radius'
-                                    : 'Akan dicatat dengan flag luar radius'
-                                })`}
+                              ? `Dalam radius (${user.kantor_radius}m) · Absensi tersedia`
+                              : `Di luar radius ${user.kantor_radius}m · Absensi ditolak`}
                           </span>
                         </p>
                       </div>
@@ -647,7 +707,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                           className="max-h-72 w-full object-contain"
                         />
                       </div>
-                    ) : cameraActive && nextSessionStarted ? (
+                    ) : cameraActive && nextSessionStarted && canCheckInByLocation ? (
                       <div className="space-y-3">
                         <div className="rounded-xl overflow-hidden border border-slate-300 dark:border-slate-700 bg-black">
                           <video
@@ -694,16 +754,16 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                         <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5">
                           <button
                             type="button"
-                            disabled={!nextSessionStarted}
+                            disabled={!nextSessionStarted || !canCheckInByLocation}
                             onClick={() => startCamera(facingMode)}
                             className="w-full sm:w-auto min-h-[44px] px-4 py-2.5 bg-navy-900 hover:bg-navy-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <Camera className="w-4 h-4" />
-                            {nextSessionStarted ? 'Buka Kamera Browser' : `Menunggu Pukul ${nextSesi.jam_mulai} WIB`}
+                            {!canCheckInByLocation ? 'Lokasi wajib dalam radius kantor' : nextSessionStarted ? 'Buka Kamera Browser' : `Menunggu Pukul ${nextSesi.jam_mulai} WIB`}
                           </button>
                           <button
                             type="button"
-                            disabled={!nextSessionStarted}
+                            disabled={!nextSessionStarted || !canCheckInByLocation}
                             onClick={toggleFacingMode}
                             className="w-full sm:w-auto min-h-[44px] px-3.5 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium rounded-lg inline-flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
@@ -765,7 +825,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                   {/* Submit CTA */}
                   <button
                     type="button"
-                    disabled={submitting || !nextSessionStarted}
+                    disabled={submitting || !nextSessionStarted || !canCheckInByLocation}
                     onClick={handleSubmitSession}
                     className="w-full h-12 bg-blue-700 hover:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white font-semibold text-sm rounded-xl transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
@@ -773,6 +833,8 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                     <span>
                       {submitting
                         ? 'Menyimpan ke Server...'
+                        : !canCheckInByLocation
+                        ? 'Absensi terkunci · wajib dalam radius kantor'
                         : !nextSessionStarted
                         ? `Terkunci hingga ${nextSesi.jam_mulai} WIB`
                         : `Kirim Absensi ${nextSesi.nama}`}
