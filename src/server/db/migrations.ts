@@ -99,6 +99,24 @@ const MIGRATIONS: MigrationDef[] = [
       }
     },
   },
+  {
+    version: '007',
+    name: 'cache_legacy_attendance_location_addresses',
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS absensi_lokasi_cache (
+          absensi_sesi_id INTEGER PRIMARY KEY REFERENCES absensi_sesi(id) ON DELETE CASCADE,
+          lat REAL NOT NULL,
+          lng REAL NOT NULL,
+          alamat TEXT NOT NULL,
+          provider TEXT NOT NULL DEFAULT 'GEOAPIFY',
+          resolved_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_absensi_lokasi_cache_resolved
+          ON absensi_lokasi_cache(resolved_at);
+      `);
+    },
+  },
 ];
 
 export function runMigrations(db: DatabaseSync): string[] {
