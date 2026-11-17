@@ -8,6 +8,7 @@
 - Endpoint DELETE memeriksa ulang relasi di backend dalam transaksi BEGIN IMMEDIATE; data yang masih dipakai ditolak dengan HTTP 409. Karyawan dan role lain tidak memiliki izin DELETE.
 - Setiap penghapusan mencatat before/after pada Audit Trail; penghapusan gagal tidak mengubah data apa pun.
 - Ditambahkan uji integrasi: referensi pegawai memblokir penghapusan, master tanpa relasi dapat dihapus, kalender bawaan ikut dibersihkan, dan Karyawan mendapat HTTP 403.
+
 ## 2026-11-17 — Admin edit bidang kerja & perbaikan jam absensi mobile
 
 - ADMIN operasional dapat mengubah kode, nama, dan deskripsi master bidang kerja dari **Master Karyawan, Kantor & Bidang**; perubahan masuk ke Audit Trail.
