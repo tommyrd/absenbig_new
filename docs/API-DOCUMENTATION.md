@@ -19,6 +19,10 @@ Seluruh endpoint berada di bawah prefix `/api/v1`. Autentikasi menggunakan heade
 | Method | Endpoint | Akses | Keterangan |
 |---|---|---|---|
 | `GET` | `/api/v1/settings` | `SUPERADMIN` | Mengambil seluruh pengaturan sistem, termasuk status dan versi logo/favicon kustom. |
+| `GET` | `/api/v1/superadmin/accounts` | `SUPERADMIN` | Menampilkan seluruh akun; akun SUPERADMIN berdiri sendiri dan tidak memerlukan profil karyawan. |
+| `POST` | `/api/v1/superadmin/accounts` | `SUPERADMIN` | Membuat akun ADMIN/KARYAWAN beserta profil pegawai, atau membuat akun SUPERADMIN mandiri tanpa baris `karyawan`. |
+| `PUT` | `/api/v1/superadmin/accounts/:userId` | `SUPERADMIN` | Mengelola akun. Akun pemilik dapat memperbarui nama tampilan, username, email, nomor HP, dan status aktif tanpa membuat profil pegawai; minimal satu SUPERADMIN aktif harus tersisa. |
+| `POST` | `/api/v1/superadmin/accounts/:userId/reset-password` | `SUPERADMIN` | Mereset kata sandi akun dan mencabut sesi/token lama. |
 | `PUT` | `/api/v1/settings` | `SUPERADMIN` | Memperbarui branding dan pengaturan operasional. Unggah logo melalui `logoBase64` / `resetLogo`; unggah favicon melalui `faviconBase64` / `resetFavicon`. Favicon menerima PNG, SVG, atau ICO maksimal 512 KB. Unggahan SVG disanitasi. |
 
 ---
@@ -57,7 +61,7 @@ Seluruh endpoint berada di bawah prefix `/api/v1`. Autentikasi menggunakan heade
 | `GET` | `/api/v1/attendance/today` | Semua Role Terautentikasi | Resolusi jadwal, kebijakan aktif (`policySnapshot`), sesi terselesaikan, dan izin check-in Admin aktif untuk sesi berikutnya (jika ada). |
 | `GET` | `/api/v1/admin/attendance/override-checkins` | `ADMIN` | Daftar karyawan yang sesi berikutnya sudah kedaluwarsa dan masih perlu check-in, termasuk status izin khusus yang masih aktif. |
 | `POST` | `/api/v1/admin/attendance/override-checkins` | `ADMIN` | Membuka akses satu kali untuk sesi berikutnya yang sudah kedaluwarsa. Alasan wajib; durasi yang diterima 5, 10, 15, atau 30 menit. Setiap pemberian dan pemakaian tercatat di audit log. |
-| `POST` | `/api/v1/attendance/session` | Semua Role Terautentikasi (Rate-limited) | Mengirim absensi sesi berikutnya. Sesi yang sudah kedaluwarsa hanya dapat dikirim bila ada izin Admin aktif yang belum digunakan. Selfie kamera browser, GPS/geofence, urutan sesi, dan waktu server tetap divalidasi; record tetap memakai waktu aktual dan status keterlambatan tidak dihapus. Reverse-geocoding Geoapify dilakukan satu kali setelah GPS tervalidasi, lalu alamat disimpan bersama record. Kegagalan Geoapify tidak memblokir absensi. Response mencakup `sessionId` untuk mengarahkan karyawan ke card baru di Beranda. |
+| `POST` | `/api/v1/attendance/session` | `KARYAWAN`, `ADMIN` (Rate-limited) | Mengirim absensi sesi berikutnya. Sesi yang sudah kedaluwarsa hanya dapat dikirim bila ada izin Admin aktif yang belum digunakan. Selfie kamera browser, GPS/geofence, urutan sesi, dan waktu server tetap divalidasi; record tetap memakai waktu aktual dan status keterlambatan tidak dihapus. Reverse-geocoding Geoapify dilakukan satu kali setelah GPS tervalidasi, lalu alamat disimpan bersama record. Kegagalan Geoapify tidak memblokir absensi. Response mencakup `sessionId` untuk mengarahkan karyawan ke card baru di Beranda. |
 | `GET` | `/api/v1/photos/:sessionId` | Semua Role Terautentikasi | Mengambil foto sesi absensi. Karyawan dibatasi pada foto miliknya & feed <= 30 hari terakhir; Admin/Superadmin akses penuh. |
 
 ---
