@@ -1,6 +1,6 @@
 # Struktur Database — Absensi BIGNET
 
-Dokumentasi lengkap 18 tabel, relasi kunci asing (*foreign key*), constraint, trigger, dan index pada skema database (`src/server/db/schema.ts`).
+Dokumentasi lengkap 19 tabel, relasi kunci asing (*foreign key*), constraint, trigger, dan index pada skema database (`src/server/db/schema.ts`).
 
 ---
 
@@ -78,3 +78,11 @@ Cache hasil reverse geocoding untuk record absensi lama yang belum memiliki `abs
 - Kolom: `absensi_sesi_id` (PK/FK -> `absensi_sesi.id`), `lat`, `lng`, `alamat` (nullable untuk hasil kosong/gagal), `provider`, dan `resolved_at`.
 - Cache positif maupun negatif dianggap valid selama enam jam agar kunjungan ulang Beranda tidak mengulang request Geoapify.
 - Dibuat oleh migrasi `007_cache_legacy_attendance_location_addresses`.
+
+### 1.16 `override_akses_absensi`
+Izin sementara yang diberikan Admin agar karyawan dapat mengirim satu kali check-in pada sesi berikutnya yang sudah kedaluwarsa.
+- Kolom: `id` (PK), `karyawan_id` (FK -> `karyawan.id`), `tanggal`, `urutan_sesi` (1–4), `nama_sesi`, `alasan`, `admin_id` (FK -> `pengguna.id`), `status` (`AKTIF` | `DIGUNAKAN` | `KEDALUWARSA` | `DICABUT`), `berlaku_sampai`, `used_at`, `used_session_id` (FK -> `absensi_sesi.id`), dan `created_at`.
+- Izin hanya berlaku untuk tanggal dan sesi berikutnya yang dikunci, memiliki masa aktif terbatas, dan hanya bisa dipakai satu kali.
+- Status berubah menjadi `DIGUNAKAN` bersama penyimpanan record absensi; bukti waktu, selfie, GPS, serta status keterlambatan tetap berasal dari check-in asli karyawan.
+- Semua pemberian dan penggunaan dicatat pada `audit_log` dengan modul `OVERRIDE_ABSENSI`.
+- Dibuat oleh migrasi `008_admin_one_time_expired_attendance_checkin_access`.
