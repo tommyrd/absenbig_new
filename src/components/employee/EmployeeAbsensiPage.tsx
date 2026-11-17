@@ -78,7 +78,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   const serverClockSyncRef = useRef<ServerClockSync | null>(null);
   const serverWindowSyncPerfRef = useRef<number | null>(null);
   const todayRequestIdRef = useRef(0);
-  const [, setServerFreshnessTick] = useState(0);
+  const [serverFreshnessTick, setServerFreshnessTick] = useState(0);
   const [liveWibHm, setLiveWibHm] = useState('--:--');
 
   // GPS State
@@ -297,20 +297,25 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
     return () => stopCamera();
   }, [stopCamera]);
 
-  // Automatically close the camera when the server-synchronized session window expires.
+  // Close camera/photo capture if the server says the session is closed,
+  // or if the last authoritative session snapshot has gone stale.
   useEffect(() => {
     if (!data) return;
     const nextIndex = data.day.sessionsCompleted;
     const next = data.day.policySnapshot.sesiList[nextIndex];
-    if (
-      next &&
-      data.serverSessionWindowStates?.[nextIndex] === 'EXPIRED' &&
-      !data.day.checkinOverride?.active
-    ) {
+    const receivedAt = serverWindowSyncPerfRef.current;
+    const snapshotFresh = Boolean(
+      data.serverWindowCheckedAt &&
+      receivedAt !== null &&
+      performance.now() - receivedAt <= 10000
+    );
+    const windowState = data.serverSessionWindowStates?.[nextIndex] ?? 'INVALID';
+    const hasOverride = Boolean(data.day.checkinOverride?.active);
+    if (next && (!snapshotFresh || (windowState !== 'OPEN' && !hasOverride))) {
       stopCamera();
       setPhotoDataUrl(null);
     }
-  }, [data, stopCamera]);
+  }, [data, stopCamera, serverFreshnessTick]);
 
   const requestGps = useCallback(() => {
     stopCamera();
@@ -842,7 +847,9 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
               {day.policySnapshot.sesiList.map((sesi, idx) => {
                 const record = day.sessionRecords.find((r) => r.urutan_sesi === sesi.urutan);
                 const isNext = !record && idx === day.sessionsCompleted;
-                const sesiWindowState = data.serverSessionWindowStates?.[idx] ?? 'INVALID';
+                const sesiWindowState = serverWindowFresh
+                  ? data.serverSessionWindowStates?.[idx] ?? 'INVALID'
+                  : 'INVALID';
                 const sesiExpired = sesiWindowState === 'EXPIRED';
                 const sesiStarted = sesiWindowState === 'OPEN';
 
