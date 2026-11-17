@@ -64,3 +64,11 @@
 - Pergantian kamera menghentikan stream lama, membatalkan request kamera yang tertunda, dan memvalidasi kamera depan/belakang yang benar-benar dibuka.
 - Stream video dilepas dari elemen ketika kamera dihentikan; track yang terputus ditangani; error izin, perangkat hilang, dan kamera sibuk dibedakan.
 - Ditambahkan kasus UAT untuk kamera depan/belakang dan lifecycle stream. Uji perangkat fisik tetap harus dilakukan pada HP.
+
+## 2026-11-17 — Location-first attendance and editable photo/caption submission
+
+- Tombol Perbarui Lokasi ditampilkan sebagai Langkah 1 yang dominan; kamera dan pengiriman tetap terkunci sampai GPS berhasil dibaca dan aturan geofence sesi terpenuhi.
+- Foto kamera adalah draft sebelum pengiriman. Karyawan dapat mengganti foto menggunakan kamera depan/belakang; draft dipertahankan ketika pemeriksaan lokasi gagal agar tidak perlu selfie ulang.
+- Caption dapat diedit pada semua sesi. Caption Sesi 1 opsional; keterangan sesi lanjutan tetap wajib sesuai snapshot kebijakan.
+- Tombol kirim menampilkan indikator proses untuk pemeriksaan GPS dan pengunggahan/penyimpanan foto serta menonaktifkan submit ganda.
+- Setelah API berhasil mencatat sesi, karyawan diarahkan ke paling atas Beranda dan melihat notifikasi sukses; feed Beranda memuat data terbaru saat komponen dibuka.
