@@ -474,7 +474,7 @@ export function SuperadminAccountsTab({
     {
       key: 'kantor',
       header: 'Penempatan',
-      sortValue: (r) => r.kantor_nama,
+      sortValue: (r) => r.kantor_nama || '',
       render: (r) => (
         <div className="text-xs">
           {r.role === 'SUPERADMIN' ? (
