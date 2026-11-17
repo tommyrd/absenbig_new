@@ -123,10 +123,10 @@ after(async () => {
 test('1. Migrations are idempotent and production baseline enforces zero demo accounts', () => {
   const db = getDb();
   const applied = getAppliedMigrations(db);
-  assert.equal(applied.length, 9);
+  assert.equal(applied.length, 10);
   assert.deepEqual(
     applied.map((m) => m.version),
-    ['001', '002', '003', '004', '005', '006', '007', '008', '009']
+    ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010']
   );
 
   const attendanceColumns = db
@@ -155,14 +155,21 @@ test('1. Migrations are idempotent and production baseline enforces zero demo ac
   assert.deepEqual(rerun, []);
 
   // Only 1 superadmin account exists and demo login is disabled
-  const users = db.prepare('SELECT username, password_hash, role FROM pengguna').all() as {
+  const users = db.prepare('SELECT username, password_hash, role, karyawan_id FROM pengguna').all() as {
     username: string;
     password_hash: string;
     role: string;
+    karyawan_id: number | null;
   }[];
   assert.equal(users.length, 1);
   assert.equal(users[0].username, 'owner_prod');
   assert.equal(users[0].role, 'SUPERADMIN');
+  assert.equal(users[0].karyawan_id, null);
+  assert.equal(
+    (db.prepare('SELECT COUNT(*) as c FROM karyawan').get() as { c: number }).c,
+    0,
+    'A production Superadmin must not have an employee profile'
+  );
 
   const productionOfficeModes = db
     .prepare(`SELECT geofence_mode FROM kantor`)
