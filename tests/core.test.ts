@@ -17,6 +17,7 @@ import type { Karyawan, Role } from '../src/shared/types.ts';
 import { isGpsAccuracyAcceptable, isWithinVerifiedGeofence, MAX_GPS_ACCURACY_METERS, requiresOfficeGeofence } from '../src/shared/geofence.ts';
 import { getSessionWindowState } from '../src/shared/session-window.ts';
 import { shouldOpenAttendanceOnEntry } from '../src/shared/employee-entry.ts';
+import { getHistoryCalendarStatus } from '../src/shared/history-calendar.ts';
 
 test('Geofence Haversine distance calculation', () => {
   const distSame = haversineMeters(-6.2088, 106.8456, -6.2088, 106.8456);
@@ -74,6 +75,35 @@ test('Employee lands on attendance only when the next session is currently open'
   );
   assert.equal(shouldOpenAttendanceOnEntry({ ...day, mustCheckIn: false }, '09:10:00'), false);
   assert.equal(shouldOpenAttendanceOnEntry(day, 'invalid'), false);
+});
+
+test('History calendar reflects attendance status and final Admin Override', () => {
+  const base = {
+    operationalStatus: 'HADIR' as const,
+    isOverridden: false,
+    payrollStatus: 'DIHITUNG_MASUK' as const,
+  };
+  assert.equal(getHistoryCalendarStatus(base), 'HADIR');
+  assert.equal(
+    getHistoryCalendarStatus({ ...base, operationalStatus: 'TIDAK_HADIR', payrollStatus: 'TIDAK_DIHITUNG_MASUK' }),
+    'TIDAK_HADIR'
+  );
+  assert.equal(
+    getHistoryCalendarStatus({ ...base, operationalStatus: 'BELUM_SELESAI', payrollStatus: 'TIDAK_DIHITUNG_MASUK' }),
+    'BELUM_SELESAI'
+  );
+  assert.equal(
+    getHistoryCalendarStatus({ ...base, operationalStatus: 'TIDAK_HADIR', isOverridden: true, payrollStatus: 'DIHITUNG_MASUK' }),
+    'OVERRIDE_MASUK'
+  );
+  assert.equal(
+    getHistoryCalendarStatus({ ...base, operationalStatus: 'HADIR', isOverridden: true, payrollStatus: 'TIDAK_DIHITUNG_MASUK' }),
+    'OVERRIDE_TIDAK_MASUK'
+  );
+  assert.equal(
+    getHistoryCalendarStatus({ ...base, operationalStatus: 'HARI_LIBUR' }),
+    'HARI_LIBUR'
+  );
 });
 
 test('GPS accuracy and radius uncertainty are validated conservatively', () => {
