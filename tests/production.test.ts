@@ -434,6 +434,64 @@ test('5. Authorization boundaries, query-token restriction, logout jti & token_v
     403
   );
 
+  // Operational Admin can manage the work-field master and reassign a technician.
+  const beforeFieldEdit = getDb().prepare(
+    `SELECT nama_lengkap, no_hp, kantor_id, bidang_id, jabatan, aktif
+     FROM karyawan WHERE id = ?`
+  ).get(karyawanId) as {
+    nama_lengkap: string;
+    no_hp: string;
+    kantor_id: number;
+    bidang_id: number;
+    jabatan: string;
+    aktif: number;
+  };
+  const createField = await apiJson<{ id: number }>('/api/v1/master/bidang', {
+    method: 'POST',
+    token: adminToken,
+    body: { kode: 'QA_TMP', nama: 'Bidang QA Sementara', deskripsi: 'Bidang untuk uji perubahan Admin' },
+  });
+  assert.equal(createField.status, 201);
+  const editField = await apiJson(`/api/v1/master/bidang/${createField.data.id}`, {
+    method: 'PUT',
+    token: adminToken,
+    body: { kode: 'QA_OPS', nama: 'Operasional QA', deskripsi: 'Diperbarui oleh Admin operasional' },
+  });
+  assert.equal(editField.status, 200);
+  const savedField = getDb().prepare(
+    `SELECT kode, nama, deskripsi FROM bidang_kerja WHERE id = ?`
+  ).get(createField.data.id) as { kode: string; nama: string; deskripsi: string };
+  assert.deepEqual(savedField, {
+    kode: 'QA_OPS',
+    nama: 'Operasional QA',
+    deskripsi: 'Diperbarui oleh Admin operasional',
+  });
+
+  const assignField = await apiJson(`/api/v1/master/employees/${karyawanId}`, {
+    method: 'PUT',
+    token: adminToken,
+    body: { ...beforeFieldEdit, bidang_id: createField.data.id },
+  });
+  assert.equal(assignField.status, 200);
+  const reassigned = getDb().prepare(
+    `SELECT bidang_id FROM karyawan WHERE id = ?`
+  ).get(karyawanId) as { bidang_id: number };
+  assert.equal(reassigned.bidang_id, createField.data.id);
+
+  const restoreField = await apiJson(`/api/v1/master/employees/${karyawanId}`, {
+    method: 'PUT',
+    token: adminToken,
+    body: beforeFieldEdit,
+  });
+  assert.equal(restoreField.status, 200);
+
+  const employeeCannotEditField = await apiJson(`/api/v1/master/bidang/${createField.data.id}`, {
+    method: 'PUT',
+    token: karyawanToken,
+    body: { kode: 'NO_ACCESS', nama: 'Tidak boleh', deskripsi: '' },
+  });
+  assert.equal(employeeCannotEditField.status, 403);
+
   // Expired token rejected
   const expiredToken = signToken({ userId: karyawanUserId, role: 'KARYAWAN', exp: Date.now() - 5000 });
   assert.equal((await apiJson('/api/v1/auth/me', { token: expiredToken })).status, 401);
