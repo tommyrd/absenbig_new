@@ -54,7 +54,7 @@ Pengajuan cuti, off, off pengganti, izin, dan sakit.
 
 ### 1.11 `absensi_sesi`
 Bukti absensi per sesi berbasis waktu server WIB & foto kamera browser.
-- `id` (`PK`), `karyawan_id` (`FK -> karyawan.id`), `tanggal`, `urutan_sesi` (`1..4`), `nama_sesi`, `waktu_server`, `status_ketepatan` (`TEPAT_WAKTU` | `TERLAMBAT`), `keterlambatan_menit`, `lat`, `lng`, `accuracy_meter`, `jarak_kantor_meter`, `dalam_geofence`, `ip_address`, `user_agent`, `tipe_aktivitas` (`CHECK_IN` | `AKTIVITAS` | `STANDBY`), `deskripsi_aktivitas`, `foto_path`, `foto_checksum`, `policy_snapshot_json`, `created_at`. `UNIQUE(karyawan_id, tanggal, urutan_sesi)`.
+- `id` (`PK`), `karyawan_id` (`FK -> karyawan.id`), `tanggal`, `urutan_sesi` (`1..4`), `nama_sesi`, `waktu_server`, `status_ketepatan` (`TEPAT_WAKTU` | `TERLAMBAT`), `keterlambatan_menit`, `lat`, `lng`, `accuracy_meter`, `jarak_kantor_meter`, `dalam_geofence`, `lokasi_alamat` (snapshot alamat perkiraan Geoapify dari koordinat GPS saat absensi; nullable), `ip_address`, `user_agent`, `tipe_aktivitas` (`CHECK_IN` | `AKTIVITAS` | `STANDBY`), `deskripsi_aktivitas`, `foto_path`, `foto_checksum`, `policy_snapshot_json`, `created_at`. `UNIQUE(karyawan_id, tanggal, urutan_sesi)`. Ditambahkan oleh migrasi `006_persist_actual_attendance_location_address`.
 - **Indexes:** `idx_absensi_emp_date(karyawan_id, tanggal)`, `idx_absensi_tanggal(tanggal, waktu_server DESC)`.
 
 ### 1.12 `override_kehadiran` & `periode_payroll`
