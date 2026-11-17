@@ -7,6 +7,7 @@
 - Produksi dan demo seed tidak lagi membuat profil karyawan untuk akun SUPERADMIN; ID referensi data demo karyawan disesuaikan.
 - Menu Kelola Akun dapat membuat, mengubah, menonaktifkan, dan reset password akun SUPERADMIN tambahan tanpa membuat NIK atau profil pegawai. Sistem mempertahankan minimal satu akun Superadmin aktif.
 - Endpoint absensi pribadi dan foto profil pegawai tidak menerima akun SUPERADMIN; Superadmin tetap memantau roster, bukti, audit, dan rekap melalui dashboard.
+- Trigger database `trg_pengguna_role_link_insert/update` mencegah akun SUPERADMIN dihubungkan ke profil karyawan dan mewajibkan akun ADMIN/KARYAWAN tetap memiliki relasi pegawai; migrasi `012_enforce_role_employee_link_invariant`.
 
 
 ## 2026-11-17 — Superadmin website favicon settings
