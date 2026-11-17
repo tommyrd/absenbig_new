@@ -76,6 +76,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const serverClockSyncRef = useRef<ServerClockSync | null>(null);
+  const serverWindowSyncPerfRef = useRef<number | null>(null);
   const todayRequestIdRef = useRef(0);
   const [liveWibHm, setLiveWibHm] = useState('--:--');
 
@@ -154,6 +155,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
       const responseReceivedAt = performance.now();
       if (requestId !== todayRequestIdRef.current) return;
       setData(res);
+      serverWindowSyncPerfRef.current = res.serverWindowCheckedAt ? responseReceivedAt : null;
 
       // The session gate follows the same server clock shown in the header.
       // Use a monotonic clock so device clock drift or changes cannot leave
@@ -336,7 +338,12 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
 
     const next = data?.day.policySnapshot.sesiList[data.day.sessionsCompleted];
     const windowState = data?.serverWindowState ?? 'INVALID';
-    const hasServerWindowSnapshot = Boolean(data?.serverWindowCheckedAt && Number.isFinite(data.serverEpochMs));
+    const serverWindowReceivedAt = serverWindowSyncPerfRef.current;
+    const hasServerWindowSnapshot = Boolean(
+      data?.serverWindowCheckedAt &&
+      serverWindowReceivedAt !== null &&
+      performance.now() - serverWindowReceivedAt <= 10000
+    );
     const hasOverride = Boolean(hasServerWindowSnapshot && data?.day.checkinOverride?.active);
     if (!next || !hasServerWindowSnapshot || (windowState !== 'OPEN' && !hasOverride)) {
       const message = !next
@@ -660,8 +667,16 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   const nextSessionIndex = day.sessionsCompleted; // 0-based index of next session
   const nextSesi = day.policySnapshot.sesiList[nextSessionIndex];
   const allSessionsDone = day.sessionsCompleted >= day.policySnapshot.jumlahSesi;
-  const nextWindowState: SessionWindowState = data.serverWindowState ?? 'INVALID';
-  const hasServerWindowSnapshot = Boolean(data.serverWindowCheckedAt && Number.isFinite(data.serverEpochMs));
+  const serverWindowReceivedAt = serverWindowSyncPerfRef.current;
+  const serverWindowFresh = Boolean(
+    data.serverWindowCheckedAt &&
+    serverWindowReceivedAt !== null &&
+    performance.now() - serverWindowReceivedAt <= 10000
+  );
+  const nextWindowState: SessionWindowState = serverWindowFresh
+    ? data.serverWindowState ?? 'INVALID'
+    : 'INVALID';
+  const hasServerWindowSnapshot = serverWindowFresh;
   const hasActiveCheckinOverride = Boolean(hasServerWindowSnapshot && day.checkinOverride?.active);
   const nextSessionExpired = hasServerWindowSnapshot && nextWindowState === 'EXPIRED' && !hasActiveCheckinOverride;
   const nextSessionStarted = hasServerWindowSnapshot && (nextWindowState === 'OPEN' || hasActiveCheckinOverride);
@@ -988,6 +1003,16 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                         </p>
                       </div>
                     </div>
+                  ) : !serverWindowFresh && nextSesi ? (
+                    <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 flex items-start gap-3">
+                      <RefreshCw className="w-5 h-5 text-amber-700 dark:text-amber-400 shrink-0 mt-0.5" />
+                      <div className="space-y-1 text-xs">
+                        <p className="font-bold text-amber-950 dark:text-amber-100">Memperbarui Status Waktu Server</p>
+                        <p className="text-amber-900 dark:text-amber-200 leading-relaxed">
+                          Status jendela sesi belum diperbarui dalam 10 detik terakhir. Absensi ditahan sampai server mengirim status terbaru. Periksa koneksi, lalu tekan muat ulang bila perlu.
+                        </p>
+                      </div>
+                    </div>
                   ) : nextWindowState === 'INVALID' && nextSesi ? (
                     <div className="p-4 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/70 flex items-start gap-3">
                       <AlertTriangle className="w-5 h-5 text-red-700 dark:text-red-400 shrink-0 mt-0.5" />
@@ -1232,8 +1257,10 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                                 : sessionRequiresOffice
                                   ? 'Lokasi di luar radius kantor'
                                   : 'Periksa lokasi terlebih dahulu'
-                                : hasActiveCheckinOverride
-                                  ? `Buka Kamera ${facingMode === 'user' ? 'Depan' : 'Belakang'}`
+                                : !serverWindowFresh
+                                  ? 'Sinkronisasi Status Server...'
+                                  : hasActiveCheckinOverride
+                                    ? `Buka Kamera ${facingMode === 'user' ? 'Depan' : 'Belakang'}`
                                   : nextWindowState === 'NOT_STARTED'
                                     ? `Menunggu Pukul ${nextSesi.jam_mulai} WIB`
                                     : nextWindowState === 'EXPIRED'
