@@ -56,6 +56,19 @@ export default function App() {
       .finally(() => setChecking(false));
   }, []);
 
+  useEffect(() => {
+    let faviconLink = document.querySelector<HTMLLinkElement>('link[rel~="icon"]');
+    if (!faviconLink) {
+      faviconLink = document.createElement('link');
+      faviconLink.rel = 'icon';
+      document.head.appendChild(faviconLink);
+    }
+    faviconLink.href = `/api/v1/assets/favicon?v=${encodeURIComponent(
+      settings?.favicon_updated_at || 'default'
+    )}`;
+    faviconLink.removeAttribute('type');
+  }, [settings]);
+
   const handleSettingsUpdated = (next: SystemSettings) => {
     setSettings(next);
     document.title = `${next.nama_aplikasi} — Sistem Kehadiran & Rekap Payroll`;
