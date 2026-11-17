@@ -31,6 +31,12 @@ async function startServer() {
   const host = process.env.HOST || '0.0.0.0';
   const isProd = process.env.NODE_ENV === 'production';
   const allowedOrigins = parseAllowedOrigins();
+  const geoapifyConfigured = Boolean(process.env.GEOAPIFY_API_KEY?.trim());
+  if (geoapifyConfigured) {
+    console.info('[Location] Geoapify reverse geocoding: ENABLED');
+  } else {
+    console.warn('[Location] GEOAPIFY_API_KEY is missing; address lookup is disabled. GPS coordinates and geofence remain available.');
+  }
 
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
