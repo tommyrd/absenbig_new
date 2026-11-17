@@ -169,20 +169,30 @@ export function AttendanceFeedView({
         text: `Bukti absensi ${post.namaLengkap}, ${post.namaSesi}, ${post.tanggal} pukul ${post.jamWib} WIB.`,
       };
 
-      if (navigator.share && navigator.canShare?.({ files: [file] })) {
-        await navigator.share(shareData);
-        setShareNotice('Kartu absensi berhasil dibagikan.');
-      } else {
-        const objectUrl = URL.createObjectURL(file);
-        const link = document.createElement('a');
-        link.href = objectUrl;
-        link.download = file.name;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
-        setShareNotice('Gambar kartu absensi diunduh. Lampirkan file PNG ini ke WhatsApp atau Telegram.');
+      const canUseNativeShare =
+        typeof navigator.share === 'function' &&
+        (!navigator.canShare || navigator.canShare({ files: [file] }));
+      if (canUseNativeShare) {
+        try {
+          await navigator.share(shareData);
+          setShareNotice('Kartu absensi berhasil dibagikan.');
+          return;
+        } catch (shareError) {
+          if (shareError instanceof Error && shareError.name === 'AbortError') return;
+          // If the browser exposes Web Share but cannot attach files, fall
+          // back to a PNG download so the user can attach it manually.
+        }
       }
+
+      const objectUrl = URL.createObjectURL(file);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = file.name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
+      setShareNotice('Gambar kartu absensi diunduh. Lampirkan file PNG ini ke WhatsApp atau Telegram.');
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') return;
       setShareNotice(
