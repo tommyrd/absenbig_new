@@ -141,6 +141,18 @@ const MIGRATIONS: MigrationDef[] = [
       `);
     },
   },
+  {
+    version: '009',
+    name: 'custom_website_favicon_settings',
+    up: (db) => {
+      if (!hasColumn(db, 'pengaturan_aplikasi', 'favicon_path')) {
+        db.exec(`ALTER TABLE pengaturan_aplikasi ADD COLUMN favicon_path TEXT;`);
+      }
+      if (!hasColumn(db, 'pengaturan_aplikasi', 'favicon_updated_at')) {
+        db.exec(`ALTER TABLE pengaturan_aplikasi ADD COLUMN favicon_updated_at TEXT;`);
+      }
+    },
+  },
 ];
 
 export function runMigrations(db: DatabaseSync): string[] {
