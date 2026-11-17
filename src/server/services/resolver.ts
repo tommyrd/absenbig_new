@@ -341,6 +341,7 @@ export function resolveDayForEmployee(
       toleransiTerlambatMenit: basePolicy.toleransi_terlambat_menit,
       wajibFotoSemuaSesi: Boolean(basePolicy.wajib_foto_semua_sesi),
       wajibAktivitasSesiLanjut: Boolean(basePolicy.wajib_aktivitas_sesi_lanjut),
+      aturanLokasi: basePolicy.aturan_lokasi || 'SESI_PERTAMA_KANTOR',
       sesiList,
     },
     sessionsCompleted,
