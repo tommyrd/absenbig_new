@@ -193,11 +193,20 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
     if (!video || !stream) return;
 
     let active = true;
+    const videoTrack = stream.getVideoTracks()[0];
     const markReady = () => {
       if (active) setCameraReady(true);
     };
+    const handleTrackEnded = () => {
+      if (active) {
+        setCameraReady(false);
+        setCameraError('Kamera terputus. Buka kembali kamera sebelum mengambil foto.');
+        setCameraActive(false);
+      }
+    };
     video.srcObject = stream;
     video.addEventListener('loadeddata', markReady);
+    videoTrack?.addEventListener('ended', handleTrackEnded);
 
     video.play().catch(() => {
       if (active) {
@@ -208,6 +217,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
     return () => {
       active = false;
       video.removeEventListener('loadeddata', markReady);
+      videoTrack?.removeEventListener('ended', handleTrackEnded);
       if (video.srcObject === stream) {
         video.pause();
         video.srcObject = null;
@@ -952,6 +962,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                         <div className="rounded-xl overflow-hidden border border-slate-300 dark:border-slate-700 bg-black">
                           <video
                             ref={videoRef}
+                            autoPlay
                             playsInline
                             muted
                             className="w-full max-h-72 object-cover"
@@ -976,7 +987,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                             aria-label={facingMode === 'user' ? 'Ganti ke kamera belakang' : 'Ganti ke kamera depan'}
                           >
                             <SwitchCamera className="w-4 h-4 shrink-0" />
-                            <span>{facingMode === 'user' ? 'Belakang' : 'Depan'}</span>
+                            <span>Ganti ke {facingMode === 'user' ? 'Belakang' : 'Depan'}</span>
                           </button>
                           <button
                             type="button"
@@ -990,7 +1001,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                     ) : (
                       <div className="p-4 sm:p-5 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/40 text-center space-y-3">
                         {cameraError && (
-                          <p className="text-xs text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 rounded-lg p-2.5 text-left">
+                          <p role="alert" className="text-xs text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 rounded-lg p-2.5 text-left">
                             {cameraError}
                           </p>
                         )}
@@ -1021,7 +1032,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                             className="w-full sm:w-auto min-h-[44px] px-3.5 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium rounded-lg inline-flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <SwitchCamera className="w-4 h-4" />
-                            Pilih: {facingMode === 'user' ? 'Kamera Depan' : 'Kamera Belakang'}
+                            Ganti ke Kamera {facingMode === 'user' ? 'Belakang' : 'Depan'}
                           </button>
                         </div>
                       </div>
