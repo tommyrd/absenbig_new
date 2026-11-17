@@ -142,3 +142,16 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
 6. Uji file SVG dengan elemen/script aktif; server harus menolak unggahan dengan HTTP 400.
 7. Tekan **Reset Default** pada favicon, simpan, lalu pastikan favicon kembali ke ikon default.
 8. Login sebagai ADMIN dan KARYAWAN; keduanya tidak boleh dapat membaca atau mengubah endpoint pengaturan sistem (`GET/PUT /api/v1/settings` harus ditolak).
+
+## 5. UAT Identitas SUPERADMIN sebagai Pemilik Sistem
+
+1. Jalankan migrasi database; pastikan versi `010_separate_superadmin_accounts_from_employee_records` diterapkan.
+2. Login dengan akun Superadmin lama; profil tetap bisa dibuka, tetapi menampilkan identitas **Akun Pemilik Sistem / SUPERADMIN**, bukan NIK, jabatan pegawai, kantor, atau bidang kerja.
+3. Pastikan akun SUPERADMIN tidak tampil di Pegawai Hari Ini, roster, pilihan pegawai, rekap payroll sebagai pegawai, atau daftar absensi pribadi.
+4. Uji akses `GET /api/v1/attendance/today`, `POST /api/v1/attendance/session`, dan `PUT /api/v1/profile/photo` dengan token SUPERADMIN; request harus ditolak.
+5. Buka **Kelola Akun & ACC**, buat akun baru dengan role SUPERADMIN. Form tidak meminta NIK, foto, kantor, bidang, atau jabatan.
+6. Pastikan akun SUPERADMIN baru muncul pada daftar akun sebagai **Akun Sistem / Non-Pegawai**, `karyawan_id` bernilai NULL, dan tidak membuat baris pada tabel `karyawan`.
+7. Uji perubahan nama tampilan, username, email, nomor HP, aktif/nonaktif, serta reset password akun Superadmin lain.
+8. Pastikan akun Superadmin yang sedang dipakai tidak dapat menonaktifkan dirinya sendiri dan sistem menolak penonaktifan Superadmin aktif terakhir.
+9. Pastikan setiap pembuatan/perubahan/reset akun tercatat pada Audit Trail sebagai aktor SUPERADMIN.
+10. Pastikan akun ADMIN dan KARYAWAN tetap menjadi akun pegawai dan semua fitur absensi mereka tetap berjalan.
