@@ -10,10 +10,12 @@
 |---|---|---|
 | Build Frontend (`npm run build`) | Perlu verifikasi ulang | Jalankan pada checkout terbaru setelah perubahan sesi dan GPS. |
 | Type Check (`npm run lint`) | Perlu verifikasi ulang | Jalankan pada checkout terbaru untuk memastikan import helper dan UI TypeScript. |
-| Automated Tests (`npm test`) | Perlu verifikasi ulang | Cakupan saat ini 21 test (`13` test inti + `8` test production); hasil lulus belum diklaim sebelum dijalankan ulang. |
+| Automated Tests (`npm test`) | Perlu verifikasi ulang | Cakupan saat ini 22 test (`14` test inti + `8` test production); hasil lulus belum diklaim sebelum dijalankan ulang. |
 | Standalone Production Boot | Perlu verifikasi ulang | Jalankan server production dan cek healthcheck setelah build terbaru. |
 | Session Time Window & GPS Quality | Diperbarui | Frontend dan backend memakai waktu WIB server; batas `jam_selesai` dikunci; GPS wajib akurasi maksimum ±100m dan margin akurasi tetap di dalam radius pada sesi yang diwajibkan kantor. |
 | Attendance Location Policy | Diperbarui | Admin dapat memilih Sesi 1 wajib kantor (default, sesi 2+ fleksibel) atau semua sesi wajib kantor; diterapkan di API dan UI. |
+| Browser GPS & Address | Diperbarui | Koordinat, akurasi, jarak dan link Google Maps ditampilkan dari Geolocation browser. Alamat teks opsional melalui Google Geocoding server-side jika API key dan billing dikonfigurasi. |
+| Employee History Calendar | Diperbarui | Kalender Senin–Minggu berwarna dari resolver harian, dapat dipilih untuk membuka timeline, dengan penanda Admin Override. |
 | Employee Login & Session Navigation | Diperbarui | Menggunakan waktu server WIB; masuk ke Absensi hanya ketika sesi berikutnya sedang terbuka; setelah check-in kembali ke Beranda bila sesi selanjutnya belum terbuka; Beranda memeriksa jadwal setiap 15 detik. |
 | Mobile GPS Prompt & Photo Viewer | Diperbarui | GPS tidak diminta otomatis; izin diminta setelah aksi pengguna; lightbox foto berada di tengah viewport dan konten detail dapat discroll. |
 | Database Schema, Migrasi & Seed | Lulus | `schema_migrations` mencatat versi `001`–`005`, termasuk migrasi aturan lokasi per kebijakan; `seedProductionBaseline` memisahkan data demo dari production. |
