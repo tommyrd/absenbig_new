@@ -50,6 +50,7 @@ export function EmployeeShell({
   const [serverWibHm, setServerWibHm] = useState<string | null>(null);
   const [initialRouteReady, setInitialRouteReady] = useState(false);
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
+  const [focusAttendanceId, setFocusAttendanceId] = useState<number | null>(null);
   const suppressedAutoOpenSessionRef = useRef<string | null>(null);
 
   const fetchToday = useCallback(
@@ -60,9 +61,11 @@ export function EmployeeShell({
     []
   );
 
-  const refreshMyDay = useCallback(async (message: string) => {
-    // A successful check-in always returns the employee to the top of Beranda.
+  const refreshMyDay = useCallback(async (message: string, sessionId: number) => {
+    // A successful check-in returns the employee to Beranda and focuses
+    // the exact feed card created by the server transaction.
     setSuccessNotice(message);
+    setFocusAttendanceId(sessionId);
     setTab('beranda');
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
@@ -294,6 +297,8 @@ export function EmployeeShell({
           <AttendanceFeedView
             user={user}
             myDay={myDay}
+            focusAttendanceId={focusAttendanceId}
+            onFocusHandled={() => setFocusAttendanceId(null)}
             onGoToAbsensi={() => setTab('absensi')}
           />
         )}
