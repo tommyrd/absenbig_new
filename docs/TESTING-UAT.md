@@ -120,5 +120,14 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
    - Pada browser yang tidak mendukung file sharing, PNG diunduh dengan instruksi melampirkannya secara manual.
    - Verifikasi foto bukti dapat diambil menggunakan token otorisasi; jika foto gagal dimuat, kartu tetap dibuat dengan placeholder.
 
+15. **Admin One-Time Check-in Override (Admin + Karyawan + Superadmin):**
+    - Biarkan Sesi 1 atau sesi berikutnya melewati `jam_selesai`; pada menu Admin, tab **Izin Check-in Terlambat** harus menampilkan karyawan dan sesi berikutnya yang terkunci.
+    - Admin membuka akses dengan alasan wajib dan durasi 5/10/15/30 menit; izin aktif ditampilkan beserta Admin pemberi izin dan waktu kedaluwarsa.
+    - Karyawan yang sedang di Beranda otomatis diarahkan ke halaman Absensi setelah izin diterima; karyawan yang sudah berada di halaman Absensi mendapat pembaruan izin tanpa login ulang.
+    - Selama izin aktif, kamera tidak boleh tertutup hanya karena jam sesi reguler sudah lewat. GPS/geofence, selfie kamera browser, urutan sesi, dan server time tetap wajib.
+    - Check-in berhasil hanya satu kali; status tetap TERLAMBAT untuk Sesi 1 dan waktu absensi adalah waktu server saat permintaan masuk, bukan jam jadwal atau waktu yang dimundurkan.
+    - Setelah digunakan, izin berubah menjadi `DIGUNAKAN`; pengiriman kedua ditolak dan audit mencatat `BUKA_AKSES_CHECKIN` serta `GUNAKAN_AKSES_CHECKIN`.
+    - Uji role Karyawan tidak dapat membuka izin; Superadmin hanya memantau aktivitas melalui Audit Log, bukan memberikan izin.
+
 14. **Centered History Preview (Mobile):**
    - Modal foto History tampil di tengah layar dengan jarak dari tepi, bukan bottom sheet yang menempel ke bawah.
