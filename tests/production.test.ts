@@ -142,6 +142,13 @@ test('1. Migrations are idempotent and production baseline enforces zero demo ac
   assert.equal(users.length, 1);
   assert.equal(users[0].username, 'owner_prod');
   assert.equal(users[0].role, 'SUPERADMIN');
+
+  const productionOfficeModes = db
+    .prepare(`SELECT geofence_mode FROM kantor`)
+    .all() as { geofence_mode: string }[];
+  assert.ok(productionOfficeModes.length > 0);
+  assert.ok(productionOfficeModes.every((office) => office.geofence_mode === 'TOLAK_LUAR_RADIUS'));
+
   assert.ok(users[0].password_hash.includes(':'), 'Password must be salted scrypt hash');
   assert.ok(!users[0].password_hash.includes(superPassword));
 
@@ -546,7 +553,7 @@ test('6. SVG logo XSS sanitization, attendance camera-only, jam_mulai gate, geof
   assert.equal(fileUploadTry.status, 400);
   assert.match(String(fileUploadTry.data.error), /kamera browser/i);
 
-  // 2) Reject out-of-radius GPS in TOLAK_LUAR_RADIUS mode
+  // 2) Reject out-of-radius GPS even though this legacy office row is CATAT_DENGAN_FLAG
   const outsideGeo = await apiJson('/api/v1/attendance/session', {
     method: 'POST',
     token: karyawanToken,
@@ -561,7 +568,7 @@ test('6. SVG logo XSS sanitization, attendance camera-only, jam_mulai gate, geof
   assert.equal(outsideGeo.status, 400);
   assert.match(String(outsideGeo.data.error), /radius/i);
 
-  // 3) Reject missing GPS in TOLAK_LUAR_RADIUS mode
+  // 3) Reject missing GPS even though this legacy office row is CATAT_DENGAN_FLAG
   const missingGeo = await apiJson('/api/v1/attendance/session', {
     method: 'POST',
     token: karyawanToken,
