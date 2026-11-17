@@ -322,7 +322,13 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
     );
     const windowState = data.serverSessionWindowStates?.[nextIndex] ?? 'INVALID';
     const hasOverride = Boolean(data.day.checkinOverride?.active);
-    if (next && (!snapshotFresh || (windowState !== 'OPEN' && !hasOverride))) {
+    if (next && !snapshotFresh) {
+      // Pause capture until the server is reachable again, but keep a photo
+      // already captured so an intermittent connection does not discard it.
+      stopCamera();
+      return;
+    }
+    if (next && windowState !== 'OPEN' && !hasOverride) {
       stopCamera();
       setPhotoDataUrl(null);
     }
