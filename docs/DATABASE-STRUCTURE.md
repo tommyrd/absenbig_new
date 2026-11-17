@@ -70,7 +70,7 @@ Jejak audit permanen seluruh perubahan penting.
 
 ### 1.14 `pengaturan_aplikasi` & `pendaftaran_akun`
 Pengaturan branding/sistem (singleton `id = 1`) dan antrean pendaftaran akun menunggu ACC Superadmin.
-- `pengaturan_aplikasi`: `id` (`CHECK(id = 1)`), `nama_aplikasi`, `subjudul_login`, `judul_hero_login`, `deskripsi_login`, `judul_form_login`, `pengumuman_login`, `footer_login`, `logo_path`, `logo_updated_at`, `retensi_foto_hari`, `wajib_gps_absensi`, `izin_demo_login`, `updated_at`.
+- `pengaturan_aplikasi`: `id` (`CHECK(id = 1)`), `nama_aplikasi`, `subjudul_login`, `judul_hero_login`, `deskripsi_login`, `judul_form_login`, `pengumuman_login`, `footer_login`, `logo_path`, `logo_updated_at`, `favicon_path`, `favicon_updated_at`, `retensi_foto_hari`, `wajib_gps_absensi`, `izin_demo_login`, `updated_at`. Logo dan favicon adalah aset persisten di direktori `data/assets`; favicon dapat berupa PNG, SVG, atau ICO dan dikelola oleh SUPERADMIN. Kolom favicon ditambahkan oleh migrasi `009_custom_website_favicon_settings`.
 - `pendaftaran_akun`: `id` (`PK`), `nama_lengkap`, `username`, `email`, `no_hp`, `password_hash`, `role_diminta` (`KARYAWAN` | `ADMIN`), `jabatan`, `kantor_id` (`FK -> kantor.id`), `bidang_id` (`FK -> bidang_kerja.id`), `foto_profil_path`, `catatan_pendaftar`, `status` (`PENDING` | `APPROVED` | `REJECTED`), `nik_diberikan`, `alasan_keputusan`, `diproses_oleh` (`FK -> pengguna.id`), `diproses_pada`, `created_at`. **Index:** `idx_pendaftaran_status(status, created_at DESC)`.
 
 ### 1.15 `absensi_lokasi_cache`
