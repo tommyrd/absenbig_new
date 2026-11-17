@@ -284,7 +284,18 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
     try {
       // Re-read GPS at the moment of submission; do not trust a stale page-load coordinate.
       setGpsStatus('loading');
-      const freshCoords = await readCurrentGps();
+      let freshCoords: { lat: number; lng: number; accuracy: number };
+      try {
+        freshCoords = await readCurrentGps();
+      } catch (gpsErr) {
+        const message =
+          gpsErr instanceof Error ? gpsErr.message : 'Gagal membaca lokasi GPS.';
+        setCoords(null);
+        setGpsStatus('error');
+        setGpsError(message);
+        setSubmitMsg({ type: 'err', text: message });
+        return;
+      }
       setCoords(freshCoords);
       setGpsStatus('ok');
       setGpsError(null);
@@ -327,13 +338,9 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
       await loadToday();
       onSessionSubmitted();
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Gagal mengirim absensi sesi.';
-      setGpsStatus('error');
-      setCoords(null);
-      setGpsError(message);
       setSubmitMsg({
         type: 'err',
-        text: message,
+        text: err instanceof Error ? err.message : 'Gagal mengirim absensi sesi.',
       });
     } finally {
       setSubmitting(false);
