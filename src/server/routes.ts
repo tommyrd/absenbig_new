@@ -783,7 +783,8 @@ export function registerApiRoutes(app: Express) {
     const placeholders = sessionIds.map(() => '?').join(', ');
     const rows = db.prepare(
       `SELECT s.id, s.karyawan_id, s.tanggal, s.lat, s.lng,
-              COALESCE(NULLIF(s.lokasi_alamat, ''), alc.alamat) as alamat
+              COALESCE(NULLIF(s.lokasi_alamat, ''), alc.alamat) as alamat,
+              alc.resolved_at as cache_resolved_at
        FROM absensi_sesi s
        LEFT JOIN absensi_lokasi_cache alc ON alc.absensi_sesi_id = s.id
        WHERE s.id IN (${placeholders})`
@@ -794,6 +795,7 @@ export function registerApiRoutes(app: Express) {
       lat: number | null;
       lng: number | null;
       alamat: string | null;
+      cache_resolved_at: string | null;
     }[];
 
     const currentUser = req.authUser!;
@@ -812,8 +814,15 @@ export function registerApiRoutes(app: Express) {
         continue;
       }
 
-      if (row.alamat) {
-        items.push({ sessionId: row.id, address: row.alamat, configured: true });
+      const cacheIsFresh =
+        row.cache_resolved_at !== null &&
+        Date.parse(row.cache_resolved_at) > Date.now() - 6 * 60 * 60 * 1000;
+      if (row.alamat || cacheIsFresh) {
+        items.push({
+          sessionId: row.id,
+          address: row.alamat,
+          configured: Boolean(process.env.GEOAPIFY_API_KEY?.trim()),
+        });
         continue;
       }
       if (row.lat === null || row.lng === null) {
@@ -827,25 +836,36 @@ export function registerApiRoutes(app: Express) {
 
       try {
         const resolved = await getGeoapifyAddress(row.lat, row.lng);
-        if (resolved.address) {
-          db.prepare(
-            `INSERT INTO absensi_lokasi_cache
-              (absensi_sesi_id, lat, lng, alamat, provider, resolved_at)
-             VALUES (?, ?, ?, ?, 'GEOAPIFY', ?)
-             ON CONFLICT(absensi_sesi_id) DO UPDATE SET
-               lat = excluded.lat,
-               lng = excluded.lng,
-               alamat = excluded.alamat,
-               provider = excluded.provider,
-               resolved_at = excluded.resolved_at`
-          ).run(row.id, row.lat, row.lng, resolved.address, getWibIsoString());
-        }
+        db.prepare(
+          `INSERT INTO absensi_lokasi_cache
+            (absensi_sesi_id, lat, lng, alamat, provider, resolved_at)
+           VALUES (?, ?, ?, ?, 'GEOAPIFY', ?)
+           ON CONFLICT(absensi_sesi_id) DO UPDATE SET
+             lat = excluded.lat,
+             lng = excluded.lng,
+             alamat = excluded.alamat,
+             provider = excluded.provider,
+             resolved_at = excluded.resolved_at`
+        ).run(row.id, row.lat, row.lng, resolved.address, getWibIsoString());
         items.push({
           sessionId: row.id,
           address: resolved.address,
           configured: resolved.configured,
         });
       } catch {
+        // Cache transient/no-result failures for six hours to avoid repeatedly
+        // charging credits for the same old attendance record on every refresh.
+        db.prepare(
+          `INSERT INTO absensi_lokasi_cache
+            (absensi_sesi_id, lat, lng, alamat, provider, resolved_at)
+           VALUES (?, ?, ?, NULL, 'GEOAPIFY', ?)
+           ON CONFLICT(absensi_sesi_id) DO UPDATE SET
+             lat = excluded.lat,
+             lng = excluded.lng,
+             alamat = NULL,
+             provider = excluded.provider,
+             resolved_at = excluded.resolved_at`
+        ).run(row.id, row.lat, row.lng, getWibIsoString());
         items.push({
           sessionId: row.id,
           address: null,
