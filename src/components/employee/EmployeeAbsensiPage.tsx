@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { apiFetch, getAuthorizedPhotoUrl } from '../../lib/api';
 import type { AuthUser, Karyawan, ResolvedDay } from '../../shared/types';
+import { isGpsAccuracyAcceptable, isWithinVerifiedGeofence, MAX_GPS_ACCURACY_METERS } from '../../shared/geofence';
 import { StatusBadge } from '../StatusBadge';
 
 interface TodayResponse {
@@ -92,7 +93,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
             resolve({
               lat: Number(pos.coords.latitude.toFixed(6)),
               lng: Number(pos.coords.longitude.toFixed(6)),
-              accuracy: Math.round(pos.coords.accuracy),
+              accuracy: Math.ceil(pos.coords.accuracy),
             }),
           (err) => {
             reject(
@@ -166,6 +167,16 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
     return () => stopCamera();
   }, [stopCamera]);
 
+  // Automatically close the camera when the server-synchronized session window expires.
+  useEffect(() => {
+    if (!data) return;
+    const next = data.day.policySnapshot.sesiList[data.day.sessionsCompleted];
+    if (next && parseHm(liveWibHm) > parseHm(next.jam_selesai)) {
+      stopCamera();
+      setPhotoDataUrl(null);
+    }
+  }, [data, liveWibHm, stopCamera]);
+
   const requestGps = useCallback(() => {
     stopCamera();
     setPhotoDataUrl(null);
@@ -192,8 +203,25 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
     setCameraError(null);
     stopCamera();
 
+    const next = data?.day.policySnapshot.sesiList[data.day.sessionsCompleted];
+    const currentMinute = parseHm(liveWibHm);
+    if (!next || currentMinute < parseHm(next.jam_mulai) || currentMinute > parseHm(next.jam_selesai)) {
+      setCameraError(
+        next
+          ? `Waktu absensi hanya ${next.jam_mulai}–${next.jam_selesai} WIB. Sesi belum dibuka atau sudah dikunci.`
+          : 'Tidak ada sesi absensi berikutnya.'
+      );
+      return;
+    }
+
     if (gpsStatus !== 'ok' || !coords) {
       setCameraError(gpsError || 'Lokasi GPS wajib terbaca sebelum kamera absensi dapat dibuka.');
+      return;
+    }
+    if (!isGpsAccuracyAcceptable(coords.accuracy)) {
+      setCameraError(
+        `Akurasi GPS ±${coords.accuracy}m belum memenuhi batas maksimal ±${MAX_GPS_ACCURACY_METERS}m. Aktifkan lokasi presisi dan perbarui GPS di area terbuka.`
+      );
       return;
     }
 
@@ -203,9 +231,9 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
       user.kantor_lat,
       user.kantor_lng
     );
-    if (currentDistance > user.kantor_radius) {
+    if (!isWithinVerifiedGeofence(currentDistance, coords.accuracy, user.kantor_radius)) {
       setCameraError(
-        `Kamera absensi dikunci. Lokasi Anda ${currentDistance}m dari kantor, melebihi radius ${user.kantor_radius}m.`
+        `Kamera dikunci. Jarak ke kantor ${currentDistance}m dengan estimasi akurasi ±${coords.accuracy}m belum dapat dipastikan berada dalam radius ${user.kantor_radius}m.`
       );
       return;
     }
@@ -273,10 +301,20 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
     if (!data) return;
     const nextUrutan = data.day.sessionsCompleted + 1;
     const nextSesiCfg = data.day.policySnapshot.sesiList[data.day.sessionsCompleted];
-    if (nextSesiCfg && parseHm(liveWibHm) < parseHm(nextSesiCfg.jam_mulai)) {
+    const currentMinute = parseHm(liveWibHm);
+    if (nextSesiCfg && currentMinute < parseHm(nextSesiCfg.jam_mulai)) {
       setSubmitMsg({
         type: 'err',
         text: `Absensi ${nextSesiCfg.nama} belum dimulai. Sesi baru dapat diisi mulai pukul ${nextSesiCfg.jam_mulai} WIB.`,
+      });
+      return;
+    }
+    if (nextSesiCfg && currentMinute > parseHm(nextSesiCfg.jam_selesai)) {
+      stopCamera();
+      setPhotoDataUrl(null);
+      setSubmitMsg({
+        type: 'err',
+        text: `Waktu absensi ${nextSesiCfg.nama} sudah berakhir pukul ${nextSesiCfg.jam_selesai} WIB. Hubungi Admin bila ada kendala perangkat untuk Admin Override payroll.`,
       });
       return;
     }
@@ -304,18 +342,28 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
       setGpsStatus('ok');
       setGpsError(null);
 
+      if (!isGpsAccuracyAcceptable(freshCoords.accuracy)) {
+        stopCamera();
+        setPhotoDataUrl(null);
+        setSubmitMsg({
+          type: 'err',
+          text: `Akurasi GPS ±${freshCoords.accuracy}m belum memenuhi batas maksimal ±${MAX_GPS_ACCURACY_METERS}m. Perbarui lokasi di area terbuka atau hubungi Admin.`,
+        });
+        return;
+      }
+
       const freshDistance = haversineClient(
         freshCoords.lat,
         freshCoords.lng,
         user.kantor_lat,
         user.kantor_lng
       );
-      if (freshDistance > user.kantor_radius) {
+      if (!isWithinVerifiedGeofence(freshDistance, freshCoords.accuracy, user.kantor_radius)) {
         stopCamera();
         setPhotoDataUrl(null);
         setSubmitMsg({
           type: 'err',
-          text: `Absensi ditolak. Lokasi Anda ${freshDistance}m dari kantor, sedangkan radius yang diizinkan hanya ${user.kantor_radius}m. Absensi hanya dapat dilakukan dari dalam radius kantor.`,
+          text: `Absensi ditolak. Jarak titik GPS ${freshDistance}m dengan estimasi akurasi ±${freshCoords.accuracy}m belum dapat dipastikan berada dalam radius kantor ${user.kantor_radius}m. Dekati bagian tengah kantor dan perbarui GPS.`,
         });
         return;
       }
@@ -383,14 +431,21 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   const allSessionsDone = day.sessionsCompleted >= day.policySnapshot.jumlahSesi;
   const nowMin = parseHm(liveWibHm);
   const nextStartMin = nextSesi ? parseHm(nextSesi.jam_mulai) : 0;
-  const nextSessionStarted = nextSesi ? nowMin >= nextStartMin : false;
+  const nextEndMin = nextSesi ? parseHm(nextSesi.jam_selesai) : 0;
+  const nextSessionExpired = Boolean(nextSesi && nowMin > nextEndMin);
+  const nextSessionStarted = Boolean(nextSesi && nowMin >= nextStartMin && !nextSessionExpired);
   const minutesUntilStart = nextSesi ? Math.max(0, nextStartMin - nowMin) : 0;
 
   const distanceMeters = coords
     ? haversineClient(coords.lat, coords.lng, user.kantor_lat, user.kantor_lng)
     : null;
   const withinRadius = distanceMeters !== null ? distanceMeters <= user.kantor_radius : false;
-  const canCheckInByLocation = gpsStatus === 'ok' && coords !== null && withinRadius;
+  const gpsAccuracyOk = coords !== null && isGpsAccuracyAcceptable(coords.accuracy);
+  const verifiedWithinRadius =
+    distanceMeters !== null &&
+    coords !== null &&
+    isWithinVerifiedGeofence(distanceMeters, coords.accuracy, user.kantor_radius);
+  const canCheckInByLocation = gpsStatus === 'ok' && coords !== null && gpsAccuracyOk && verifiedWithinRadius;
 
   return (
     <div className="space-y-5 sm:space-y-6">
@@ -516,7 +571,8 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
               {day.policySnapshot.sesiList.map((sesi, idx) => {
                 const record = day.sessionRecords.find((r) => r.urutan_sesi === sesi.urutan);
                 const isNext = !record && idx === day.sessionsCompleted;
-                const sesiStarted = nowMin >= parseHm(sesi.jam_mulai);
+                const sesiExpired = nowMin > parseHm(sesi.jam_selesai);
+                const sesiStarted = nowMin >= parseHm(sesi.jam_mulai) && !sesiExpired;
 
                 return (
                   <div
@@ -549,6 +605,11 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                         <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 dark:text-blue-400">
                           <Clock className="w-4 h-4" />
                           Sesi Dibuka
+                        </span>
+                      ) : isNext && sesiExpired ? (
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700 dark:text-red-400">
+                          <Lock className="w-4 h-4" />
+                          Waktu Berakhir
                         </span>
                       ) : isNext ? (
                         <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-800 dark:text-amber-300">
@@ -628,8 +689,22 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                     </span>
                   </div>
 
-                  {/* Session Start Time Gate Notice */}
-                  {!nextSessionStarted && (
+                  {/* Session time-window notice */}
+                  {nextSessionExpired ? (
+                    <div className="p-4 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/70 flex items-start gap-3">
+                      <Lock className="w-5 h-5 text-red-700 dark:text-red-400 shrink-0 mt-0.5" />
+                      <div className="space-y-1 text-xs">
+                        <p className="font-bold text-red-950 dark:text-red-100">
+                          Waktu Absensi Sesi Telah Berakhir
+                        </p>
+                        <p className="text-red-900 dark:text-red-200 leading-relaxed">
+                          Sesi {nextSesi.nama} ditutup pukul <span className="font-mono font-semibold">{nextSesi.jam_selesai} WIB</span>.
+                          Absensi mandiri dikunci. Bila HP rusak, GPS bermasalah, atau ada keadaan khusus,
+                          hubungi Admin untuk Admin Override payroll dengan alasan dan audit trail.
+                        </p>
+                      </div>
+                    </div>
+                  ) : !nextSessionStarted ? (
                     <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 flex items-start gap-3">
                       <Lock className="w-5 h-5 text-amber-700 dark:text-amber-400 shrink-0 mt-0.5" />
                       <div className="space-y-1 text-xs">
@@ -643,7 +718,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                         </p>
                       </div>
                     </div>
-                  )}
+                  ) : null}
 
                   {/* Step 1: GPS & Geofence */}
                   <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 space-y-2">
@@ -671,10 +746,12 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                           <span>Jarak ke kantor:</span>
                           <span className="font-mono tabular-nums text-slate-900 dark:text-slate-100">{distanceMeters} m</span>
                           <span className="text-slate-400">·</span>
-                          <span className={withinRadius ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}>
-                            {withinRadius
-                              ? `Dalam radius (${user.kantor_radius}m) · Absensi tersedia`
-                              : `Di luar radius ${user.kantor_radius}m · Absensi ditolak`}
+                          <span className={canCheckInByLocation ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}>
+                            {canCheckInByLocation
+                              ? `Dalam radius terverifikasi (${user.kantor_radius}m) · Absensi tersedia`
+                              : !gpsAccuracyOk
+                              ? `Akurasi GPS harus maksimal ±${MAX_GPS_ACCURACY_METERS}m`
+                              : `Di luar / belum pasti dalam radius ${user.kantor_radius}m · Absensi ditolak`}
                           </span>
                         </p>
                       </div>
