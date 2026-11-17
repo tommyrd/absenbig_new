@@ -751,11 +751,12 @@ export function registerApiRoutes(app: Express) {
     }
     if (cached) reverseGeocodeCache.delete(cacheKey);
 
-    // Conservative application-wide throttle; Google's own quota/billing still applies.
+    // Conservative application-wide throttle (10 requests/second);
+    // Google's own quota/billing still applies. Nearby results are cached above.
     const now = Date.now();
     const elapsed = now - lastReverseGeocodeRequestAt;
-    if (elapsed < 1000) {
-      res.setHeader('Retry-After', String(Math.ceil((1000 - elapsed) / 1000)));
+    if (elapsed < 100) {
+      res.setHeader('Retry-After', '1');
       res.status(429).json({ error: 'Permintaan alamat terlalu cepat. Coba perbarui lokasi beberapa saat lagi.' });
       return;
     }
