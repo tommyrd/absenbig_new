@@ -80,7 +80,7 @@ function loadAuthUserById(userId: number): (AuthUser & { tokenVersion: number })
               COALESCE(k.nik, '') as nik,
               COALESCE(k.jabatan, 'Pemilik Sistem') as jabatan,
               COALESCE(k.no_hp, u.no_hp, '') as no_hp,
-              k.kantor_id, k.bidang_id, k.aktif as emp_aktif,
+              COALESCE(k.kantor_id, 0) as kantor_id, COALESCE(k.bidang_id, 0) as bidang_id, k.aktif as emp_aktif,
               k.foto_profil_path, k.foto_profil_updated_at,
               COALESCE(kt.nama, 'Akun Sistem') as kantor_nama,
               COALESCE(kt.lat, 0) as kantor_lat, COALESCE(kt.lng, 0) as kantor_lng,
@@ -743,6 +743,10 @@ export function registerApiRoutes(app: Express) {
 
   // 4. Employee Today Status & Session Check-in
   app.get('/api/v1/attendance/today', requireRole('KARYAWAN', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    if (req.authUser!.karyawan_id === null) {
+      res.status(403).json({ error: 'Akun Superadmin tidak memiliki profil pegawai atau absensi pribadi.' });
+      return;
+    }
     const emp = getKaryawanById(req.authUser!.karyawan_id);
     if (!emp) {
       res.status(404).json({ error: 'Data karyawan tidak ditemukan.' });
@@ -970,6 +974,10 @@ export function registerApiRoutes(app: Express) {
       res.status(429).json({
         error: `Terlalu banyak percobaan pengiriman absensi. Coba lagi dalam ${attLimit.retryAfterSec} detik.`,
       });
+      return;
+    }
+    if (user.karyawan_id === null) {
+      res.status(403).json({ error: 'Akun Superadmin tidak memiliki profil pegawai atau absensi pribadi.' });
       return;
     }
     const emp = getKaryawanById(user.karyawan_id);
@@ -1403,6 +1411,10 @@ export function registerApiRoutes(app: Express) {
     const params: (string | number)[] = [];
     if (user.role === 'KARYAWAN') {
       sql += ` AND p.karyawan_id = ?`;
+      if (user.karyawan_id === null) {
+        res.status(403).json({ error: 'Akun tidak terhubung ke profil karyawan.' });
+        return;
+      }
       params.push(user.karyawan_id);
     } else if (req.query.karyawanId) {
       sql += ` AND p.karyawan_id = ?`;
@@ -1459,6 +1471,10 @@ export function registerApiRoutes(app: Express) {
     }
 
     const targetEmpId = user.role === 'ADMIN' && karyawanId ? Number(karyawanId) : user.karyawan_id;
+    if (targetEmpId === null) {
+      res.status(403).json({ error: 'Akun Superadmin tidak dapat membuat pengajuan sebagai pegawai.' });
+      return;
+    }
     const nowIso = getWibIsoString();
 
     if (jenis === 'OFF_PENGGANTI') {
@@ -2232,6 +2248,10 @@ export function registerApiRoutes(app: Express) {
     const params: number[] = [];
     if (user.role === 'KARYAWAN') {
       sql += ` WHERE kk.karyawan_id = ?`;
+      if (user.karyawan_id === null) {
+        res.status(403).json({ error: 'Akun tidak terhubung ke profil karyawan.' });
+        return;
+      }
       params.push(user.karyawan_id);
     }
     sql += ` ORDER BY kk.tanggal DESC`;
