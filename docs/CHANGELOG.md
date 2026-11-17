@@ -107,3 +107,12 @@
 - Absensi baru tetap menyimpan snapshot lokasi aktual ke `absensi_sesi.lokasi_alamat` pada saat submit.
 - Card Beranda hanya menampilkan alamat aktual, koordinat GPS, dan jarak aktual ke kantor; teks kantor penempatan dihilangkan.
 - Modal foto History pada mobile sekarang berada di tengah layar, tidak menempel di tepi bawah.
+
+## 2026-11-17 — Submit-time address snapshot, shareable PNG card and post-check-in focus
+
+- Geoapify reverse geocoding is now called only by the attendance submit route, after GPS/geofence validation. The result is stored in `absensi_sesi.lokasi_alamat` in the same attendance transaction; failures do not block the check-in.
+- Removed browser GPS-refresh and Beranda feed reverse-geocoding requests. Beranda and its photo preview only read the saved database address (or any legacy address already cached); they never call Geoapify.
+- Replaced the Beranda `Detail lokasi` action with `Bagikan`. It renders a 4:5 PNG attendance card with proof photo, employee identity, session/time, activity, GPS address/coordinates and actual office distance.
+- Uses the browser's file-share sheet so Android users can choose WhatsApp or Telegram; unsupported browsers download the PNG for manual attachment.
+- Attendance submit response now returns the new `sessionId`. After a successful check-in, the employee returns to Beranda, and the newly published post is scrolled into view and highlighted.
+- Geofence continues to rely solely on raw GPS coordinates and office policy.
