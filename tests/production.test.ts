@@ -33,6 +33,7 @@ const {
   registerLimiter,
 } = await import('../src/server/security.ts');
 const { getWibDateString } = await import('../src/server/time.ts');
+const { getSessionWindowState } = await import('../src/shared/session-window.ts');
 const { runBackup } = await import('../scripts/backup/backup.ts');
 const { runRestore } = await import('../scripts/restore/restore.ts');
 
@@ -1079,13 +1080,37 @@ test('6. SVG logo/favicon XSS sanitization, attendance camera-only, jam_mulai ga
     });
     assert.equal(duplicateGrant.status, 409);
 
-    const todayWithGrant = await apiJson<{ day: { checkinOverride: { active: boolean; id: number } | null } }>(
-      '/api/v1/attendance/today',
-      { token: karyawanToken }
-    );
+    const todayWithGrant = await apiJson<{
+      serverTime: string;
+      serverEpochMs: number;
+      serverWindowCheckedAt: string;
+      serverWindowState: 'NOT_STARTED' | 'OPEN' | 'EXPIRED' | 'INVALID' | null;
+      serverSessionWindowStates: ('NOT_STARTED' | 'OPEN' | 'EXPIRED' | 'INVALID')[];
+      day: {
+        sessionsCompleted: number;
+        checkinOverride: { active: boolean; id: number } | null;
+        policySnapshot: { sesiList: { jam_mulai: string; jam_selesai: string }[] };
+      };
+    }>('/api/v1/attendance/today', { token: karyawanToken });
     assert.equal(todayWithGrant.status, 200);
     assert.equal(todayWithGrant.data.day.checkinOverride?.active, true);
     assert.equal(todayWithGrant.data.day.checkinOverride?.id, grant.data.id);
+
+    // The attendance gate is calculated by the server using the same instant
+    // returned as serverTime/serverEpochMs, never by the browser wall clock.
+    assert.equal(todayWithGrant.data.serverWindowCheckedAt, todayWithGrant.data.serverTime);
+    assert.ok(Number.isFinite(todayWithGrant.data.serverEpochMs));
+    const [serverHours, serverMinutes] = todayWithGrant.data.serverTime.split(':').map(Number);
+    const serverMinuteOfDay = serverHours * 60 + serverMinutes;
+    const expectedWindowStates = todayWithGrant.data.day.policySnapshot.sesiList.map((session) =>
+      getSessionWindowState(serverMinuteOfDay, session.jam_mulai, session.jam_selesai)
+    );
+    assert.deepEqual(todayWithGrant.data.serverSessionWindowStates, expectedWindowStates);
+    assert.equal(
+      todayWithGrant.data.serverWindowState,
+      expectedWindowStates[todayWithGrant.data.day.sessionsCompleted] ?? null
+    );
+    assert.equal(todayWithGrant.data.serverWindowState, 'EXPIRED');
 
     const lateSessionCheckin = await apiJson<{
       ok: boolean;
