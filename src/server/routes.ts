@@ -49,6 +49,11 @@ import type {
 // SSE clients for real-time workforce status
 const sseClients = new Set<Response>();
 
+type ReverseGeocodeCacheEntry = { address: string; expiresAt: number };
+const reverseGeocodeCache = new Map<string, ReverseGeocodeCacheEntry>();
+let lastReverseGeocodeRequestAt = 0;
+
+
 function broadcastWorkforceUpdate(eventType: string) {
   const payload = JSON.stringify({ type: eventType, waktu: getWibIsoString() });
   for (const res of sseClients) {
@@ -710,6 +715,97 @@ export function registerApiRoutes(app: Express) {
       day: resolved,
       pendingRequestsToday: pendingRequests,
     });
+  });
+
+  // Reverse-geocode only after an employee explicitly refreshes GPS.
+  // The API key stays on the server; raw coordinates are never sent to a public
+  // no-key geocoder. Address is an estimate and never replaces GPS coordinates.
+  app.get('/api/v1/location/reverse', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), async (req: AuthenticatedRequest, res: Response) => {
+    const lat = typeof req.query.lat === 'string' ? Number(req.query.lat) : Number.NaN;
+    const lng = typeof req.query.lng === 'string' ? Number(req.query.lng) : Number.NaN;
+    if (
+      !Number.isFinite(lat) ||
+      !Number.isFinite(lng) ||
+      lat < -90 ||
+      lat > 90 ||
+      lng < -180 ||
+      lng > 180
+    ) {
+      res.status(400).json({ error: 'Koordinat latitude/longitude tidak valid.' });
+      return;
+    }
+
+    const apiKey = process.env.GOOGLE_MAPS_GEOCODING_API_KEY?.trim();
+    if (!apiKey) {
+      res.json({ address: null, configured: false, provider: null });
+      return;
+    }
+
+    // Four decimal places cache nearby refreshes (~11m at the equator).
+    // Cached results live for six hours to reduce paid API calls.
+    const cacheKey = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+    const cached = reverseGeocodeCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      res.json({ address: cached.address, configured: true, provider: 'Google Maps' });
+      return;
+    }
+    if (cached) reverseGeocodeCache.delete(cacheKey);
+
+    // Conservative application-wide throttle; Google's own quota/billing still applies.
+    const now = Date.now();
+    const elapsed = now - lastReverseGeocodeRequestAt;
+    if (elapsed < 1000) {
+      res.setHeader('Retry-After', String(Math.ceil((1000 - elapsed) / 1000)));
+      res.status(429).json({ error: 'Permintaan alamat terlalu cepat. Coba perbarui lokasi beberapa saat lagi.' });
+      return;
+    }
+    lastReverseGeocodeRequestAt = now;
+
+    try {
+      const url = new URL('https://maps.googleapis.com/maps/api/geocode/json');
+      url.searchParams.set('latlng', `${lat},${lng}`);
+      url.searchParams.set('key', apiKey);
+      url.searchParams.set('language', 'id');
+      url.searchParams.set('region', 'id');
+
+      const response = await fetch(url, {
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(6000),
+      });
+      if (!response.ok) {
+        res.status(502).json({ error: 'Layanan alamat lokasi sedang tidak tersedia.' });
+        return;
+      }
+
+      const payload = (await response.json()) as {
+        status?: string;
+        results?: { formatted_address?: string }[];
+      };
+      if (payload.status === 'ZERO_RESULTS') {
+        res.json({ address: null, configured: true, provider: 'Google Maps' });
+        return;
+      }
+      const address =
+        payload.status === 'OK' && typeof payload.results?.[0]?.formatted_address === 'string'
+          ? payload.results[0].formatted_address
+          : null;
+      if (!address) {
+        res.status(502).json({ error: 'Alamat tidak ditemukan dari koordinat GPS ini.' });
+        return;
+      }
+
+      reverseGeocodeCache.set(cacheKey, {
+        address,
+        expiresAt: Date.now() + 6 * 60 * 60 * 1000,
+      });
+      if (reverseGeocodeCache.size > 500) {
+        const oldestKey = reverseGeocodeCache.keys().next().value;
+        if (oldestKey) reverseGeocodeCache.delete(oldestKey);
+      }
+      res.json({ address, configured: true, provider: 'Google Maps' });
+    } catch {
+      res.status(502).json({ error: 'Gagal mengambil alamat lokasi. Koordinat GPS tetap tersedia.' });
+    }
   });
 
   app.post('/api/v1/attendance/session', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
