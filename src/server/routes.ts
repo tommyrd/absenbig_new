@@ -3488,16 +3488,20 @@ export function registerApiRoutes(app: Express) {
     const items = db
       .prepare(
         `SELECT u.id as user_id, k.id as karyawan_id, k.nik, u.username, u.email,
-                k.nama_lengkap, k.no_hp, k.jabatan, u.role, k.kantor_id, kt.nama as kantor_nama,
+                COALESCE(NULLIF(u.nama_tampilan, ''), k.nama_lengkap, 'Superadmin') as nama_lengkap,
+                COALESCE(k.no_hp, u.no_hp, '') as no_hp,
+                COALESCE(k.jabatan, 'Akun Pengelola Sistem') as jabatan,
+                u.role, k.kantor_id, kt.nama as kantor_nama,
                 k.bidang_id, b.nama as bidang_nama, k.tanggal_masuk,
                 u.aktif as user_aktif, k.aktif as karyawan_aktif,
                 CASE WHEN k.foto_profil_path IS NOT NULL THEN 1 ELSE 0 END as has_foto_profil,
                 k.foto_profil_updated_at, u.created_at
          FROM pengguna u
-         JOIN karyawan k ON u.karyawan_id = k.id
-         JOIN kantor kt ON k.kantor_id = kt.id
-         JOIN bidang_kerja b ON k.bidang_id = b.id
-         ORDER BY CASE u.role WHEN 'SUPERADMIN' THEN 1 WHEN 'ADMIN' THEN 2 ELSE 3 END, k.nik ASC`
+         LEFT JOIN karyawan k ON u.karyawan_id = k.id
+         LEFT JOIN kantor kt ON k.kantor_id = kt.id
+         LEFT JOIN bidang_kerja b ON k.bidang_id = b.id
+         ORDER BY CASE u.role WHEN 'SUPERADMIN' THEN 1 WHEN 'ADMIN' THEN 2 ELSE 3 END,
+                  COALESCE(k.nik, u.username) ASC`
       )
       .all();
     const offices = db.prepare(`SELECT id, kode, nama FROM kantor WHERE aktif = 1 ORDER BY id ASC`).all();
@@ -3542,7 +3546,45 @@ export function registerApiRoutes(app: Express) {
       const finalRole: Role =
         role === 'SUPERADMIN' || role === 'ADMIN' || role === 'KARYAWAN' ? role : 'KARYAWAN';
 
-      if (!cleanName || !cleanUser || !cleanEmail || !password || password.length < 6) {
+      if (if (!/^[a-z0-9._-]{3,30}$/.test(cleanUser)) {
+         res.status(400).json({ error: 'Username harus 3–30 karakter (huruf kecil, angka, titik, underscore, atau strip).' });
+         return;
+       }
+
+       if (finalRole === 'SUPERADMIN') {
+         const nowIso = getWibIsoString();
+         db.exec('BEGIN IMMEDIATE');
+         try {
+           const userInfo = db.prepare(
+             `INSERT INTO pengguna (
+                username, email, password_hash, role, karyawan_id, nama_tampilan, no_hp,
+                aktif, token_version, created_at
+              ) VALUES (?, ?, ?, 'SUPERADMIN', NULL, ?, ?, 1, 1, ?)`
+           ).run(cleanUser, cleanEmail, hashPassword(password), cleanName, (no_hp || '').trim(), nowIso);
+           const userId = Number(userInfo.lastInsertRowid);
+           writeAuditLog(db, {
+             actor: req.authUser!,
+             req,
+             modul: 'MANAJEMEN_AKUN',
+             aksi: 'CREATE_SUPERADMIN_ACCOUNT',
+             targetEntity: 'pengguna',
+             targetId: userId,
+             after: { username: cleanUser, email: cleanEmail, nama_tampilan: cleanName, role: 'SUPERADMIN' },
+             alasan: 'Pembuatan akun Superadmin mandiri tanpa profil karyawan oleh Superadmin',
+           });
+           db.exec('COMMIT');
+           res.status(201).json({ ok: true, userId, role: 'SUPERADMIN' });
+         } catch (err) {
+           db.exec('ROLLBACK');
+           res.status(400).json({
+             error: 'Gagal membuat akun Superadmin (username atau email mungkin sudah digunakan).',
+             detail: safeErrorDetail(err),
+           });
+         }
+         return;
+       }
+
+       !cleanName || !cleanUser || !cleanEmail || !password || password.length < 6) {
         res.status(400).json({
           error: 'Nama lengkap, username, email, dan kata sandi (min. 6 karakter) wajib diisi.',
         });
