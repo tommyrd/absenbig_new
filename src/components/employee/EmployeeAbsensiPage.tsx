@@ -15,6 +15,7 @@ import {
 import { apiFetch, getAuthorizedPhotoUrl } from '../../lib/api';
 import type { AuthUser, Karyawan, ResolvedDay } from '../../shared/types';
 import { isGpsAccuracyAcceptable, isWithinVerifiedGeofence, MAX_GPS_ACCURACY_METERS } from '../../shared/geofence';
+import { getSessionWindowState } from '../../shared/session-window';
 import { StatusBadge } from '../StatusBadge';
 
 interface TodayResponse {
@@ -431,9 +432,11 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   const allSessionsDone = day.sessionsCompleted >= day.policySnapshot.jumlahSesi;
   const nowMin = parseHm(liveWibHm);
   const nextStartMin = nextSesi ? parseHm(nextSesi.jam_mulai) : 0;
-  const nextEndMin = nextSesi ? parseHm(nextSesi.jam_selesai) : 0;
-  const nextSessionExpired = Boolean(nextSesi && nowMin > nextEndMin);
-  const nextSessionStarted = Boolean(nextSesi && nowMin >= nextStartMin && !nextSessionExpired);
+  const nextWindowState = nextSesi
+    ? getSessionWindowState(nowMin, nextSesi.jam_mulai, nextSesi.jam_selesai)
+    : 'INVALID';
+  const nextSessionExpired = nextWindowState === 'EXPIRED';
+  const nextSessionStarted = nextWindowState === 'OPEN';
   const minutesUntilStart = nextSesi ? Math.max(0, nextStartMin - nowMin) : 0;
 
   const distanceMeters = coords
@@ -571,8 +574,13 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
               {day.policySnapshot.sesiList.map((sesi, idx) => {
                 const record = day.sessionRecords.find((r) => r.urutan_sesi === sesi.urutan);
                 const isNext = !record && idx === day.sessionsCompleted;
-                const sesiExpired = nowMin > parseHm(sesi.jam_selesai);
-                const sesiStarted = nowMin >= parseHm(sesi.jam_mulai) && !sesiExpired;
+                const sesiWindowState = getSessionWindowState(
+                  nowMin,
+                  sesi.jam_mulai,
+                  sesi.jam_selesai
+                );
+                const sesiExpired = sesiWindowState === 'EXPIRED';
+                const sesiStarted = sesiWindowState === 'OPEN';
 
                 return (
                   <div
