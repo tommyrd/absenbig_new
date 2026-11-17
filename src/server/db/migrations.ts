@@ -108,7 +108,7 @@ const MIGRATIONS: MigrationDef[] = [
           absensi_sesi_id INTEGER PRIMARY KEY REFERENCES absensi_sesi(id) ON DELETE CASCADE,
           lat REAL NOT NULL,
           lng REAL NOT NULL,
-          alamat TEXT NOT NULL,
+          alamat TEXT,
           provider TEXT NOT NULL DEFAULT 'GEOAPIFY',
           resolved_at TEXT NOT NULL
         );
