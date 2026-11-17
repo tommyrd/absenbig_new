@@ -8,6 +8,7 @@ import {
   Clock,
   FileCheck2,
   Lock,
+  Loader2,
   MapPin,
   RefreshCw,
   SwitchCamera,
@@ -28,7 +29,7 @@ interface TodayResponse {
 
 interface EmployeeAbsensiPageProps {
   user: AuthUser;
-  onSessionSubmitted: () => void;
+  onSessionSubmitted: (message: string) => void;
 }
 
 function haversineClient(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -137,7 +138,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   const [tipeAktivitas, setTipeAktivitas] = useState<'AKTIVITAS' | 'STANDBY'>('AKTIVITAS');
   const [deskripsiAktivitas, setDeskripsiAktivitas] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [submitMsg, setSubmitMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+  const [submitMsg, setSubmitMsg] = useState<{ type: 'loading' | 'ok' | 'err'; text: string } | null>(null);
 
   const loadToday = useCallback(async () => {
     setLoading(true);
@@ -245,7 +246,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
 
   const requestGps = useCallback(() => {
     stopCamera();
-    setPhotoDataUrl(null);
+    setSubmitMsg(null);
     setGpsStatus('loading');
     setGpsError(null);
     setCoords(null);
@@ -424,6 +425,12 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
     }
   };
 
+  const retakePhoto = (requestedFacing: 'user' | 'environment' = facingMode) => {
+    setPhotoDataUrl(null);
+    setCameraError(null);
+    void startCamera(requestedFacing);
+  };
+
   const handleSubmitSession = async () => {
     if (!data) return;
     const nextUrutan = data.day.sessionsCompleted + 1;
@@ -438,7 +445,6 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
     }
     if (nextSesiCfg && currentMinute > parseHm(nextSesiCfg.jam_selesai)) {
       stopCamera();
-      setPhotoDataUrl(null);
       setSubmitMsg({
         type: 'err',
         text: `Waktu absensi ${nextSesiCfg.nama} sudah berakhir pukul ${nextSesiCfg.jam_selesai} WIB. Hubungi Admin bila ada kendala perangkat untuk Admin Override payroll.`,
@@ -446,8 +452,29 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
       return;
     }
 
+    const requirePhoto = Boolean(
+      nextSesiCfg &&
+      (data.day.policySnapshot.wajibFotoSemuaSesi || nextSesiCfg.wajib_foto === 1)
+    );
+    const requireActivity = Boolean(
+      nextSesiCfg &&
+      nextUrutan >= 2 &&
+      (data.day.policySnapshot.wajibAktivitasSesiLanjut || nextSesiCfg.wajib_aktivitas === 1)
+    );
+    if (requirePhoto && !photoDataUrl) {
+      setSubmitMsg({ type: 'err', text: 'Ambil foto melalui kamera browser terlebih dahulu sebelum mengirim absensi.' });
+      return;
+    }
+    if (requireActivity && !deskripsiAktivitas.trim()) {
+      setSubmitMsg({ type: 'err', text: 'Keterangan aktivitas atau standby wajib diisi sebelum mengirim absensi.' });
+      return;
+    }
+
     setSubmitting(true);
-    setSubmitMsg(null);
+    setSubmitMsg({
+      type: 'loading',
+      text: 'Memeriksa lokasi GPS terbaru sebelum mengirim absensi...',
+    });
     try {
       // Re-read GPS at the moment of submission; do not trust a stale page-load coordinate.
       setGpsStatus('loading');
@@ -458,7 +485,6 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
         const message =
           gpsErr instanceof Error ? gpsErr.message : 'Gagal membaca lokasi GPS.';
         stopCamera();
-        setPhotoDataUrl(null);
         setCoords(null);
         setGpsStatus('error');
         setGpsError(message);
@@ -468,6 +494,12 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
       setCoords(freshCoords);
       setGpsStatus('ok');
       setGpsError(null);
+      setSubmitMsg({
+        type: 'loading',
+        text: photoDataUrl
+          ? 'Lokasi terbaca. Menyiapkan foto dan menyimpan absensi ke server...'
+          : 'Lokasi terbaca. Menyimpan data absensi ke server...',
+      });
 
       const mustBeAtOffice = requiresOfficeGeofence(
         data.day.policySnapshot.aturanLokasi,
@@ -476,7 +508,6 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
       if (mustBeAtOffice) {
         if (!isGpsAccuracyAcceptable(freshCoords.accuracy)) {
           stopCamera();
-          setPhotoDataUrl(null);
           setSubmitMsg({
             type: 'err',
             text: `Sesi ini wajib di kantor. Akurasi GPS ±${freshCoords.accuracy}m belum memenuhi batas maksimal ±${MAX_GPS_ACCURACY_METERS}m. Perbarui lokasi di area terbuka atau gunakan perangkat GPS yang lebih akurat.`,
@@ -501,6 +532,12 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
         }
       }
 
+      setSubmitMsg({
+        type: 'loading',
+        text: photoDataUrl
+          ? 'Mengunggah foto dan menyimpan absensi... Jangan tutup halaman.'
+          : 'Menyimpan absensi ke server... Jangan tutup halaman.',
+      });
       await apiFetch('/api/v1/attendance/session', {
         method: 'POST',
         body: JSON.stringify({
@@ -514,14 +551,12 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
           fotoSource: photoDataUrl ? 'BROWSER_CAMERA' : undefined,
         }),
       });
+      stopCamera();
       setPhotoDataUrl(null);
       setDeskripsiAktivitas('');
-      setSubmitMsg({
-        type: 'ok',
-        text: `Sesi ${nextUrutan} berhasil dicatat dengan waktu server WIB dan tampil di Beranda.`,
-      });
-      await loadToday();
-      onSessionSubmitted();
+      onSessionSubmitted(
+        `Absensi Sesi ${nextUrutan} berhasil! Foto dan keterangan berhasil tersimpan.`
+      );
     } catch (err) {
       setSubmitMsg({
         type: 'err',
@@ -570,6 +605,21 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   const nextSessionExpired = nextWindowState === 'EXPIRED';
   const nextSessionStarted = nextWindowState === 'OPEN';
   const minutesUntilStart = nextSesi ? Math.max(0, nextStartMin - nowMin) : 0;
+  const photoRequired = Boolean(
+    nextSesi &&
+    (day.policySnapshot.wajibFotoSemuaSesi || nextSesi.wajib_foto === 1)
+  );
+  const activityRequired = Boolean(
+    nextSesi &&
+    nextSesi.urutan >= 2 &&
+    (day.policySnapshot.wajibAktivitasSesiLanjut || nextSesi.wajib_aktivitas === 1)
+  );
+  const canSubmitAttendance =
+    !submitting &&
+    nextSessionStarted &&
+    canCheckInByLocation &&
+    (!photoRequired || Boolean(photoDataUrl)) &&
+    (!activityRequired || Boolean(deskripsiAktivitas.trim()));
 
   const distanceMeters = coords
     ? haversineClient(coords.lat, coords.lng, user.kantor_lat, user.kantor_lng)
@@ -796,13 +846,24 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
           <div className="lg:col-span-7 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 sm:p-6">
             {submitMsg && (
               <div
-                className={`mb-4 p-3.5 rounded-lg border text-xs font-medium ${
+                role={submitMsg.type === 'err' ? 'alert' : 'status'}
+                aria-live="polite"
+                className={`mb-4 flex items-start gap-2.5 p-3.5 rounded-lg border text-xs font-medium ${
                   submitMsg.type === 'ok'
                     ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
-                    : 'bg-red-50 dark:bg-red-950/50 border-red-200 dark:border-red-800 text-red-800 dark:text-red-200'
+                    : submitMsg.type === 'loading'
+                      ? 'bg-blue-50 dark:bg-blue-950/50 border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-200'
+                      : 'bg-red-50 dark:bg-red-950/50 border-red-200 dark:border-red-800 text-red-800 dark:text-red-200'
                 }`}
               >
-                {submitMsg.text}
+                {submitMsg.type === 'loading' ? (
+                  <Loader2 className="w-4 h-4 shrink-0 animate-spin" />
+                ) : submitMsg.type === 'ok' ? (
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                ) : (
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                )}
+                <span>{submitMsg.text}</span>
               </div>
             )}
 
@@ -867,25 +928,40 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                   ) : null}
 
                   {/* Step 1: GPS & Geofence */}
-                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 space-y-2">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-xs font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                  <div className="p-4 rounded-xl bg-blue-50/70 dark:bg-blue-950/25 border border-blue-200 dark:border-blue-900/70 space-y-3 shadow-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
                         <MapPin className="w-4 h-4 text-blue-700 dark:text-blue-400" />
                         Lokasi & Geofence ({user.kantor_nama})
                       </span>
-                      <button
-                        type="button"
-                        onClick={requestGps}
-                        className="min-h-[36px] px-2 text-xs font-medium text-blue-700 dark:text-blue-400 hover:underline inline-flex items-center gap-1"
-                      >
-                        <RefreshCw className={`w-3.5 h-3.5 ${gpsStatus === 'loading' ? 'animate-spin' : ''}`} />
-                        {gpsStatus === 'idle'
-                          ? 'Aktifkan Lokasi'
-                          : gpsStatus === 'loading'
-                            ? 'Mencari Lokasi...'
-                            : 'Perbarui Lokasi'}
-                      </button>
+                      <span className="rounded-full bg-blue-100 dark:bg-blue-900/70 px-2.5 py-1 text-[10px] font-bold tracking-wide text-blue-800 dark:text-blue-200">
+                        LANGKAH 1
+                      </span>
                     </div>
+                    <button
+                      type="button"
+                      disabled={gpsStatus === 'loading' || submitting}
+                      onClick={requestGps}
+                      className={`w-full min-h-[50px] px-4 py-3 rounded-xl inline-flex items-center justify-center gap-2.5 text-sm font-bold shadow-sm transition-all focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:opacity-65 disabled:cursor-wait ${
+                        gpsStatus === 'ok' && coords
+                          ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                          : 'bg-blue-700 hover:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white'
+                      }`}
+                    >
+                      <RefreshCw className={`w-5 h-5 shrink-0 ${gpsStatus === 'loading' ? 'animate-spin' : ''}`} />
+                      <span>
+                        {gpsStatus === 'loading'
+                          ? 'Sedang Memperbarui Lokasi...'
+                          : gpsStatus === 'ok'
+                            ? 'Lokasi Berhasil Diperbarui · Perbarui Lagi'
+                            : gpsStatus === 'error'
+                              ? 'Coba Perbarui Lokasi Lagi'
+                              : 'Perbarui Lokasi Sebelum Absen'}
+                      </span>
+                    </button>
+                    <p className="text-[11px] leading-relaxed text-slate-600 dark:text-slate-400">
+                      Tekan tombol ini terlebih dahulu. Setelah lokasi terbaca, kamera dan tombol kirim absensi akan dibuka sesuai kebijakan lokasi sesi Anda.
+                    </p>
 
                     {gpsStatus === 'ok' && coords ? (
                       <div className="text-xs text-slate-600 dark:text-slate-300 space-y-1">
@@ -954,12 +1030,37 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                     </div>
 
                     {photoDataUrl ? (
-                      <div className="relative rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-900 max-h-72 flex items-center justify-center">
-                        <img
-                          src={photoDataUrl}
-                          alt="Preview foto absensi"
-                          className="max-h-72 w-full object-contain"
-                        />
+                      <div className="space-y-2.5">
+                        <div className="relative rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-900 max-h-72 flex items-center justify-center">
+                          <img
+                            src={photoDataUrl}
+                            alt="Preview foto absensi"
+                            className="max-h-72 w-full object-contain"
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            disabled={!nextSessionStarted || !canCheckInByLocation || cameraLoading || submitting}
+                            onClick={() => retakePhoto(facingMode)}
+                            className="min-h-[44px] px-3 py-2 rounded-lg bg-blue-700 hover:bg-blue-800 dark:bg-blue-600 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 disabled:opacity-50"
+                          >
+                            <Camera className="w-4 h-4" />
+                            Ganti Foto
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!nextSessionStarted || !canCheckInByLocation || cameraLoading || submitting}
+                            onClick={() => retakePhoto(facingMode === 'user' ? 'environment' : 'user')}
+                            className="min-h-[44px] px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center justify-center gap-1.5 disabled:opacity-50"
+                          >
+                            <SwitchCamera className="w-4 h-4" />
+                            {facingMode === 'user' ? 'Ganti ke Belakang' : 'Ganti ke Depan'}
+                          </button>
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Foto belum dikirim. Periksa hasilnya; Anda masih bisa mengganti foto sebelum menekan tombol kirim absensi.
+                        </p>
                       </div>
                     ) : cameraActive && nextSessionStarted && canCheckInByLocation ? (
                       <div className="space-y-3">
@@ -1048,73 +1149,97 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                     )}
                   </div>
 
-                  {/* Step 3: Activity / Standby for Session >= 2 */}
-                  {nextSesi.urutan >= 2 && (
-                    <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  {/* Step 3: Activity type and editable attendance caption */}
+                  <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+                    {nextSesi.urutan >= 2 && (
+                      <>
+                        <label className="block text-xs font-semibold text-slate-800 dark:text-slate-200">
+                          Status Pekerjaan Sesi {nextSesi.urutan}
+                        </label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            disabled={!nextSessionStarted || submitting}
+                            onClick={() => setTipeAktivitas('AKTIVITAS')}
+                            className={`min-h-[44px] sm:h-10 rounded-lg border text-xs font-semibold transition-colors disabled:opacity-50 ${
+                              tipeAktivitas === 'AKTIVITAS'
+                                ? 'bg-navy-900 dark:bg-blue-600 text-white border-navy-900 dark:border-blue-600'
+                                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
+                            }`}
+                          >
+                            Aktivitas Pekerjaan
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!nextSessionStarted || submitting}
+                            onClick={() => setTipeAktivitas('STANDBY')}
+                            className={`min-h-[44px] sm:h-10 rounded-lg border text-xs font-semibold transition-colors disabled:opacity-50 ${
+                              tipeAktivitas === 'STANDBY'
+                                ? 'bg-navy-900 dark:bg-blue-600 text-white border-navy-900 dark:border-blue-600'
+                                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
+                            }`}
+                          >
+                            Standby / Siaga
+                          </button>
+                        </div>
+                      </>
+                    )}
+
+                    <div className="space-y-1.5">
                       <label className="block text-xs font-semibold text-slate-800 dark:text-slate-200">
-                        Status Pekerjaan Sesi {nextSesi.urutan}
+                        {nextSesi.urutan === 1 ? 'Caption Absensi (Opsional)' : 'Caption / Keterangan Aktivitas'}
+                        {activityRequired && <span className="ml-1 text-red-600">*</span>}
                       </label>
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          disabled={!nextSessionStarted}
-                          onClick={() => setTipeAktivitas('AKTIVITAS')}
-                          className={`min-h-[44px] sm:h-10 rounded-lg border text-xs font-semibold transition-colors disabled:opacity-50 ${
-                            tipeAktivitas === 'AKTIVITAS'
-                              ? 'bg-navy-900 dark:bg-blue-600 text-white border-navy-900 dark:border-blue-600'
-                              : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
-                          }`}
-                        >
-                          Aktivitas Pekerjaan
-                        </button>
-                        <button
-                          type="button"
-                          disabled={!nextSessionStarted}
-                          onClick={() => setTipeAktivitas('STANDBY')}
-                          className={`min-h-[44px] sm:h-10 rounded-lg border text-xs font-semibold transition-colors disabled:opacity-50 ${
-                            tipeAktivitas === 'STANDBY'
-                              ? 'bg-navy-900 dark:bg-blue-600 text-white border-navy-900 dark:border-blue-600'
-                              : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
-                          }`}
-                        >
-                          Standby / Siaga
-                        </button>
-                      </div>
                       <textarea
                         rows={3}
-                        disabled={!nextSessionStarted}
+                        disabled={!nextSessionStarted || submitting}
                         value={deskripsiAktivitas}
-                        onChange={(e) => setDeskripsiAktivitas(e.target.value)}
+                        maxLength={500}
+                        onChange={(e) => {
+                          setDeskripsiAktivitas(e.target.value);
+                          if (submitMsg?.type === 'err') setSubmitMsg(null);
+                        }}
                         placeholder={
-                          tipeAktivitas === 'STANDBY'
-                            ? 'Tuliskan status standby (mis. Standby monitoring node & tiket NOC)...'
-                            : 'Tuliskan aktivitas pekerjaan yang sedang/telah dilakukan...'
+                          nextSesi.urutan === 1
+                            ? 'Contoh: Mulai bekerja di kantor...'
+                            : tipeAktivitas === 'STANDBY'
+                              ? 'Tuliskan status standby (mis. Standby monitoring node & tiket NOC)...'
+                              : 'Tuliskan aktivitas pekerjaan yang sedang/telah dilakukan...'
                         }
                         className="w-full p-3 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-700 dark:focus:border-blue-500 disabled:opacity-60"
                       />
+                      <p className="text-right text-[10px] text-slate-400">
+                        {deskripsiAktivitas.length}/500 karakter
+                      </p>
                     </div>
-                  )}
+                  </div>
 
                   {/* Submit CTA */}
                   <button
                     type="button"
-                    disabled={submitting || !nextSessionStarted || !canCheckInByLocation}
+                    disabled={!canSubmitAttendance}
                     onClick={handleSubmitSession}
-                    className="w-full h-12 bg-blue-700 hover:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white font-semibold text-sm rounded-xl transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full min-h-[52px] px-4 py-3 bg-blue-700 hover:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white font-bold text-sm rounded-xl transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <CheckCircle2 className="w-4 h-4" />
+                    {submitting ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="w-5 h-5" />
+                    )}
                     <span>
                       {submitting
-                        ? 'Menyimpan ke Server...'
-                        : !canCheckInByLocation
-                        ? gpsStatus !== 'ok' || !coords
-                          ? 'Aktifkan lokasi untuk melanjutkan absensi'
-                          : sessionRequiresOffice
-                            ? 'Absensi terkunci · sesi ini wajib di kantor'
-                            : 'Lokasi belum tersedia'
+                        ? 'Memproses Absensi...'
                         : !nextSessionStarted
-                        ? `Terkunci hingga ${nextSesi.jam_mulai} WIB`
-                        : `Kirim Absensi ${nextSesi.nama}`}
+                          ? `Terkunci hingga ${nextSesi.jam_mulai} WIB`
+                          : !canCheckInByLocation
+                            ? gpsStatus !== 'ok' || !coords
+                              ? 'Langkah 1: Perbarui Lokasi'
+                              : 'Lokasi belum memenuhi aturan sesi'
+                            : photoRequired && !photoDataUrl
+                              ? 'Ambil Foto Terlebih Dahulu'
+                              : activityRequired && !deskripsiAktivitas.trim()
+                                ? 'Isi Keterangan Terlebih Dahulu'
+                                : `Kirim Absensi ${nextSesi.nama}`}
                     </span>
                   </button>
                 </div>
