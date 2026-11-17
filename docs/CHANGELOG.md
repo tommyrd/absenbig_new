@@ -1,5 +1,14 @@
 # Changelog — Absensi BIGNET
 
+## 2026-11-17 — Pemisahan akun SUPERADMIN dari data pegawai
+
+- SUPERADMIN kini merupakan akun pemilik/pengelola sistem yang berdiri sendiri; `pengguna.karyawan_id` nullable dan identitas pemilik disimpan di `nama_tampilan` serta `no_hp`.
+- Migrasi `010_separate_superadmin_accounts_from_employee_records` memindahkan identitas Superadmin lama, melepaskan relasi karyawan, dan menonaktifkan profil pegawai lama agar tidak masuk roster aktif. Riwayat yang terhubung ke profil lama tetap dipertahankan.
+- Produksi dan demo seed tidak lagi membuat profil karyawan untuk akun SUPERADMIN; ID referensi data demo karyawan disesuaikan.
+- Menu Kelola Akun dapat membuat, mengubah, menonaktifkan, dan reset password akun SUPERADMIN tambahan tanpa membuat NIK atau profil pegawai. Sistem mempertahankan minimal satu akun Superadmin aktif.
+- Endpoint absensi pribadi dan foto profil pegawai tidak menerima akun SUPERADMIN; Superadmin tetap memantau roster, bukti, audit, dan rekap melalui dashboard.
+
+
 ## 2026-11-17 — Superadmin website favicon settings
 
 - Menu Pengaturan Sistem SUPERADMIN kini mendukung pratinjau, unggah, dan reset favicon website.
