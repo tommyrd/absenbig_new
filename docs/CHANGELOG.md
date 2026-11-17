@@ -98,3 +98,12 @@
 - Geoapify lookup dijalankan best-effort dan memakai cache/deduplikasi; kegagalan geocoding tidak memblokir absensi atau mengubah geofence.
 - Catatan absensi lama tanpa snapshot dapat di-resolve ketika Detail Lokasi dibuka; card tidak lagi menyamarkan alamat kantor sebagai lokasi aktual.
 - Atribusi Geoapify dan OpenStreetMap ditambahkan pada informasi alamat.
+
+## 2026-11-17 — Automatic feed location addresses and centered History photo preview
+
+- Feed Beranda otomatis menyelesaikan alamat untuk record lama saat feed dimuat; pengguna tidak perlu membuka Detail Lokasi.
+- Batch endpoint menerima maksimal 60 ID sesi dan membaca koordinat langsung dari database server.
+- Hasil reverse geocoding positif maupun kosong/gagal dicache dalam `absensi_lokasi_cache` selama enam jam untuk mencegah request Geoapify berulang.
+- Absensi baru tetap menyimpan snapshot lokasi aktual ke `absensi_sesi.lokasi_alamat` pada saat submit.
+- Card Beranda hanya menampilkan alamat aktual, koordinat GPS, dan jarak aktual ke kantor; teks kantor penempatan dihilangkan.
+- Modal foto History pada mobile sekarang berada di tengah layar, tidak menempel di tepi bawah.
