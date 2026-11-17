@@ -119,8 +119,8 @@ export function seedProductionBaseline(
     db.prepare(`
       INSERT INTO kantor (kode, nama, alamat, lat, lng, radius_meter, geofence_mode, zona_waktu, aktif)
       VALUES
-        ('KTR-A', 'Kantor Pusat A (Jakarta)', 'Jl. Jend. Sudirman Kav. 52, Jakarta Selatan', -6.2088, 106.8456, 250, 'CATAT_DENGAN_FLAG', 'Asia/Jakarta', 1),
-        ('KTR-B', 'Kantor Operasional B (Bandung)', 'Jl. Asia Afrika No. 112, Bandung', -6.9218, 107.6071, 250, 'CATAT_DENGAN_FLAG', 'Asia/Jakarta', 1)
+        ('KTR-A', 'Kantor Pusat A (Jakarta)', 'Jl. Jend. Sudirman Kav. 52, Jakarta Selatan', -6.2088, 106.8456, 250, 'TOLAK_LUAR_RADIUS', 'Asia/Jakarta', 1),
+        ('KTR-B', 'Kantor Operasional B (Bandung)', 'Jl. Asia Afrika No. 112, Bandung', -6.9218, 107.6071, 250, 'TOLAK_LUAR_RADIUS', 'Asia/Jakarta', 1)
     `).run();
 
     // 2. Bidang Kerja
@@ -229,8 +229,8 @@ export function seedDemoDataset(db: DatabaseSync): boolean {
   db.prepare(`
     INSERT INTO kantor (kode, nama, alamat, lat, lng, radius_meter, geofence_mode, zona_waktu, aktif)
     VALUES
-      ('KTR-A', 'Kantor Pusat A (Jakarta)', 'Jl. Jend. Sudirman Kav. 52, Jakarta Selatan', -6.2088, 106.8456, 250, 'CATAT_DENGAN_FLAG', 'Asia/Jakarta', 1),
-      ('KTR-B', 'Kantor Operasional B (Bandung)', 'Jl. Asia Afrika No. 112, Bandung', -6.9218, 107.6071, 250, 'CATAT_DENGAN_FLAG', 'Asia/Jakarta', 1)
+      ('KTR-A', 'Kantor Pusat A (Jakarta)', 'Jl. Jend. Sudirman Kav. 52, Jakarta Selatan', -6.2088, 106.8456, 250, 'TOLAK_LUAR_RADIUS', 'Asia/Jakarta', 1),
+      ('KTR-B', 'Kantor Operasional B (Bandung)', 'Jl. Asia Afrika No. 112, Bandung', -6.9218, 107.6071, 250, 'TOLAK_LUAR_RADIUS', 'Asia/Jakarta', 1)
   `).run();
 
   db.prepare(`
