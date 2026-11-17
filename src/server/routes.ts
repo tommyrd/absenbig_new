@@ -33,8 +33,7 @@ import {
   resolveDayForEmployee,
 } from './services/resolver.ts';
 import { getWibDateString, getWibIsoString, getWibTimeString, parseHmToMinutes } from './time.ts';
-import { isGpsAccuracyAcceptable, isWithinVerifiedGeofence, MAX_GPS_ACCURACY_METERS } from '../shared/geofence.ts';
-import { requiresOfficeGeofence } from '../shared/geofence.ts';
+import { isGpsAccuracyAcceptable, isWithinVerifiedGeofence, MAX_GPS_ACCURACY_METERS, requiresOfficeGeofence } from '../shared/geofence.ts';
 import { getSessionWindowState } from '../shared/session-window.ts';
 import type {
   AttendanceFeedPost,
