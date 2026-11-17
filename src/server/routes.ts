@@ -3568,48 +3568,47 @@ export function registerApiRoutes(app: Express) {
       const finalRole: Role =
         role === 'SUPERADMIN' || role === 'ADMIN' || role === 'KARYAWAN' ? role : 'KARYAWAN';
 
-      if (if (!/^[a-z0-9._-]{3,30}$/.test(cleanUser)) {
-         res.status(400).json({ error: 'Username harus 3–30 karakter (huruf kecil, angka, titik, underscore, atau strip).' });
-         return;
-       }
-
-       if (finalRole === 'SUPERADMIN') {
-         const nowIso = getWibIsoString();
-         db.exec('BEGIN IMMEDIATE');
-         try {
-           const userInfo = db.prepare(
-             `INSERT INTO pengguna (
-                username, email, password_hash, role, karyawan_id, nama_tampilan, no_hp,
-                aktif, token_version, created_at
-              ) VALUES (?, ?, ?, 'SUPERADMIN', NULL, ?, ?, 1, 1, ?)`
-           ).run(cleanUser, cleanEmail, hashPassword(password), cleanName, (no_hp || '').trim(), nowIso);
-           const userId = Number(userInfo.lastInsertRowid);
-           writeAuditLog(db, {
-             actor: req.authUser!,
-             req,
-             modul: 'MANAJEMEN_AKUN',
-             aksi: 'CREATE_SUPERADMIN_ACCOUNT',
-             targetEntity: 'pengguna',
-             targetId: userId,
-             after: { username: cleanUser, email: cleanEmail, nama_tampilan: cleanName, role: 'SUPERADMIN' },
-             alasan: 'Pembuatan akun Superadmin mandiri tanpa profil karyawan oleh Superadmin',
-           });
-           db.exec('COMMIT');
-           res.status(201).json({ ok: true, userId, role: 'SUPERADMIN' });
-         } catch (err) {
-           db.exec('ROLLBACK');
-           res.status(400).json({
-             error: 'Gagal membuat akun Superadmin (username atau email mungkin sudah digunakan).',
-             detail: safeErrorDetail(err),
-           });
-         }
-         return;
-       }
-
-       !cleanName || !cleanUser || !cleanEmail || !password || password.length < 6) {
+      if (!cleanName || !cleanUser || !cleanEmail || !password || password.length < 6) {
         res.status(400).json({
           error: 'Nama lengkap, username, email, dan kata sandi (min. 6 karakter) wajib diisi.',
         });
+        return;
+      }
+      if (!/^[a-z0-9._-]{3,30}$/.test(cleanUser)) {
+        res.status(400).json({ error: 'Username harus 3–30 karakter (huruf kecil, angka, titik, underscore, atau strip).' });
+        return;
+      }
+
+      if (finalRole === 'SUPERADMIN') {
+        const nowIso = getWibIsoString();
+        db.exec('BEGIN IMMEDIATE');
+        try {
+          const userInfo = db.prepare(
+            `INSERT INTO pengguna (
+               username, email, password_hash, role, karyawan_id, nama_tampilan, no_hp,
+               aktif, token_version, created_at
+             ) VALUES (?, ?, ?, 'SUPERADMIN', NULL, ?, ?, 1, 1, ?)`
+          ).run(cleanUser, cleanEmail, hashPassword(password), cleanName, (no_hp || '').trim(), nowIso);
+          const userId = Number(userInfo.lastInsertRowid);
+          writeAuditLog(db, {
+            actor: req.authUser!,
+            req,
+            modul: 'MANAJEMEN_AKUN',
+            aksi: 'CREATE_SUPERADMIN_ACCOUNT',
+            targetEntity: 'pengguna',
+            targetId: userId,
+            after: { username: cleanUser, email: cleanEmail, nama_tampilan: cleanName, role: 'SUPERADMIN' },
+            alasan: 'Pembuatan akun Superadmin mandiri tanpa profil karyawan oleh Superadmin',
+          });
+          db.exec('COMMIT');
+          res.status(201).json({ ok: true, userId, role: 'SUPERADMIN' });
+        } catch (err) {
+          db.exec('ROLLBACK');
+          res.status(400).json({
+            error: 'Gagal membuat akun Superadmin (username atau email mungkin sudah digunakan).',
+            detail: safeErrorDetail(err),
+          });
+        }
         return;
       }
 
