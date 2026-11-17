@@ -19,10 +19,6 @@ Seluruh endpoint berada di bawah prefix `/api/v1`. Autentikasi menggunakan heade
 | Method | Endpoint | Akses | Keterangan |
 |---|---|---|---|
 | `GET` | `/api/v1/settings` | `SUPERADMIN` | Mengambil seluruh pengaturan sistem, termasuk status dan versi logo/favicon kustom. |
-| `GET` | `/api/v1/superadmin/accounts` | `SUPERADMIN` | Menampilkan seluruh akun; akun SUPERADMIN berdiri sendiri dan tidak memerlukan profil karyawan. |
-| `POST` | `/api/v1/superadmin/accounts` | `SUPERADMIN` | Membuat akun ADMIN/KARYAWAN beserta profil pegawai, atau membuat akun SUPERADMIN mandiri tanpa baris `karyawan`. |
-| `PUT` | `/api/v1/superadmin/accounts/:userId` | `SUPERADMIN` | Mengelola akun. Akun pemilik dapat memperbarui nama tampilan, username, email, nomor HP, dan status aktif tanpa membuat profil pegawai; minimal satu SUPERADMIN aktif harus tersisa. |
-| `POST` | `/api/v1/superadmin/accounts/:userId/reset-password` | `SUPERADMIN` | Mereset kata sandi akun dan mencabut sesi/token lama. |
 | `PUT` | `/api/v1/settings` | `SUPERADMIN` | Memperbarui branding dan pengaturan operasional. Unggah logo melalui `logoBase64` / `resetLogo`; unggah favicon melalui `faviconBase64` / `resetFavicon`. Favicon menerima PNG, SVG, atau ICO maksimal 512 KB. Unggahan SVG disanitasi. |
 
 ---
@@ -117,5 +113,5 @@ Seluruh endpoint berada di bawah prefix `/api/v1`. Autentikasi menggunakan heade
 | `GET` | `/api/v1/superadmin/registrations` | `SUPERADMIN` | Daftar pendaftaran akun baru (`PENDING`, `APPROVED`, `REJECTED`). |
 | `POST` | `/api/v1/superadmin/registrations/:id/approve` | `SUPERADMIN` | Menyetujui (ACC) pendaftaran dan mengaktifkan akun karyawan/admin. |
 | `POST` | `/api/v1/superadmin/registrations/:id/reject` | `SUPERADMIN` | Menolak pendaftaran akun baru beserta alasan keputusan. |
-| `GET` / `POST` / `PUT` | `/api/v1/superadmin/accounts`, `/:userId` | `SUPERADMIN` | Manajemen seluruh akun, ubah role, aktif/nonaktif (token lama otomatis direvoke). |
-| `PUT` | `/api/v1/superadmin/accounts/:userId/reset-password` | `SUPERADMIN` | Reset sandi pengguna dan mencabut seluruh sesi lama (`token_version + 1`). |
+| `GET` / `POST` / `PUT` | `/api/v1/superadmin/accounts`, `/:userId` | `SUPERADMIN` | Menampilkan dan mengelola seluruh akun. ADMIN/KARYAWAN dibuat bersama profil pegawai; SUPERADMIN dibuat sebagai akun pemilik mandiri dengan `karyawan_id = NULL` tanpa NIK, kantor, bidang, atau data absensi. Akun pemilik dapat diubah dan dinonaktifkan; minimal satu Superadmin aktif harus tersisa. Ubah role pegawai hanya di antara ADMIN/KARYAWAN; akun pegawai tidak dapat dipromosikan menjadi SUPERADMIN lewat edit akun. |
+| `PUT` | `/api/v1/superadmin/accounts/:userId/reset-password` | `SUPERADMIN` | Reset sandi pegawai maupun akun pemilik dan mencabut seluruh sesi lama (`token_version + 1`). |
