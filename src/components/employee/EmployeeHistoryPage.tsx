@@ -530,11 +530,11 @@ export function EmployeeHistoryPage() {
       {/* Photo Proof Lightbox Modal (Bottom Sheet on Mobile) */}
       {previewSession && (
         <div
-          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4"
           onClick={() => setPreviewSession(null)}
         >
           <div
-            className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-lg w-full overflow-hidden border border-slate-200 dark:border-slate-800 max-h-[92vh] flex flex-col"
+            className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full overflow-hidden border border-slate-200 dark:border-slate-800 max-h-[calc(100dvh-1.5rem)] shadow-2xl flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
@@ -553,11 +553,11 @@ export function EmployeeHistoryPage() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="bg-slate-950 flex items-center justify-center max-h-[58vh]">
+            <div className="bg-slate-950 flex items-center justify-center max-h-[48dvh] sm:max-h-[58vh] overflow-hidden">
               <img
                 src={getAuthorizedPhotoUrl(previewSession.id)}
                 alt="Bukti absensi"
-                className="max-h-[58vh] w-full object-contain"
+                className="max-h-[48dvh] sm:max-h-[58vh] w-full object-contain"
               />
             </div>
             <div className="p-4 text-xs text-slate-600 dark:text-slate-300 space-y-1 bg-slate-50 dark:bg-slate-800/70">
