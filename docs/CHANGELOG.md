@@ -1,5 +1,14 @@
 # Changelog — Absensi BIGNET
 
+## 2026-11-18 — Admin Operasional sebagai akun non-pegawai
+
+- Migrasi `014_separate_admin_operational_accounts_from_employee_records` memisahkan akun ADMIN dari master `karyawan`; hanya KARYAWAN yang memiliki NIK dan relasi `karyawan_id`. Profil Admin lama diarsipkan (nonaktif, `is_system_archive = 1`) tanpa menghapus riwayat absensi/audit.
+- Akun Admin Operasional menyimpan nama tampilan, nomor HP, dan foto pada `pengguna`; tidak memiliki penempatan kantor/bidang atau absensi pribadi. Feed, monitoring, approval, kalender, payroll, override, dan master operasional tetap tersedia sesuai RBAC.
+- Form pendaftaran Admin tidak lagi meminta kantor, bidang, atau jabatan pegawai. Saat ini tabel pendaftaran masih membutuhkan foreign key kantor/bidang, sehingga server menyimpan referensi internal bawaan untuk antrean pendaftaran; referensi tersebut bukan penempatan akun Admin dan tidak dipakai saat ACC.
+- ACC Admin menghasilkan akun mandiri tanpa NIK/profil pegawai. Form Kelola Akun hanya menampilkan NIK/penempatan/jabatan untuk KARYAWAN; Admin tetap dapat mengelola foto profil mandiri.
+- Perubahan role ADMIN ↔ KARYAWAN mengarsipkan atau mengaktifkan kembali profil pegawai yang cocok, menjaga foreign key dan riwayat historis. Demo seed juga memakai akun Admin mandiri dan mengarsipkan profil contoh lama tanpa menggeser ID karyawan.
+- Ditambahkan uji migrasi, registrasi tanpa penempatan, ACC akun Admin, foto profil mandiri, penolakan endpoint absensi/pengajuan pribadi untuk Admin, serta validasi role-link di database.
+
 ## 2026-11-17 — Gate absensi 100% ditentukan waktu server
 
 - Endpoint `GET /api/v1/attendance/today` menangkap satu waktu server untuk tanggal, jam, status jendela seluruh sesi, masa berlaku override, dan response epoch.
