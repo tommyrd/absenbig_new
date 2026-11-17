@@ -123,10 +123,10 @@ after(async () => {
 test('1. Migrations are idempotent and production baseline enforces zero demo accounts', () => {
   const db = getDb();
   const applied = getAppliedMigrations(db);
-  assert.equal(applied.length, 3);
+  assert.equal(applied.length, 4);
   assert.deepEqual(
     applied.map((m) => m.version),
-    ['001', '002', '003']
+    ['001', '002', '003', '004']
   );
 
   // Re-running migrations should apply 0 new steps
