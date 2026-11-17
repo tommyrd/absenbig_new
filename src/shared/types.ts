@@ -411,6 +411,7 @@ export interface AttendanceFeedPost {
   kantorId: number;
   kantorNama: string;
   kantorAlamat: string;
+  lokasiAktualAlamat: string | null;
   tanggal: string;
   urutanSesi: number;
   namaSesi: string;
