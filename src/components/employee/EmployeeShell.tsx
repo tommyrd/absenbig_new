@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
   Camera,
+  CheckCircle2,
   FileText,
   History,
   Home,
   LogOut,
   User,
+  X,
 } from 'lucide-react';
 import { apiFetch } from '../../lib/api';
 import type { AuthUser, ResolvedDay, SystemSettings } from '../../shared/types';
@@ -47,6 +49,8 @@ export function EmployeeShell({
   const [myDay, setMyDay] = useState<ResolvedDay | null>(null);
   const [serverWibHm, setServerWibHm] = useState<string | null>(null);
   const [initialRouteReady, setInitialRouteReady] = useState(false);
+  const [successNotice, setSuccessNotice] = useState<string | null>(null);
+  const suppressedAutoOpenSessionRef = useRef<string | null>(null);
 
   const fetchToday = useCallback(
     () =>
@@ -56,21 +60,36 @@ export function EmployeeShell({
     []
   );
 
-  const refreshMyDay = useCallback(async () => {
+  const refreshMyDay = useCallback(async (message: string) => {
+    // A successful check-in always returns the employee to the top of Beranda.
+    setSuccessNotice(message);
+    setTab('beranda');
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+    });
+
     try {
       const res = await fetchToday();
       setMyDay(res.day);
       if (res.serverTime) setServerWibHm(res.serverTime.slice(0, 5));
 
-      // After a successful check-in, return to Beranda unless another
-      // incomplete session is already open on server WIB time.
-      setTab(
-        shouldOpenAttendanceOnEntry(res.day, res.serverTime)
-          ? 'absensi'
-          : 'beranda'
-      );
+      // If the next session is already open (overlapping time windows), keep
+      // the user on Beranda after this successful check-in. A future session
+      // that has not started yet will still open automatically at its start.
+      const next = res.day.policySnapshot.sesiList[res.day.sessionsCompleted];
+      const nextKey = next
+        ? `${res.day.tanggal}:${res.day.sessionsCompleted}:${next.jam_mulai}`
+        : null;
+      suppressedAutoOpenSessionRef.current = shouldOpenAttendanceOnEntry(
+        res.day,
+        res.serverTime
+      )
+        ? nextKey
+        : null;
     } catch {
-      // Keep the last successfully loaded day if a refresh temporarily fails.
+      // Keep the success notice and Beranda even if refreshing the feed is delayed.
     }
   }, [fetchToday]);
 
@@ -111,7 +130,16 @@ export function EmployeeShell({
         const res = await fetchToday();
         setMyDay(res.day);
         if (res.serverTime) setServerWibHm(res.serverTime.slice(0, 5));
-        if (shouldOpenAttendanceOnEntry(res.day, res.serverTime)) {
+        const next = res.day.policySnapshot.sesiList[res.day.sessionsCompleted];
+        const nextKey = next
+          ? `${res.day.tanggal}:${res.day.sessionsCompleted}:${next.jam_mulai}`
+          : null;
+        const alreadyLandedOnHomeForThisOpenSession =
+          Boolean(nextKey) && suppressedAutoOpenSessionRef.current === nextKey;
+        if (
+          shouldOpenAttendanceOnEntry(res.day, res.serverTime) &&
+          !alreadyLandedOnHomeForThisOpenSession
+        ) {
           setTab('absensi');
         }
       } catch {
@@ -224,6 +252,24 @@ export function EmployeeShell({
 
       {/* Main Content */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-5 pb-20 md:pb-10">
+        {tab === 'beranda' && successNotice && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="mb-4 flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3.5 text-emerald-900 shadow-sm dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-100"
+          >
+            <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+            <p className="min-w-0 flex-1 text-sm font-semibold">{successNotice}</p>
+            <button
+              type="button"
+              onClick={() => setSuccessNotice(null)}
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-900/60"
+              aria-label="Tutup notifikasi absensi berhasil"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
         {showIncompleteReminder && myDay && (
           <div className="mb-4 sm:mb-5 p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800/70 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div className="flex items-start sm:items-center gap-2.5 text-xs text-amber-950 dark:text-amber-200">
