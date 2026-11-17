@@ -37,7 +37,8 @@ export const SCHEMA_SQL = `
     tanggal_masuk TEXT NOT NULL,
     foto_profil_path TEXT,
     foto_profil_updated_at TEXT,
-    aktif INTEGER NOT NULL DEFAULT 1
+    aktif INTEGER NOT NULL DEFAULT 1,
+    is_system_archive INTEGER NOT NULL DEFAULT 0 CHECK(is_system_archive IN (0, 1))
   );
 
   CREATE TABLE IF NOT EXISTS pengguna (
