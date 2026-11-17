@@ -50,6 +50,8 @@ export const SCHEMA_SQL = `
     karyawan_id INTEGER REFERENCES karyawan(id),
     nama_tampilan TEXT NOT NULL DEFAULT '',
     no_hp TEXT NOT NULL DEFAULT '',
+    foto_profil_path TEXT,
+    foto_profil_updated_at TEXT,
     aktif INTEGER NOT NULL DEFAULT 1,
     token_version INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL
