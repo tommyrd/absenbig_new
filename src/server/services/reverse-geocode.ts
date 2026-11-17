@@ -4,7 +4,7 @@ export interface ReverseGeocodeResult {
 }
 
 interface CacheEntry {
-  address: string;
+  address: string | null;
   expiresAt: number;
 }
 
@@ -50,6 +50,20 @@ export async function getGeoapifyAddress(
     releaseTurn = resolve;
   });
   await previousTurn;
+
+  // Another request for this exact rounded coordinate may have completed
+  // while this request was waiting for the shared rate-limit queue.
+  const cachedAfterQueue = cache.get(cacheKey);
+  if (cachedAfterQueue && cachedAfterQueue.expiresAt > Date.now()) {
+    releaseTurn();
+    return { address: cachedAfterQueue.address, configured: true };
+  }
+  const pendingAfterQueue = inFlight.get(cacheKey);
+  if (pendingAfterQueue) {
+    releaseTurn();
+    return { address: await pendingAfterQueue, configured: true };
+  }
+
   try {
     const waitMs = Math.max(0, lastRequestAt + MIN_REQUEST_INTERVAL_MS - Date.now());
     if (waitMs > 0) {
@@ -85,15 +99,15 @@ export async function getGeoapifyAddress(
         ? payload.results[0].formatted.trim()
         : null;
 
-    if (address) {
-      cache.set(cacheKey, {
-        address,
-        expiresAt: Date.now() + CACHE_TTL_MS,
-      });
-      if (cache.size > 1000) {
-        const oldestKey = cache.keys().next().value;
-        if (oldestKey) cache.delete(oldestKey);
-      }
+    // Cache empty results too; don't repeatedly spend a provider request
+    // when a coordinate has no address result.
+    cache.set(cacheKey, {
+      address,
+      expiresAt: Date.now() + CACHE_TTL_MS,
+    });
+    if (cache.size > 1000) {
+      const oldestKey = cache.keys().next().value;
+      if (oldestKey) cache.delete(oldestKey);
     }
     return address;
   })();
