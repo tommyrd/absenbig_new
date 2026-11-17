@@ -75,6 +75,14 @@ test('Employee lands on attendance only when the next session is currently open'
   );
   assert.equal(shouldOpenAttendanceOnEntry({ ...day, mustCheckIn: false }, '09:10:00'), false);
   assert.equal(shouldOpenAttendanceOnEntry(day, 'invalid'), false);
+
+  // A valid Admin-issued one-time permit opens attendance even after the normal window.
+  const adminGranted = { ...day, checkinOverride: { active: true } };
+  assert.equal(shouldOpenAttendanceOnEntry(adminGranted, '09:31:00'), true);
+  assert.equal(
+    shouldOpenAttendanceOnEntry({ ...day, checkinOverride: { active: false } }, '09:31:00'),
+    false
+  );
 });
 
 test('History calendar reflects attendance status and final Admin Override', () => {
