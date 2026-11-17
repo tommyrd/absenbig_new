@@ -132,21 +132,21 @@ test('Policy Hierarchy resolves KARYAWAN > BIDANG > DEFAULT', () => {
   const db = getDb();
   const today = getWibDateString();
 
-  // Dimas (id 5) has KARYAWAN policy (4 sesi)
-  const dimas = db.prepare('SELECT * FROM karyawan WHERE id = 5').get() as unknown as Karyawan;
+  // Dimas (id 4) has KARYAWAN policy (4 sesi)
+  const dimas = db.prepare('SELECT * FROM karyawan WHERE id = 4').get() as unknown as Karyawan;
   const dimasPolicy = getEffectivePolicy(db, dimas, today);
   assert.equal(dimasPolicy.level, 'KARYAWAN');
   assert.equal(dimasPolicy.jumlah_sesi, 4);
 
-  // Andi (id 3) is Teknisi Lapangan (BIDANG policy: 3 sesi)
-  const andi = db.prepare('SELECT * FROM karyawan WHERE id = 3').get() as unknown as Karyawan;
+  // Andi (id 2) is Teknisi Lapangan (BIDANG policy: 3 sesi)
+  const andi = db.prepare('SELECT * FROM karyawan WHERE id = 2').get() as unknown as Karyawan;
   const andiPolicy = getEffectivePolicy(db, andi, today);
   assert.equal(andiPolicy.level, 'BIDANG');
   assert.equal(andiPolicy.jumlah_sesi, 3);
 
   // Use a synthetic division with no matching BIDANG policy to verify DEFAULT fallback.
   // A real employee such as Dewi may have a company-specific NOC BIDANG policy in the local DB.
-  const dewi = db.prepare('SELECT * FROM karyawan WHERE id = 7').get() as unknown as Karyawan;
+  const dewi = db.prepare('SELECT * FROM karyawan WHERE id = 6').get() as unknown as Karyawan;
   const employeeWithoutMatchingPolicy = { ...dewi, id: -999999, bidang_id: -999999 };
   const defaultPolicy = getEffectivePolicy(db, employeeWithoutMatchingPolicy, today);
   assert.equal(defaultPolicy.level, 'DEFAULT');
@@ -166,14 +166,14 @@ test('Kantor A Sunday is HARI_LIBUR (not TIDAK_HADIR), Kantor B Sunday is 2 sess
     }
   }
 
-  // Rina (id 4, Kantor A)
-  const rina = db.prepare('SELECT * FROM karyawan WHERE id = 4').get() as unknown as Karyawan;
+  // Rina (id 3, Kantor A)
+  const rina = db.prepare('SELECT * FROM karyawan WHERE id = 3').get() as unknown as Karyawan;
   const rinaSun = resolveDayForEmployee(db, rina, sunday);
   assert.equal(rinaSun.dayType, 'HARI_LIBUR');
   assert.notEqual(rinaSun.operationalStatus, 'TIDAK_HADIR');
 
-  // Fajar (id 6, Kantor B)
-  const fajar = db.prepare('SELECT * FROM karyawan WHERE id = 6').get() as unknown as Karyawan;
+  // Fajar (id 5, Kantor B)
+  const fajar = db.prepare('SELECT * FROM karyawan WHERE id = 5').get() as unknown as Karyawan;
   const fajarSun = resolveDayForEmployee(db, fajar, sunday);
   assert.equal(fajarSun.dayType, 'HARI_KERJA');
   assert.equal(fajarSun.policySnapshot.jumlahSesi, 2);
@@ -193,7 +193,7 @@ test('Workforce feed strips sensitive GPS, photo paths, and leave reasons', () =
 test('Monthly summary totals HARI MASUK and TIDAK HADIR consistently', () => {
   const db = getDb();
   const ym = getWibDateString().slice(0, 7);
-  const summary = computeMonthlySummary(db, 3, ym);
+  const summary = computeMonthlySummary(db, 2, ym);
   assert.ok(summary !== null);
   assert.ok(summary.hariMasuk >= 1);
   assert.equal(typeof summary.tidakHadir, 'number');
@@ -251,7 +251,7 @@ test('System settings API strictly enforces SUPERADMIN access while keeping publ
   try {
     const getUserByRole = (role: Role) =>
       db.prepare(`SELECT id, role, karyawan_id FROM pengguna WHERE role = ? AND aktif = 1 LIMIT 1`).get(role) as
-        | { id: number; role: Role; karyawan_id: number }
+        | { id: number; role: Role; karyawan_id: number | null }
         | undefined;
 
     const superadmin = getUserByRole('SUPERADMIN');
@@ -321,6 +321,48 @@ test('System settings API strictly enforces SUPERADMIN access while keeping publ
     const superData = (await superGetRes.json()) as { settings: { nama_aplikasi: string } };
     assert.equal(superData.settings.nama_aplikasi, 'Absensi BIGNET');
 
+    // SUPERADMIN is a standalone owner identity, not an employee with attendance.
+    assert.equal(superadmin.karyawan_id, null);
+    const ownerProfile = await fetch(`${baseUrl}/api/v1/auth/me`, {
+      headers: { Authorization: `Bearer ${makeToken(superadmin)}` },
+    });
+    assert.equal(ownerProfile.status, 200);
+    const ownerData = (await ownerProfile.json()) as { user: { karyawan_id: number | null; role: Role } };
+    assert.equal(ownerData.user.role, 'SUPERADMIN');
+    assert.equal(ownerData.user.karyawan_id, null);
+
+    const ownerAttendance = await fetch(`${baseUrl}/api/v1/attendance/today`, {
+      headers: { Authorization: `Bearer ${makeToken(superadmin)}` },
+    });
+    assert.equal(ownerAttendance.status, 403);
+
+    const createOwner = await fetch(`${baseUrl}/api/v1/superadmin/accounts`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${makeToken(superadmin)}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        nama_lengkap: 'Owner Pengujian',
+        username: 'owner_pengujian',
+        email: 'owner.pengujian@bignet.id',
+        no_hp: '081234567890',
+        password: 'OwnerPassword123',
+        role: 'SUPERADMIN',
+      }),
+    });
+    assert.equal(createOwner.status, 201);
+    const ownerAccount = db.prepare(
+      `SELECT role, karyawan_id, nama_tampilan FROM pengguna WHERE username = 'owner_pengujian'`
+    ).get() as { role: string; karyawan_id: number | null; nama_tampilan: string };
+    assert.equal(ownerAccount.role, 'SUPERADMIN');
+    assert.equal(ownerAccount.karyawan_id, null);
+    assert.equal(ownerAccount.nama_tampilan, 'Owner Pengujian');
+    assert.equal(
+      db.prepare(`SELECT id FROM karyawan WHERE email = 'owner.pengujian@bignet.id'`).get(),
+      undefined
+    );
+
     // Beranda Instagram-style Feed accessible to ALL roles (KARYAWAN, ADMIN, SUPERADMIN)
     for (const roleUser of [karyawan, admin, superadmin]) {
       const feedRes = await fetch(`${baseUrl}/api/v1/feed/today`, {
@@ -333,6 +375,10 @@ test('System settings API strictly enforces SUPERADMIN access while keeping publ
       };
       assert.ok(Array.isArray(feedData.posts) && feedData.posts.length > 0);
       assert.ok(Array.isArray(feedData.roster) && feedData.roster.length > 0);
+    assert.ok(
+      !feedData.roster.some((member) => member.namaLengkap === 'Budi Santoso'),
+      'SUPERADMIN must not appear in the employee roster'
+    );
       assert.ok(feedData.posts[0].namaLengkap);
       assert.ok(feedData.posts[0].kantorNama);
 
