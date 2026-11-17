@@ -33,7 +33,7 @@ Daftar `jti` token sesi yang telah direvoke sebelum kedaluwarsa (mis. setelah lo
 
 ### 1.7 `kebijakan_absensi` & `sesi_absensi`
 Aturan sesi bertingkat (`KARYAWAN > BIDANG > DEFAULT`).
-- `kebijakan_absensi`: `id` (`PK`), `level` (`DEFAULT` | `BIDANG` | `KARYAWAN`), `bidang_id` (`FK -> bidang_kerja.id`), `karyawan_id` (`FK -> karyawan.id`), `nama`, `jumlah_sesi` (`2|3|4`), `min_sesi_hadir`, `toleransi_terlambat_menit`, `wajib_foto_semua_sesi`, `wajib_aktivitas_sesi_lanjut`, flag hitung payroll (`libur_dihitung_masuk`, `off_pengganti_dihitung_masuk`, `izin_dihitung_masuk`, `sakit_dihitung_masuk`, `cuti_dihitung_masuk`), `berlaku_mulai`, `aktif`, `created_at`.
+- `kebijakan_absensi`: `id` (`PK`), `level` (`DEFAULT` | `BIDANG` | `KARYAWAN`), `bidang_id` (`FK -> bidang_kerja.id`), `karyawan_id` (`FK -> karyawan.id`), `nama`, `jumlah_sesi` (`2|3|4`), `min_sesi_hadir`, `toleransi_terlambat_menit`, `aturan_lokasi` (`SESI_PERTAMA_KANTOR` | `SEMUA_SESI_KANTOR`, default `SESI_PERTAMA_KANTOR`), `wajib_foto_semua_sesi`, `wajib_aktivitas_sesi_lanjut`, flag hitung payroll (`libur_dihitung_masuk`, `off_pengganti_dihitung_masuk`, `izin_dihitung_masuk`, `sakit_dihitung_masuk`, `cuti_dihitung_masuk`), `berlaku_mulai`, `aktif`, `created_at`.
 - `sesi_absensi`: `id` (`PK`), `kebijakan_id` (`FK -> kebijakan_absensi.id ON DELETE CASCADE`), `urutan` (`1..4`), `nama`, `jam_mulai`, `jam_selesai`, `wajib_foto`, `wajib_aktivitas`, `aktif`. `UNIQUE(kebijakan_id, urutan)`.
 
 ### 1.8 `kalender_kerja` & `hari_libur`
