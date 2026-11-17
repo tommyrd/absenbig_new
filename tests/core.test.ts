@@ -66,8 +66,8 @@ test('Policy Hierarchy resolves KARYAWAN > BIDANG > DEFAULT', () => {
   // Use a synthetic division with no matching BIDANG policy to verify DEFAULT fallback.
   // A real employee such as Dewi may have a company-specific NOC BIDANG policy in the local DB.
   const dewi = db.prepare('SELECT * FROM karyawan WHERE id = 7').get() as unknown as Karyawan;
-  const employeeWithoutDivisionPolicy = { ...dewi, bidang_id: -999999 };
-  const defaultPolicy = getEffectivePolicy(db, employeeWithoutDivisionPolicy, today);
+  const employeeWithoutMatchingPolicy = { ...dewi, id: -999999, bidang_id: -999999 };
+  const defaultPolicy = getEffectivePolicy(db, employeeWithoutMatchingPolicy, today);
   assert.equal(defaultPolicy.level, 'DEFAULT');
   assert.equal(defaultPolicy.jumlah_sesi, 4);
 });
