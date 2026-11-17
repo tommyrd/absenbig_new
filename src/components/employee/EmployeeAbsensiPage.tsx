@@ -1216,14 +1216,14 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                                 : sessionRequiresOffice
                                   ? 'Lokasi di luar radius kantor'
                                   : 'Periksa lokasi terlebih dahulu'
-                                : nextWindowState === 'NOT_STARTED'
-                                  ? `Menunggu Pukul ${nextSesi.jam_mulai} WIB`
-                                  : nextWindowState === 'EXPIRED'
-                                    ? `Sesi Berakhir ${nextSesi.jam_selesai} WIB`
-                                    : nextWindowState === 'INVALID'
-                                      ? 'Jadwal Sesi Tidak Valid'
-                                      : !data.serverWindowCheckedAt
-                                        ? 'Sinkronisasi Waktu Server...'
+                                : hasActiveCheckinOverride
+                                  ? `Buka Kamera ${facingMode === 'user' ? 'Depan' : 'Belakang'}`
+                                  : nextWindowState === 'NOT_STARTED'
+                                    ? `Menunggu Pukul ${nextSesi.jam_mulai} WIB`
+                                    : nextWindowState === 'EXPIRED'
+                                      ? `Sesi Berakhir ${nextSesi.jam_selesai} WIB`
+                                      : nextWindowState === 'INVALID' || !data.serverWindowCheckedAt
+                                        ? 'Jadwal / Waktu Server Belum Valid'
                                         : `Buka Kamera ${facingMode === 'user' ? 'Depan' : 'Belakang'}`}
                           </button>
                           <button
