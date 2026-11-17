@@ -2,7 +2,69 @@ import { useCallback, useEffect, useState } from 'react';
 import { Calendar, Image as ImageIcon, MapPin, ShieldAlert, X } from 'lucide-react';
 import { apiFetch, getAuthorizedPhotoUrl } from '../../lib/api';
 import type { AbsensiSesiRecord, MonthlySummary } from '../../shared/types';
+import { getHistoryCalendarStatus, type HistoryCalendarStatus } from '../../shared/history-calendar';
 import { StatusBadge } from '../StatusBadge';
+
+const HISTORY_CALENDAR_STYLES: Record<
+  HistoryCalendarStatus,
+  { label: string; shortLabel: string; className: string }
+> = {
+  HADIR: {
+    label: 'Hadir',
+    shortLabel: 'HADIR',
+    className: 'bg-emerald-100 border-emerald-300 text-emerald-950 dark:bg-emerald-950/60 dark:border-emerald-800 dark:text-emerald-200',
+  },
+  TIDAK_HADIR: {
+    label: 'Tidak Hadir',
+    shortLabel: 'ALFA',
+    className: 'bg-rose-100 border-rose-300 text-rose-950 dark:bg-rose-950/60 dark:border-rose-800 dark:text-rose-200',
+  },
+  BELUM_SELESAI: {
+    label: 'Belum Selesai',
+    shortLabel: 'PROSES',
+    className: 'bg-amber-100 border-amber-300 text-amber-950 dark:bg-amber-950/60 dark:border-amber-800 dark:text-amber-200',
+  },
+  HARI_LIBUR: {
+    label: 'Hari Libur',
+    shortLabel: 'LIBUR',
+    className: 'bg-slate-100 border-slate-300 text-slate-700 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300',
+  },
+  OFF_PENGGANTI: {
+    label: 'Off Pengganti',
+    shortLabel: 'OFF+',
+    className: 'bg-indigo-100 border-indigo-300 text-indigo-950 dark:bg-indigo-950/60 dark:border-indigo-800 dark:text-indigo-200',
+  },
+  CUTI: {
+    label: 'Cuti',
+    shortLabel: 'CUTI',
+    className: 'bg-violet-100 border-violet-300 text-violet-950 dark:bg-violet-950/60 dark:border-violet-800 dark:text-violet-200',
+  },
+  IZIN: {
+    label: 'Izin',
+    shortLabel: 'IZIN',
+    className: 'bg-cyan-100 border-cyan-300 text-cyan-950 dark:bg-cyan-950/60 dark:border-cyan-800 dark:text-cyan-200',
+  },
+  SAKIT: {
+    label: 'Sakit',
+    shortLabel: 'SAKIT',
+    className: 'bg-orange-100 border-orange-300 text-orange-950 dark:bg-orange-950/60 dark:border-orange-800 dark:text-orange-200',
+  },
+  OFF: {
+    label: 'Off',
+    shortLabel: 'OFF',
+    className: 'bg-slate-100 border-slate-300 text-slate-600 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400',
+  },
+  OVERRIDE_MASUK: {
+    label: 'Admin Override · Dihitung Masuk',
+    shortLabel: 'OVR +',
+    className: 'bg-emerald-200 border-emerald-500 text-emerald-950 dark:bg-emerald-900/70 dark:border-emerald-600 dark:text-emerald-100',
+  },
+  OVERRIDE_TIDAK_MASUK: {
+    label: 'Admin Override · Tidak Dihitung Masuk',
+    shortLabel: 'OVR −',
+    className: 'bg-rose-200 border-rose-500 text-rose-950 dark:bg-rose-900/70 dark:border-rose-600 dark:text-rose-100',
+  },
+};
 
 export function EmployeeHistoryPage() {
   const [bulan, setBulan] = useState(() => {
@@ -20,6 +82,7 @@ export function EmployeeHistoryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [previewSession, setPreviewSession] = useState<AbsensiSesiRecord | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
   const loadHistory = useCallback(async () => {
     setLoading(true);
@@ -40,6 +103,32 @@ export function EmployeeHistoryPage() {
     loadHistory();
   }, [loadHistory]);
 
+  const [yearPart, monthPart] = bulan.split('-');
+  const calendarYear = Number(yearPart);
+  const calendarMonth = Number(monthPart);
+  const monthDayCount = new Date(Date.UTC(calendarYear, calendarMonth, 0)).getUTCDate();
+  const firstWeekdayOffset = new Date(Date.UTC(calendarYear, calendarMonth - 1, 1)).getUTCDay();
+  const calendarCells: (number | null)[] = [
+    ...Array.from({ length: firstWeekdayOffset }, () => null),
+    ...Array.from({ length: monthDayCount }, (_, index) => index + 1),
+  ];
+  while (calendarCells.length % 7 !== 0) calendarCells.push(null);
+
+  const monthTitle = new Intl.DateTimeFormat('id-ID', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(Date.UTC(calendarYear, calendarMonth - 1, 1)));
+  const dayByDate = new Map((summary?.days || []).map((day) => [day.tanggal, day]));
+  const selectedDay = selectedDate
+    ? summary?.days.find((day) => day.tanggal === selectedDate) || null
+    : null;
+  const timelineDays = summary
+    ? selectedDate
+      ? summary.days.filter((day) => day.tanggal === selectedDate)
+      : [...summary.days].reverse()
+    : [];
+
   return (
     <div className="space-y-5 sm:space-y-6">
       {/* Month Selector Header */}
@@ -57,7 +146,10 @@ export function EmployeeHistoryPage() {
           <input
             type="month"
             value={bulan}
-            onChange={(e) => setBulan(e.target.value)}
+            onChange={(e) => {
+              setBulan(e.target.value);
+              setSelectedDate(null);
+            }}
             aria-label="Pilih bulan rekap"
             className="min-h-[44px] sm:h-10 px-3 text-sm font-mono bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 w-full sm:w-auto"
           />
@@ -110,6 +202,129 @@ export function EmployeeHistoryPage() {
                 Hari kerja tidak memenuhi minimum sesi tanpa izin sah
               </p>
             </div>
+          </div>
+
+          {/* Monthly attendance calendar with resolver-backed status colors */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 sm:p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+              <div>
+                <h2 className="font-display text-sm font-bold text-slate-900 dark:text-slate-100">
+                  Kalender Kehadiran
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 capitalize">
+                  {monthTitle} · Ketuk tanggal untuk melihat rincian absensi
+                </p>
+              </div>
+              {selectedDate && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedDate(null)}
+                  className="min-h-[36px] px-3 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold text-blue-700 dark:text-blue-400 hover:bg-slate-50 dark:hover:bg-slate-800"
+                >
+                  Tampilkan Semua Tanggal
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-7 gap-1.5 sm:gap-2" role="grid" aria-label={`Kalender kehadiran ${monthTitle}`}>
+              {['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'].map((weekday) => (
+                <div
+                  key={weekday}
+                  role="columnheader"
+                  className="py-1.5 text-center text-[10px] sm:text-xs font-bold text-slate-500 dark:text-slate-400"
+                >
+                  {weekday}
+                </div>
+              ))}
+              {calendarCells.map((dateNumber, index) => {
+                if (dateNumber === null) {
+                  return <div key={`empty-${index}`} aria-hidden="true" className="min-h-[54px] sm:min-h-[68px]" />;
+                }
+
+                const dateKey = `${bulan}-${String(dateNumber).padStart(2, '0')}`;
+                const day = dayByDate.get(dateKey);
+                if (!day) {
+                  return (
+                    <div
+                      key={dateKey}
+                      className="min-h-[54px] sm:min-h-[68px] rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/30 flex flex-col items-center justify-center text-slate-300 dark:text-slate-600"
+                      aria-label={`${dateKey}, belum dievaluasi`}
+                    >
+                      <span className="text-xs sm:text-sm font-semibold">{dateNumber}</span>
+                      <span className="text-[8px] sm:text-[9px]">—</span>
+                    </div>
+                  );
+                }
+
+                const status = getHistoryCalendarStatus(day);
+                const appearance = HISTORY_CALENDAR_STYLES[status];
+                const isSelected = selectedDate === dateKey;
+                return (
+                  <button
+                    key={dateKey}
+                    type="button"
+                    role="gridcell"
+                    aria-pressed={isSelected}
+                    aria-label={`${dateKey}: ${appearance.label}; ${day.sessionsCompleted} dari ${day.policySnapshot.jumlahSesi} sesi`}
+                    title={`${dateKey} · ${appearance.label}${day.isOverridden ? ' · Admin Override' : ''}`}
+                    onClick={() => setSelectedDate(isSelected ? null : dateKey)}
+                    className={`relative min-h-[54px] sm:min-h-[68px] rounded-lg border p-1 sm:p-2 flex flex-col items-center justify-center gap-0.5 transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 ${appearance.className} ${isSelected ? 'ring-2 ring-blue-600 ring-offset-2 dark:ring-offset-slate-900 z-10' : 'hover:brightness-95'}`}
+                  >
+                    <span className="text-xs sm:text-sm font-bold tabular-nums">{dateNumber}</span>
+                    <span className="text-[8px] sm:text-[10px] leading-tight font-semibold text-center">
+                      {appearance.shortLabel}
+                    </span>
+                    {day.sessionsCompleted > 0 && (
+                      <span className="text-[8px] sm:text-[9px] opacity-80 tabular-nums">
+                        {day.sessionsCompleted}/{day.policySnapshot.jumlahSesi}
+                      </span>
+                    )}
+                    {day.isOverridden && (
+                      <span className="absolute top-0.5 right-1 text-[7px] sm:text-[8px] font-black">O</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex flex-wrap gap-x-3 gap-y-2 text-[10px] sm:text-[11px] text-slate-600 dark:text-slate-300">
+              {[
+                ['bg-emerald-500', 'Hadir'],
+                ['bg-rose-500', 'Tidak Hadir'],
+                ['bg-amber-500', 'Belum Selesai'],
+                ['bg-slate-400', 'Libur / Off'],
+                ['bg-indigo-500', 'Off Pengganti'],
+                ['bg-violet-500', 'Cuti'],
+                ['bg-cyan-500', 'Izin'],
+                ['bg-orange-500', 'Sakit'],
+                ['bg-blue-700', 'O = Admin Override'],
+              ].map(([dot, label]) => (
+                <span key={label} className="inline-flex items-center gap-1.5">
+                  <span className={`w-2 h-2 rounded-sm ${dot}`} />
+                  {label}
+                </span>
+              ))}
+            </div>
+
+            {selectedDay && (
+              <div className="rounded-lg border border-blue-200 dark:border-blue-900 bg-blue-50/70 dark:bg-blue-950/30 p-3 text-xs space-y-1">
+                <p className="font-bold text-slate-900 dark:text-slate-100">
+                  {selectedDay.tanggal} · {selectedDay.dayLabel}
+                </p>
+                <p className="text-slate-700 dark:text-slate-300">
+                  Status: <strong>{HISTORY_CALENDAR_STYLES[getHistoryCalendarStatus(selectedDay)].label}</strong>
+                  {' · '}Sesi tercatat: {selectedDay.sessionsCompleted}/{selectedDay.policySnapshot.jumlahSesi}
+                </p>
+                {selectedDay.isOverridden && selectedDay.overrideInfo && (
+                  <p className="text-amber-800 dark:text-amber-300">
+                    Admin Override: {selectedDay.overrideInfo.hasil_override.replace(/_/g, ' ')} — {selectedDay.overrideInfo.alasan}
+                  </p>
+                )}
+                <p className="text-slate-500 dark:text-slate-400">
+                  Rincian sesi dan bukti foto ditampilkan di bagian bawah.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Detail Breakdown Below */}
@@ -183,11 +398,22 @@ export function EmployeeHistoryPage() {
 
           {/* Daily Timeline with Photo Proofs */}
           <div className="space-y-3">
-            <h2 className="font-display text-sm font-bold text-slate-900 dark:text-slate-100">
-              Timeline Harian & Bukti Foto
-            </h2>
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="font-display text-sm font-bold text-slate-900 dark:text-slate-100">
+                {selectedDate ? `Rincian ${selectedDate}` : 'Timeline Harian & Bukti Foto'}
+              </h2>
+              {selectedDate && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedDate(null)}
+                  className="min-h-[36px] px-2.5 rounded-lg text-xs font-semibold text-blue-700 dark:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  Hapus Filter
+                </button>
+              )}
+            </div>
             <div className="space-y-3">
-              {[...summary.days].reverse().map((day) => (
+              {timelineDays.map((day) => (
                 <div
                   key={day.tanggal}
                   className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 sm:p-5 space-y-3"
