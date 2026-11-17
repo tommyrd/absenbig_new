@@ -599,7 +599,14 @@ export function registerApiRoutes(app: Express) {
       SELECT s.*,
              COALESCE(NULLIF(s.lokasi_alamat, ''), alc.alamat) as lokasi_aktual_alamat,
              CASE
-               WHEN NULLIF(s.lokasi_alamat, '') IS NOT NULL OR alc.absensi_sesi_id IS NOT NULL
+               WHEN NULLIF(s.lokasi_alamat, '') IS NOT NULL
+                 OR (
+                   alc.absensi_sesi_id IS NOT NULL
+                   AND (
+                     alc.alamat IS NOT NULL
+                     OR julianday(alc.resolved_at) > julianday('now', '-6 hours')
+                   )
+                 )
                THEN 1 ELSE 0
              END as lokasi_alamat_lookup_done,
              k.nik, k.nama_lengkap, k.jabatan, k.kantor_id, k.bidang_id, k.foto_profil_updated_at,
