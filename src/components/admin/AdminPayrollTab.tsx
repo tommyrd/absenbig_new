@@ -485,7 +485,7 @@ export function AdminPayrollTab() {
                   Status awal: {overrideTarget.day.operationalStatus} ({overrideTarget.day.payrollStatus})
                 </p>
                 <p className="text-slate-500 dark:text-slate-400">
-                  Catatan: Bukti absensi dan foto asli tidak akan diubah. Override dicatat penuh di Audit Trail Superadmin.
+                  Admin Override dapat menetapkan hasil hari sebagai DIHITUNG MASUK saat karyawan mengalami kendala HP/GPS. Ini adalah koreksi payroll, bukan pembuatan sesi, foto, atau bukti GPS palsu. Alasan, Admin, dan waktu tindakan tercatat di Audit Trail Superadmin.
                 </p>
               </div>
 
