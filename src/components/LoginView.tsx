@@ -186,9 +186,13 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
           no_hp: regHp,
           password: regPassword,
           role_diminta: regRole,
-          jabatan: regJabatan,
-          kantor_id: regKantorId,
-          bidang_id: regBidangId,
+          ...(regRole === 'KARYAWAN'
+            ? {
+                jabatan: regJabatan,
+                kantor_id: regKantorId,
+                bidang_id: regBidangId,
+              }
+            : {}),
           catatan_pendaftar: regCatatan,
           fotoBase64: regFotoBase64,
         }),
