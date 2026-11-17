@@ -527,7 +527,7 @@ export function EmployeeHistoryPage() {
         </>
       )}
 
-      {/* Photo Proof Lightbox Modal (Bottom Sheet on Mobile) */}
+      {/* Centered Photo Proof Lightbox Modal */}
       {previewSession && (
         <div
           className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4"
