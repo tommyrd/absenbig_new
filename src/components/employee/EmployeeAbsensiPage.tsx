@@ -48,13 +48,9 @@ function haversineClient(lat1: number, lng1: number, lat2: number, lng2: number)
   return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
-function parseHm(hm: string): number {
-  const [h, m] = hm.split(':').map(Number);
-  return (h || 0) * 60 + (m || 0);
-}
-
 function getWibHmFromEpoch(epochMs: number): string {
-  const safeMs = Number.isFinite(epochMs) ? epochMs : Date.now();
+  if (!Number.isFinite(epochMs)) return '--:--';
+  const safeMs = epochMs;
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Asia/Jakarta',
     hour: '2-digit',
@@ -81,7 +77,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   const [error, setError] = useState<string | null>(null);
   const serverClockSyncRef = useRef<ServerClockSync | null>(null);
   const todayRequestIdRef = useRef(0);
-  const [liveWibHm, setLiveWibHm] = useState(() => getWibHmFromEpoch(Date.now()));
+  const [liveWibHm, setLiveWibHm] = useState('--:--');
 
   // GPS State
   const [coords, setCoords] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
@@ -211,7 +207,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
 
     // Refresh any newly issued Admin check-in permission and correct the clock.
     // Keep the authoritative server session state fresh while the page is visible.
-    const refreshId = window.setInterval(() => void loadToday(true), 3000);
+    const refreshId = window.setInterval(() => void loadToday(true), 5000);
     return () => {
       window.clearInterval(refreshId);
       window.removeEventListener('focus', refreshWhenVisible);
@@ -998,7 +994,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                         </p>
                         <p className="text-amber-900 dark:text-amber-200 leading-relaxed">
                           Absensi hanya dapat dilakukan setelah jam sesi dimulai. Waktu server saat ini{' '}
-                          <span className="font-mono font-semibold">{data.serverTime} WIB</span> (waktu server; sesi dibuka dalam{' '}
+                          <span className="font-mono font-semibold">{data.serverTime} WIB</span> (status diperiksa server pada {data.serverWindowCheckedAt || data.serverTime} WIB; sesi dibuka dalam{' '}
                           <span className="font-semibold">{formatDurationMinutes(minutesUntilStart)}</span>).
                         </p>
                       </div>
@@ -1226,7 +1222,9 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                                     ? `Sesi Berakhir ${nextSesi.jam_selesai} WIB`
                                     : nextWindowState === 'INVALID'
                                       ? 'Jadwal Sesi Tidak Valid'
-                                      : `Buka Kamera ${facingMode === 'user' ? 'Depan' : 'Belakang'}`}
+                                      : !data.serverWindowCheckedAt
+                                        ? 'Sinkronisasi Waktu Server...'
+                                        : `Buka Kamera ${facingMode === 'user' ? 'Depan' : 'Belakang'}`}
                           </button>
                           <button
                             type="button"
