@@ -174,18 +174,6 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
 
 
 
-## 8. UAT Gate Absensi Mengikuti Waktu Server Sepenuhnya
-
-1. Buka halaman Absensi dan pastikan jam header menampilkan status sinkronisasi sampai respons server pertama diterima; jam perangkat tidak boleh tampil sebagai sumber awal.
-2. Pastikan `GET /api/v1/attendance/today` mengembalikan `serverTime`, `serverEpochMs`, `serverWindowCheckedAt`, `serverWindowState`, dan `serverSessionWindowStates`; status seluruh sesi harus sesuai dengan jam server dari response yang sama.
-3. Atur sesi uji yang belum mulai. Tombol harus menampilkan **Menunggu Pukul** dan banner menyebut jam server saat pemeriksaan.
-4. Atur sesi uji yang sedang terbuka. Dalam maksimal satu siklus refresh, tombol kamera harus aktif setelah GPS/geofence valid.
-5. Atur sesi uji yang sudah berakhir. Tombol harus menunjukkan **Sesi Berakhir**, bukan **Menunggu**; banner menampilkan waktu server dan jam penutupan. Check-in hanya bisa dilakukan dengan izin Admin yang sah.
-6. Atur konfigurasi jam tidak valid (misalnya jam akhir lebih awal dari jam mulai). Tombol harus menunjukkan **Jadwal Sesi Tidak Valid** dan tidak boleh membuka kamera.
-7. Ubah jam perangkat iPhone/PC maju dan mundur. Status buka/tutup sesi tidak boleh berubah; hanya response server yang menentukan.
-8. Background-kan Safari, kunci layar, lalu kembali. Status dimuat ulang dari server tanpa menunggu jam perangkat.
-9. Kirim absensi pada batas akhir sesi. Backend harus tetap menolak request yang tiba setelah sesi berakhir meskipun halaman sebelumnya sempat menampilkan sesi terbuka.
-
 ## 7. UAT Hapus Kantor & Bidang Kerja yang Tidak Digunakan
 
 1. Login sebagai ADMIN operasional, buka **Master Karyawan & Kantor → Kantor & Geofence**. Kantor baru yang belum memiliki relasi bisnis harus menampilkan tombol **Hapus** aktif.
@@ -197,3 +185,15 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
 7. Hapus bidang kosong. Pastikan baris bidang hilang dan Audit Trail menyimpan aksi `DELETE_BIDANG`.
 8. Login sebagai Karyawan dan coba memanggil kedua endpoint DELETE; server harus menolak dengan HTTP 403.
 9. Pastikan percobaan menghapus data yang masih memiliki relasi tidak menghapus sebagian data anak maupun master; tidak ada perubahan jika validasi gagal.
+
+## 8. UAT Gate Absensi Mengikuti Waktu Server Sepenuhnya
+
+1. Buka halaman Absensi dan pastikan jam header menampilkan status sinkronisasi sampai respons server pertama diterima; jam perangkat tidak boleh tampil sebagai sumber awal.
+2. Pastikan `GET /api/v1/attendance/today` mengembalikan `serverTime`, `serverEpochMs`, `serverWindowCheckedAt`, `serverWindowState`, dan `serverSessionWindowStates`; status seluruh sesi harus sesuai dengan jam server dari response yang sama.
+3. Atur sesi uji yang belum mulai. Tombol harus menampilkan **Menunggu Pukul** dan banner menyebut jam server saat pemeriksaan.
+4. Atur sesi uji yang sedang terbuka. Dalam maksimal satu siklus refresh, tombol kamera harus aktif setelah GPS/geofence valid.
+5. Atur sesi uji yang sudah berakhir. Tombol harus menunjukkan **Sesi Berakhir**, bukan **Menunggu**; banner menampilkan waktu server dan jam penutupan. Check-in hanya bisa dilakukan dengan izin Admin yang sah.
+6. Atur konfigurasi jam tidak valid (misalnya jam akhir lebih awal dari jam mulai). Tombol harus menunjukkan **Jadwal Sesi Tidak Valid** dan tidak boleh membuka kamera.
+7. Ubah jam perangkat iPhone/PC maju dan mundur. Status buka/tutup sesi tidak boleh berubah; hanya response server yang menentukan.
+8. Background-kan Safari, kunci layar, lalu kembali. Status dimuat ulang dari server tanpa menunggu jam perangkat.
+9. Kirim absensi pada batas akhir sesi. Backend harus tetap menolak request yang tiba setelah sesi berakhir meskipun halaman sebelumnya sempat menampilkan sesi terbuka.
