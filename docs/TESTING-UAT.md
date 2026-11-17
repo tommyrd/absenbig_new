@@ -4,9 +4,9 @@
 
 ## 1. Cakupan Pengujian Otomatis (`npm test`)
 
-Suite berisi 20 test (12 inti + 8 production) dan dijalankan menggunakan `tsx --test tests/*.test.ts`. Perubahan terbaru menambah cakupan batas akhir sesi dan kualitas GPS. Jalankan ulang secara lokal setelah menarik commit terbaru; angka kelulusan harus berasal dari hasil perintah aktual.
+Suite berisi 21 test (13 inti + 8 production) dan dijalankan menggunakan `tsx --test tests/*.test.ts`. Perubahan terbaru menambah cakupan batas akhir sesi dan kualitas GPS. Jalankan ulang secara lokal setelah menarik commit terbaru; angka kelulusan harus berasal dari hasil perintah aktual.
 
-### A. Suite Inti Bisnis (`tests/core.test.ts` — 12 Test)
+### A. Suite Inti Bisnis (`tests/core.test.ts` — 13 Test)
 1. **Geofence Haversine distance calculation** — Perhitungan jarak meter antara koordinat GPS karyawan dan kantor.
 2. **Session time window** — Absensi hanya diizinkan sejak `jam_mulai` hingga `jam_selesai` (inklusif); setelah `jam_selesai` menjadi `EXPIRED`.
 3. **GPS accuracy margin** — Akurasi browser maksimum ±100m dan jarak + nilai akurasi harus tetap berada dalam radius kantor saat sesi wajib kantor.
@@ -18,7 +18,8 @@ Suite berisi 20 test (12 inti + 8 production) dan dijalankan menggunakan `tsx --
 9. **Audit log strictly append-only via SQLite triggers** — Trigger SQLite memblokir `UPDATE` dan `DELETE` pada tabel `audit_log`.
 10. **System settings default initialization** — Pengaturan branding dan login terinisialisasi konsisten.
 11. **Registration table and profile photo columns** — Kolom profil dan tabel `pendaftaran_akun` tersedia.
-12. **System settings RBAC & Feed access across all roles** — Endpoint settings terproteksi khusus `SUPERADMIN`, Beranda Feed dan foto dapat diakses lintas role, validasi sumber kamera & jam mulai sesi berjalan.
+12. **Employee entry routing** — Saat login, karyawan diarahkan ke Absensi hanya jika sesi berikutnya sedang berada dalam jendela waktu server; jika belum waktunya, sesi berakhir, atau semua sesi selesai, mulai dari Beranda.
+13. **System settings RBAC & Feed access across all roles** — Endpoint settings terproteksi khusus `SUPERADMIN`, Beranda Feed dan foto dapat diakses lintas role, validasi sumber kamera & jam mulai sesi berjalan.
 
 ### B. Suite Hardening Production (`tests/production.test.ts` — 8 Test)
 Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
@@ -56,3 +57,10 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
    - Cek navigasi tab bawah mobile dan toggle dark/light mode di seluruh peran (`KARYAWAN`, `ADMIN`, `SUPERADMIN`).
 4. **UAT Payroll, Export Excel & Audit Log:**
    - Lakukan pengajuan cuti/off pengganti -> approve Admin -> cek rekap bulanan -> unduh Excel -> pastikan riwayat tercatat pada Audit Log.
+
+
+5. **UAT GPS Prompt, Photo Lightbox & Landing Page (Android Chrome):**
+   - Halaman Absensi tidak meminta izin GPS secara otomatis; status awal menampilkan instruksi netral sampai tombol Aktifkan Lokasi ditekan.
+   - Akses melalui IP lokal HTTP menampilkan penjelasan bahwa GPS/kamera membutuhkan HTTPS; uji GPS dan kamera melalui HTTPS.
+   - Foto Beranda dibuka sebagai modal di tengah viewport, dapat ditutup dan kontennya dapat discroll tanpa menempatkan modal di bawah layar.
+   - Login saat sesi berikutnya sedang terbuka langsung menuju Absensi; login ketika belum waktunya, sesi sudah berakhir, atau semua sesi selesai menuju Beranda.
