@@ -459,7 +459,7 @@ test('System settings API strictly enforces SUPERADMIN access while keeping publ
     assert.equal(ownerAccount.karyawan_id, null);
     assert.equal(ownerAccount.nama_tampilan, 'Owner Pengujian');
     assert.equal(
-      db.prepare(`SELECT id FROM karyawan WHERE email = ?`).get(),
+      db.prepare(`SELECT id FROM karyawan WHERE email = ?`).get(testOwnerEmail),
       undefined
     );
 
@@ -475,10 +475,10 @@ test('System settings API strictly enforces SUPERADMIN access while keeping publ
       };
       assert.ok(Array.isArray(feedData.posts) && feedData.posts.length > 0);
       assert.ok(Array.isArray(feedData.roster) && feedData.roster.length > 0);
-    assert.ok(
-      !feedData.roster.some((member) => member.namaLengkap === 'Budi Santoso'),
-      'SUPERADMIN must not appear in the employee roster'
-    );
+      assert.ok(
+        !feedData.roster.some((member) => member.namaLengkap === 'Budi Santoso'),
+        'SUPERADMIN must not appear in the employee roster'
+      );
       assert.ok(feedData.posts[0].namaLengkap);
       assert.ok(feedData.posts[0].kantorNama);
 
