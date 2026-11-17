@@ -440,6 +440,7 @@ export function SuperadminAccountsTab({
         <div className="flex items-center gap-3">
           <UserAvatar
             karyawanId={r.karyawan_id}
+            userId={r.karyawan_id === null ? r.user_id : null}
             name={r.nama_lengkap}
             role={r.role}
             version={r.foto_profil_updated_at}
