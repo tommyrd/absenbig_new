@@ -1003,7 +1003,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                       Tekan tombol ini terlebih dahulu. Setelah lokasi terbaca, kamera dan tombol kirim absensi akan dibuka sesuai kebijakan lokasi sesi Anda.
                     </p>
                     <p className="text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">
-                      Koordinat dan akurasi berasal dari GPS browser. Jika Admin mengaktifkan alamat Google Maps, pencarian alamat akan mengirim koordinat ke Google setelah tombol ini ditekan.
+                      Koordinat dan akurasi berasal dari GPS browser. Jika alamat Geoapify diaktifkan pada server, pencarian alamat akan mengirim koordinat ke Geoapify setelah tombol ini ditekan.
                     </p>
 
                     {gpsStatus === 'ok' && coords ? (
@@ -1021,7 +1021,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                             <>
                               <p className="leading-relaxed">{locationAddress}</p>
                               <p className="text-[10px] text-slate-400">
-                                Alamat perkiraan dari Google Maps Geocoding. Koordinat dikirim ke Google hanya saat tombol Perbarui Lokasi ditekan; koordinat GPS browser tetap menjadi data lokasi utama.
+                                Alamat perkiraan dari Geoapify Reverse Geocoding. Koordinat dikirim ke Geoapify hanya saat tombol Perbarui Lokasi ditekan; koordinat GPS browser tetap menjadi data lokasi utama.
                               </p>
                             </>
                           ) : locationAddressStatus === 'unconfigured' ? (
@@ -1041,7 +1041,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                             rel="noopener noreferrer"
                             className="inline-flex min-h-[32px] items-center text-blue-700 dark:text-blue-400 font-semibold hover:underline"
                           >
-                            Lihat titik GPS di Google Maps
+                            Buka titik GPS di Google Maps
                           </a>
                         </div>
                         <div className="flex flex-wrap items-center gap-1.5 font-medium">
