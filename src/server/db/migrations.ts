@@ -11,6 +11,7 @@ export interface MigrationRecord {
 interface MigrationDef {
   version: string;
   name: string;
+  disableForeignKeys?: boolean;
   up: (db: DatabaseSync) => void;
 }
 
@@ -153,6 +154,94 @@ const MIGRATIONS: MigrationDef[] = [
       }
     },
   },
+  {
+    version: '010',
+    name: 'separate_superadmin_accounts_from_employee_records',
+    disableForeignKeys: true,
+    up: (db) => {
+      const columns = db.prepare('PRAGMA table_info(pengguna)').all() as {
+        name: string;
+        notnull: number;
+      }[];
+      const employeeLink = columns.find((column) => column.name === 'karyawan_id');
+      const alreadyDecoupled =
+        employeeLink?.notnull === 0 &&
+        hasColumn(db, 'pengguna', 'nama_tampilan') &&
+        hasColumn(db, 'pengguna', 'no_hp');
+
+      if (!alreadyDecoupled) {
+        db.exec(`
+          CREATE TABLE pengguna_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            email TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL CHECK(role IN ('KARYAWAN','ADMIN','SUPERADMIN')),
+            karyawan_id INTEGER REFERENCES karyawan(id),
+            nama_tampilan TEXT NOT NULL DEFAULT '',
+            no_hp TEXT NOT NULL DEFAULT '',
+            aktif INTEGER NOT NULL DEFAULT 1,
+            token_version INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL
+          );
+
+          INSERT INTO pengguna_new (
+            id, username, email, password_hash, role, karyawan_id,
+            nama_tampilan, no_hp, aktif, token_version, created_at
+          )
+          SELECT
+            u.id, u.username, u.email, u.password_hash, u.role,
+            CASE WHEN u.role = 'SUPERADMIN' THEN NULL ELSE u.karyawan_id END,
+            CASE WHEN u.role = 'SUPERADMIN'
+              THEN COALESCE(NULLIF(k.nama_lengkap, ''), 'Superadmin')
+              ELSE '' END,
+            CASE WHEN u.role = 'SUPERADMIN' THEN COALESCE(k.no_hp, '') ELSE '' END,
+            u.aktif, COALESCE(u.token_version, 1), u.created_at
+          FROM pengguna u
+          LEFT JOIN karyawan k ON k.id = u.karyawan_id;
+
+          UPDATE karyawan
+          SET aktif = 0
+          WHERE id IN (
+            SELECT karyawan_id FROM pengguna
+            WHERE role = 'SUPERADMIN' AND karyawan_id IS NOT NULL
+          );
+
+          DROP TABLE pengguna;
+          ALTER TABLE pengguna_new RENAME TO pengguna;
+        `);
+      } else {
+        db.exec(`
+          UPDATE pengguna
+          SET nama_tampilan = COALESCE(
+                NULLIF(nama_tampilan, ''),
+                (SELECT nama_lengkap FROM karyawan WHERE karyawan.id = pengguna.karyawan_id),
+                'Superadmin'
+              ),
+              no_hp = COALESCE(
+                (SELECT no_hp FROM karyawan WHERE karyawan.id = pengguna.karyawan_id),
+                no_hp,
+                ''
+              )
+          WHERE role = 'SUPERADMIN';
+
+          UPDATE karyawan
+          SET aktif = 0
+          WHERE id IN (
+            SELECT karyawan_id FROM pengguna
+            WHERE role = 'SUPERADMIN' AND karyawan_id IS NOT NULL
+          );
+
+          UPDATE pengguna SET karyawan_id = NULL WHERE role = 'SUPERADMIN';
+        `);
+      }
+
+      const violations = db.prepare('PRAGMA foreign_key_check').all();
+      if (violations.length > 0) {
+        throw new Error('Migrasi pemisahan akun Superadmin menghasilkan pelanggaran foreign key.');
+      }
+    },
+  },
 ];
 
 export function runMigrations(db: DatabaseSync): string[] {
@@ -172,6 +261,9 @@ export function runMigrations(db: DatabaseSync): string[] {
   const newlyApplied: string[] = [];
   for (const mig of MIGRATIONS) {
     if (appliedSet.has(mig.version)) continue;
+    if (mig.disableForeignKeys) {
+      db.exec('PRAGMA foreign_keys = OFF');
+    }
     db.exec('BEGIN IMMEDIATE');
     try {
       mig.up(db);
@@ -183,6 +275,10 @@ export function runMigrations(db: DatabaseSync): string[] {
     } catch (err) {
       db.exec('ROLLBACK');
       throw err;
+    } finally {
+      if (mig.disableForeignKeys) {
+        db.exec('PRAGMA foreign_keys = ON');
+      }
     }
   }
   return newlyApplied;
