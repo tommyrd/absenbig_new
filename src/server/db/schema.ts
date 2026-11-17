@@ -67,6 +67,7 @@ export const SCHEMA_SQL = `
     jumlah_sesi INTEGER NOT NULL CHECK(jumlah_sesi IN (2,3,4)),
     min_sesi_hadir INTEGER NOT NULL,
     toleransi_terlambat_menit INTEGER NOT NULL DEFAULT 15,
+    aturan_lokasi TEXT NOT NULL DEFAULT 'SESI_PERTAMA_KANTOR',
     wajib_foto_semua_sesi INTEGER NOT NULL DEFAULT 1,
     wajib_aktivitas_sesi_lanjut INTEGER NOT NULL DEFAULT 1,
     libur_dihitung_masuk INTEGER NOT NULL DEFAULT 1,
