@@ -20,7 +20,7 @@ Master divisi/bidang kerja (Teknisi Lapangan, NOC, Administrasi, dll.).
 
 ### 1.4 `karyawan`
 Master data kepegawaian dan foto profil.
-- `id` (`INTEGER PK`), `nik` (`TEXT UNIQUE`), `nama_lengkap`, `email` (`TEXT UNIQUE`), `no_hp`, `kantor_id` (`FK -> kantor.id`), `bidang_id` (`FK -> bidang_kerja.id`), `jabatan`, `tanggal_masuk`, `foto_profil_path`, `foto_profil_updated_at`, `aktif`.
+- `id` (`INTEGER PK`), `nik` (`TEXT UNIQUE`), `nama_lengkap`, `email` (`TEXT UNIQUE`), `no_hp`, `kantor_id` (`FK -> kantor.id`), `bidang_id` (`FK -> bidang_kerja.id`), `jabatan`, `tanggal_masuk`, `foto_profil_path`, `foto_profil_updated_at`, `aktif`, `is_system_archive` (`DEFAULT 0`). Profil pemilik lama yang telah dilepas dari akun ditandai `is_system_archive = 1` agar tidak muncul di master pegawai, feed, roster, atau payroll; barisnya tetap disimpan untuk menjaga relasi historis absensi dan audit.
 
 ### 1.5 `pengguna`
 Akun autentikasi dan hak akses role.
