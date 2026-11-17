@@ -742,7 +742,7 @@ export function registerApiRoutes(app: Express) {
   });
 
   // 4. Employee Today Status & Session Check-in
-  app.get('/api/v1/attendance/today', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  app.get('/api/v1/attendance/today', requireRole('KARYAWAN', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const emp = getKaryawanById(req.authUser!.karyawan_id);
     if (!emp) {
       res.status(404).json({ error: 'Data karyawan tidak ditemukan.' });
@@ -962,7 +962,7 @@ export function registerApiRoutes(app: Express) {
     }
   });
 
-  app.post('/api/v1/attendance/session', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), asyncRoute(async (req, res) => {
+  app.post('/api/v1/attendance/session', requireRole('KARYAWAN', 'ADMIN'), asyncRoute(async (req, res) => {
     const user = req.authUser!;
     const attLimit = attendanceLimiter.consume(`att:${user.id}`);
     if (!attLimit.allowed) {
@@ -1346,11 +1346,15 @@ export function registerApiRoutes(app: Express) {
       ? req.query.bulan
       : getWibDateString().slice(0, 7);
 
-    let targetEmpId = user.karyawan_id;
+    let targetEmpId: number | null = user.karyawan_id;
     if (req.query.karyawanId && (user.role === 'ADMIN' || user.role === 'SUPERADMIN')) {
       targetEmpId = Number(req.query.karyawanId);
     }
 
+    if (targetEmpId === null) {
+      res.status(400).json({ error: 'Akun Superadmin tidak memiliki riwayat absensi pribadi. Pilih karyawan yang ingin dipantau.' });
+      return;
+    }
     const summary = computeMonthlySummary(db, targetEmpId, bulan);
     if (!summary) {
       res.status(404).json({ error: 'Data karyawan tidak ditemukan.' });
@@ -3207,7 +3211,7 @@ export function registerApiRoutes(app: Express) {
 
   app.put(
     '/api/v1/profile/photo',
-    requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'),
+    requireRole('KARYAWAN', 'ADMIN'),
     (req: AuthenticatedRequest, res: Response) => {
       const user = req.authUser!;
       const { fotoBase64, removePhoto } = req.body as {
@@ -3918,7 +3922,7 @@ export function registerApiRoutes(app: Express) {
 
       const target = db
         .prepare(`SELECT id, username, karyawan_id FROM pengguna WHERE id = ?`)
-        .get(targetUserId) as { id: number; username: string; karyawan_id: number } | undefined;
+        .get(targetUserId) as { id: number; username: string; karyawan_id: number | null } | undefined;
       if (!target) {
         res.status(404).json({ error: 'Akun pengguna tidak ditemukan.' });
         return;
