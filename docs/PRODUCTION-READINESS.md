@@ -12,7 +12,7 @@
 | Type Check (`npm run lint`) | Lulus | `tsc --noEmit` keluar dengan kode `0` (0 error TypeScript). |
 | Automated Tests (`npm test`) | Lulus | 17/17 test lulus (`9` test inti `tests/core.test.ts` + `8` test production `tests/production.test.ts`). |
 | Standalone Production Boot | Lulus | `NODE_ENV=production node server.ts` berjalan mulus di Node v22 tanpa Vite, healthcheck `200 OK`, SPA `/` `200 OK`, `izin_demo_login=0`. |
-| Database Schema, Migrasi & Seed | Lulus | `schema_migrations` mencatat versi `001`, `002`, `003`; `seedProductionBaseline` memisahkan data demo dari production. |
+| Database Schema, Migrasi & Seed | Lulus | `schema_migrations` mencatat versi `001`–`004`, termasuk migrasi seluruh kantor ke geofence ketat; `seedProductionBaseline` memisahkan data demo dari production. |
 | Keamanan Autentikasi & API | Lulus | `scrypt`, HMAC-SHA256 + `jti` revocation + `token_version`, brute-force `429`, RBAC backend, validasi magic-bytes & sanitasi SVG. |
 | Penyimpanan Foto & Aset Persisten | Lulus | `DATA_DIR` configurable di luar rilis kode; nama file acak kriptografis + SHA-256 checksum. |
 | Backup & Restore Otomatis | Lulus | Snapshot `VACUUM INTO`, integrity check, SHA-256 manifest, `.tar.gz`, verifikasi link foto & safety snapshot pra-restore teruji end-to-end. |
