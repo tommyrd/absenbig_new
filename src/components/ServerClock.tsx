@@ -14,13 +14,15 @@ export function ServerClock({ compact = false, onDark = false }: ServerClockProp
 
   useEffect(() => {
     let mounted = true;
+    let syncRequestId = 0;
 
     const synchronize = async () => {
+      const requestId = ++syncRequestId;
       const requestStartedAt = performance.now();
       try {
         const res = await apiFetch<{ epochMs?: number }>('/api/v1/time');
         const responseReceivedAt = performance.now();
-        if (!mounted || typeof res.epochMs !== 'number') return;
+        if (!mounted || requestId !== syncRequestId || typeof res.epochMs !== 'number') return;
         const sync = createServerClockSync(
           res.epochMs,
           requestStartedAt,
