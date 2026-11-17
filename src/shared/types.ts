@@ -1,6 +1,7 @@
 export type Role = 'KARYAWAN' | 'ADMIN' | 'SUPERADMIN';
 
 export type PolicyLevel = 'DEFAULT' | 'BIDANG' | 'KARYAWAN';
+export type AttendanceLocationRule = 'SESI_PERTAMA_KANTOR' | 'SEMUA_SESI_KANTOR';
 
 export type DayStatusType = 'HARI_KERJA' | 'HARI_LIBUR' | 'KERJA_KHUSUS' | 'OFF_PENGGANTI';
 
@@ -170,6 +171,7 @@ export interface KebijakanAbsensi {
   jumlah_sesi: number;
   min_sesi_hadir: number;
   toleransi_terlambat_menit: number;
+  aturan_lokasi: AttendanceLocationRule;
   wajib_foto_semua_sesi: number;
   wajib_aktivitas_sesi_lanjut: number;
   libur_dihitung_masuk: number;
@@ -339,6 +341,7 @@ export interface ResolvedDay {
     toleransiTerlambatMenit: number;
     wajibFotoSemuaSesi: boolean;
     wajibAktivitasSesiLanjut: boolean;
+    aturanLokasi: AttendanceLocationRule;
     sesiList: SesiConfig[];
   };
   sessionsCompleted: number;
