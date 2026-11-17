@@ -3,6 +3,7 @@ import {
   Building2,
   CalendarDays,
   CheckSquare,
+  Clock,
   FileSpreadsheet,
   Home,
   LayoutDashboard,
@@ -20,6 +21,7 @@ import { ThemeToggle } from '../ThemeToggle';
 import { UserAvatar } from '../UserAvatar';
 import { AdminApprovalTab } from './AdminApprovalTab';
 import { AdminCalendarTab } from './AdminCalendarTab';
+import { AdminCheckinOverrideTab } from './AdminCheckinOverrideTab';
 import { AdminDashboardTab } from './AdminDashboardTab';
 import { AdminMasterTab } from './AdminMasterTab';
 import { AdminPayrollTab } from './AdminPayrollTab';
@@ -28,6 +30,7 @@ import { AdminPolicyTab } from './AdminPolicyTab';
 type AdminTab =
   | 'beranda'
   | 'dashboard'
+  | 'checkin-override'
   | 'master'
   | 'policy'
   | 'calendar'
@@ -38,6 +41,7 @@ type AdminTab =
 const ADMIN_MENU: { id: AdminTab; label: string; Icon: typeof LayoutDashboard }[] = [
   { id: 'beranda', label: 'Beranda Absensi', Icon: Home },
   { id: 'dashboard', label: 'Monitoring Hari Ini', Icon: LayoutDashboard },
+  { id: 'checkin-override', label: 'Izin Check-in Terlambat', Icon: Clock },
   { id: 'approval', label: 'Approval Pengajuan', Icon: CheckSquare },
   { id: 'payroll', label: 'Rekap Payroll & Override', Icon: FileSpreadsheet },
   { id: 'calendar', label: 'Kalender & Kerja Khusus', Icon: CalendarDays },
@@ -269,6 +273,7 @@ export function AdminShell({
           {tab === 'dashboard' && (
             <AdminDashboardTab onNavigateApproval={() => setTab('approval')} />
           )}
+          {tab === 'checkin-override' && <AdminCheckinOverrideTab />}
           {tab === 'approval' && <AdminApprovalTab />}
           {tab === 'payroll' && <AdminPayrollTab />}
           {tab === 'calendar' && <AdminCalendarTab />}
