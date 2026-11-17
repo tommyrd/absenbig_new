@@ -156,7 +156,11 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
       const responseReceivedAt = performance.now();
       if (requestId !== todayRequestIdRef.current) return;
       setData(res);
-      serverWindowSyncPerfRef.current = res.serverWindowCheckedAt ? responseReceivedAt : null;
+      const estimatedServerSnapshotReceivedAt =
+        requestStartedAt + (responseReceivedAt - requestStartedAt) / 2;
+      serverWindowSyncPerfRef.current = res.serverWindowCheckedAt
+        ? estimatedServerSnapshotReceivedAt
+        : null;
 
       // The session gate follows the same server clock shown in the header.
       // Use a monotonic clock so device clock drift or changes cannot leave
