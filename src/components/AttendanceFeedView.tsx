@@ -624,6 +624,12 @@ export function AttendanceFeedView({
                             {actualLocationAddress ||
                               'Alamat aktual belum tersimpan pada catatan lama. Buka Detail lokasi untuk mencarinya dari GPS.'}
                           </p>
+                          {(actualLocationAddress || post.lat !== null) && (
+                            <p className="mt-1 text-[9px] text-slate-400 dark:text-slate-500">
+                              Powered by <a href="https://www.geoapify.com/" target="_blank" rel="noopener noreferrer" className="underline">Geoapify</a>
+                              {' · '}© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer" className="underline">OpenStreetMap contributors</a>
+                            </p>
+                          )}
                           {post.lat !== null && post.lng !== null && (
                             <p className="mt-1 text-[10px] font-mono tabular-nums text-slate-400 dark:text-slate-500">
                               GPS {post.lat.toFixed(5)}, {post.lng.toFixed(5)}
