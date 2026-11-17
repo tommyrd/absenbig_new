@@ -124,10 +124,10 @@ after(async () => {
 test('1. Migrations are idempotent and production baseline enforces zero demo accounts', () => {
   const db = getDb();
   const applied = getAppliedMigrations(db);
-  assert.equal(applied.length, 13);
+  assert.equal(applied.length, 14);
   assert.deepEqual(
     applied.map((m) => m.version),
-    ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013']
+    ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014']
   );
 
   const attendanceColumns = db
@@ -286,7 +286,7 @@ test('4. Superadmin can create Admin & Karyawan accounts (explicit password enfo
   assert.equal(badCreate.status, 400);
 
   // Create Admin account directly via superadmin accounts API
-  const adminCreate = await apiJson<{ ok: boolean; userId: number; karyawanId: number }>(
+  const adminCreate = await apiJson<{ ok: boolean; userId: number; karyawanId: number | null; nik: string | null }>(
     '/api/v1/superadmin/accounts',
     {
       method: 'POST',
@@ -306,6 +306,16 @@ test('4. Superadmin can create Admin & Karyawan accounts (explicit password enfo
   );
   assert.equal(adminCreate.status, 201);
   adminUserId = adminCreate.data.userId;
+  assert.equal(adminCreate.data.karyawanId, null);
+  assert.equal(adminCreate.data.nik, null);
+  const standaloneAdmin = getDb()
+    .prepare(`SELECT role, karyawan_id, nama_tampilan FROM pengguna WHERE id = ?`)
+    .get(adminUserId) as { role: string; karyawan_id: number | null; nama_tampilan: string };
+  assert.deepEqual(standaloneAdmin, {
+    role: 'ADMIN',
+    karyawan_id: null,
+    nama_tampilan: 'Admin Operasional Test',
+  });
 
   const adminLogin = await apiJson<{ token: string }>('/api/v1/auth/login', {
     method: 'POST',
@@ -313,6 +323,20 @@ test('4. Superadmin can create Admin & Karyawan accounts (explicit password enfo
   });
   assert.equal(adminLogin.status, 200);
   adminToken = adminLogin.data.token;
+
+  // Admin profile and avatar are stored on the standalone pengguna record.
+  const adminPhoto = await apiJson<{ user: { karyawan_id: number | null; has_foto_profil: boolean } }>(
+    '/api/v1/profile/photo',
+    { method: 'PUT', token: adminToken, body: { fotoBase64: SAMPLE_PNG_BASE64 } }
+  );
+  assert.equal(adminPhoto.status, 200);
+  assert.equal(adminPhoto.data.user.karyawan_id, null);
+  assert.equal(adminPhoto.data.user.has_foto_profil, true);
+  const adminAvatar = await fetch(`${baseUrl}/api/v1/avatars/pengguna/${adminUserId}`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(adminAvatar.status, 200);
+  assert.equal(adminAvatar.headers.get('content-type'), 'image/png');
 
   // Registration with spoofed magic-byte PNG must fail
   const fakeReg = await apiJson('/api/v1/auth/register', {
@@ -409,6 +433,35 @@ test('4. Superadmin can create Admin & Karyawan accounts (explicit password enfo
     body: { identifier: 'ditolak1', password: 'Password123' },
   });
   assert.equal(rejectedLogin.status, 403);
+
+  // Admin registration does not require employee placement fields and approval creates no NIK/profile.
+  const standaloneAdminReg = await apiJson<{ id: number }>('/api/v1/auth/register', {
+    method: 'POST',
+    body: {
+      nama_lengkap: 'Admin Kedua',
+      username: 'admin_kedua',
+      email: 'admin.kedua@bignet.co.id',
+      no_hp: '08120000222',
+      password: 'AdminKeduaPassword!1',
+      role_diminta: 'ADMIN',
+    },
+  });
+  assert.equal(standaloneAdminReg.status, 201);
+  const approvedAdmin = await apiJson<{
+    ok: boolean; userId: number; karyawanId: number | null; nik: string | null; role: string;
+  }>(`/api/v1/superadmin/registrations/${standaloneAdminReg.data.id}/approve`, {
+    method: 'POST',
+    token: superToken,
+    body: {},
+  });
+  assert.equal(approvedAdmin.status, 200);
+  assert.equal(approvedAdmin.data.role, 'ADMIN');
+  assert.equal(approvedAdmin.data.karyawanId, null);
+  assert.equal(approvedAdmin.data.nik, null);
+  const approvedAdminDb = getDb()
+    .prepare(`SELECT role, karyawan_id FROM pengguna WHERE id = ?`)
+    .get(approvedAdmin.data.userId) as { role: string; karyawan_id: number | null };
+  assert.deepEqual(approvedAdminDb, { role: 'ADMIN', karyawan_id: null });
 });
 
 test('5. Authorization boundaries, query-token restriction, logout jti & token_version revocation', async () => {
