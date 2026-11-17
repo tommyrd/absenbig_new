@@ -981,11 +981,25 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                         </p>
                         <p className="text-red-900 dark:text-red-200 leading-relaxed">
                           Sesi {nextSesi.nama} ditutup pukul <span className="font-mono font-semibold">{nextSesi.jam_selesai} WIB</span>.
+                          Waktu server saat pemeriksaan: <span className="font-mono font-semibold">{data.serverTime} WIB</span>.
                           Absensi mandiri dikunci. Hubungi Admin untuk meminta akses check-in khusus bila ada keadaan operasional yang dapat dipertanggungjawabkan.
                         </p>
                       </div>
                     </div>
-                  ) : !nextSessionStarted ? (
+                  ) : nextWindowState === 'INVALID' && nextSesi ? (
+                    <div className="p-4 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/70 flex items-start gap-3">
+                      <AlertTriangle className="w-5 h-5 text-red-700 dark:text-red-400 shrink-0 mt-0.5" />
+                      <div className="space-y-1 text-xs">
+                        <p className="font-bold text-red-950 dark:text-red-100">
+                          Jadwal Sesi Tidak Valid
+                        </p>
+                        <p className="text-red-900 dark:text-red-200 leading-relaxed">
+                          Sesi {nextSesi.nama} dijadwalkan {nextSesi.jam_mulai}–{nextSesi.jam_selesai} WIB, tetapi server tidak dapat memvalidasi jendela waktunya.
+                          Waktu server: <span className="font-mono font-semibold">{data.serverTime} WIB</span>. Hubungi Admin untuk memeriksa pengaturan sesi.
+                        </p>
+                      </div>
+                    </div>
+                  ) : nextWindowState === 'NOT_STARTED' && nextSesi ? (
                     <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 flex items-start gap-3">
                       <Lock className="w-5 h-5 text-amber-700 dark:text-amber-400 shrink-0 mt-0.5" />
                       <div className="space-y-1 text-xs">
