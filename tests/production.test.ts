@@ -571,6 +571,7 @@ test('6. SVG logo XSS sanitization, attendance camera-only, jam_mulai gate, geof
       jumlah_sesi: 2,
       min_sesi_hadir: 1,
       toleransi_terlambat_menit: 15,
+      aturan_lokasi: 'SEMUA_SESI_KANTOR',
       wajib_foto_semua_sesi: 1,
       wajib_aktivitas_sesi_lanjut: 1,
       sesi: [
@@ -676,6 +677,46 @@ test('6. SVG logo XSS sanitization, attendance camera-only, jam_mulai gate, geof
   savedAttendanceSessionId = rec.id;
   assert.ok(rec.foto_checksum && rec.foto_checksum.length === 64);
 
+  // Strict setting: every session must be inside the office, including session 2.
+  const strictOffsiteAttempt = await apiJson('/api/v1/attendance/session', {
+    method: 'POST',
+    token: karyawanToken,
+    body: {
+      urutanSesi: 2,
+      lat: -6.25,
+      lng: 106.85,
+      accuracyMeter: 10,
+      tipeAktivitas: 'STANDBY',
+      deskripsiAktivitas: 'Uji kebijakan semua sesi wajib di kantor',
+      fotoBase64: SAMPLE_PNG_BASE64,
+      fotoSource: 'BROWSER_CAMERA',
+    },
+  });
+  assert.equal(strictOffsiteAttempt.status, 400);
+  assert.match(String(strictOffsiteAttempt.data.error), /wajib dilakukan di kantor/i);
+
+  // Switch back to the default rule: session 1 in office; later sessions are flexible.
+  const setFlexiblePolicy = await apiJson(`/api/v1/policies/${futurePol.data.id}`, {
+    method: 'PUT',
+    token: adminToken,
+    body: {
+      nama: 'Kebijakan Uji Open',
+      jumlah_sesi: 2,
+      min_sesi_hadir: 1,
+      toleransi_terlambat_menit: 15,
+      aturan_lokasi: 'SESI_PERTAMA_KANTOR',
+      wajib_foto_semua_sesi: 1,
+      wajib_aktivitas_sesi_lanjut: 1,
+      libur_dihitung_masuk: 1,
+      off_pengganti_dihitung_masuk: 1,
+      izin_dihitung_masuk: 0,
+      sakit_dihitung_masuk: 1,
+      cuti_dihitung_masuk: 1,
+      aktif: 1,
+    },
+  });
+  assert.equal(setFlexiblePolicy.status, 200);
+
   // Default location rule: session 2 may be taken off-site; retain approximate GPS evidence.
   const flexibleOffsite = await apiJson<{
     ok: boolean;
@@ -697,7 +738,7 @@ test('6. SVG logo XSS sanitization, attendance camera-only, jam_mulai gate, geof
   assert.equal(flexibleOffsite.status, 201);
   assert.equal(flexibleOffsite.data.day.sessionsCompleted, 2);
   assert.equal(flexibleOffsite.data.day.sessionRecords[1].accuracy_meter, 50000);
-  assert.equal(flexibleOffsite.data.day.sessionRecords[1].dalam_geofence, false);
+  assert.equal(flexibleOffsite.data.day.sessionRecords[1].dalam_geofence, 0);
 
   // Feed lists the post and photo endpoint returns PNG with security headers
   const feed = await apiJson<{ posts: { id: number; namaLengkap: string; hasFoto: boolean }[] }>(
