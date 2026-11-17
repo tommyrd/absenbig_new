@@ -74,6 +74,15 @@ export function getAuthorizedAvatarUrl(karyawanId: number, version?: string | nu
   return buildApiUrl(`/api/v1/avatars/karyawan/${karyawanId}${query ? `?${query}` : ''}`);
 }
 
+export function getAuthorizedUserAvatarUrl(userId: number, version?: string | null): string {
+  const token = getStoredToken();
+  const qs = new URLSearchParams();
+  if (token) qs.set('token', token);
+  if (version) qs.set('v', version);
+  const query = qs.toString();
+  return buildApiUrl(`/api/v1/avatars/pengguna/${userId}${query ? `?${query}` : ''}`);
+}
+
 export function getAuthorizedRegistrationAvatarUrl(regId: number): string {
   const token = getStoredToken();
   return buildApiUrl(
