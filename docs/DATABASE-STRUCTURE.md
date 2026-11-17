@@ -20,7 +20,7 @@ Master divisi/bidang kerja (Teknisi Lapangan, NOC, Administrasi, dll.).
 
 ### 1.4 `karyawan`
 Master data kepegawaian dan foto profil.
-- `id` (`INTEGER PK`), `nik` (`TEXT UNIQUE`), `nama_lengkap`, `email` (`TEXT UNIQUE`), `no_hp`, `kantor_id` (`FK -> kantor.id`), `bidang_id` (`FK -> bidang_kerja.id`), `jabatan`, `tanggal_masuk`, `foto_profil_path`, `foto_profil_updated_at`, `aktif`, `is_system_archive` (`DEFAULT 0`). Profil pemilik lama yang telah dilepas dari akun ditandai `is_system_archive = 1` agar tidak muncul di master pegawai, feed, roster, atau payroll; barisnya tetap disimpan untuk menjaga relasi historis absensi dan audit.
+- `id` (`INTEGER PK`), `nik` (`TEXT UNIQUE`), `nama_lengkap`, `email` (`TEXT UNIQUE`), `no_hp`, `kantor_id` (`FK -> kantor.id`), `bidang_id` (`FK -> bidang_kerja.id`), `jabatan`, `tanggal_masuk`, `foto_profil_path`, `foto_profil_updated_at`, `aktif`, `is_system_archive` (`DEFAULT 0`). Profil lama milik Owner/Superadmin dan Admin Operasional yang telah dilepas dari akun ditandai `is_system_archive = 1` serta dinonaktifkan agar tidak muncul di master pegawai, feed, roster, atau payroll; barisnya tetap disimpan untuk menjaga relasi historis absensi dan audit.
 
 ### 1.5 `pengguna`
 Akun autentikasi dan hak akses role.
@@ -71,7 +71,7 @@ Jejak audit permanen seluruh perubahan penting.
 ### 1.14 `pengaturan_aplikasi` & `pendaftaran_akun`
 Pengaturan branding/sistem (singleton `id = 1`) dan antrean pendaftaran akun menunggu ACC Superadmin.
 - `pengaturan_aplikasi`: `id` (`CHECK(id = 1)`), `nama_aplikasi`, `subjudul_login`, `judul_hero_login`, `deskripsi_login`, `judul_form_login`, `pengumuman_login`, `footer_login`, `logo_path`, `logo_updated_at`, `favicon_path`, `favicon_updated_at`, `retensi_foto_hari`, `wajib_gps_absensi`, `izin_demo_login`, `updated_at`. Logo dan favicon adalah aset persisten di direktori `data/assets`; favicon dapat berupa PNG, SVG, atau ICO dan dikelola oleh SUPERADMIN. Kolom favicon ditambahkan oleh migrasi `009_custom_website_favicon_settings`.
-- `pendaftaran_akun`: `id` (`PK`), `nama_lengkap`, `username`, `email`, `no_hp`, `password_hash`, `role_diminta` (`KARYAWAN` | `ADMIN`), `jabatan`, `kantor_id` (`FK -> kantor.id`), `bidang_id` (`FK -> bidang_kerja.id`), `foto_profil_path`, `catatan_pendaftar`, `status` (`PENDING` | `APPROVED` | `REJECTED`), `nik_diberikan`, `alasan_keputusan`, `diproses_oleh` (`FK -> pengguna.id`), `diproses_pada`, `created_at`. **Index:** `idx_pendaftaran_status(status, created_at DESC)`.
+- `pendaftaran_akun`: `id` (`PK`), `nama_lengkap`, `username`, `email`, `no_hp`, `password_hash`, `role_diminta` (`KARYAWAN` | `ADMIN`), `jabatan`, `kantor_id` (`FK -> kantor.id`), `bidang_id` (`FK -> bidang_kerja.id`), `foto_profil_path`, `catatan_pendaftar`, `status` (`PENDING` | `APPROVED` | `REJECTED`), `nik_diberikan`, `alasan_keputusan`, `diproses_oleh` (`FK -> pengguna.id`), `diproses_pada`, `created_at`. Untuk pendaftaran `ADMIN`, aplikasi tidak meminta penempatan; karena kolom `kantor_id` dan `bidang_id` pada antrean pendaftaran masih wajib FK, server menyimpan referensi default internal hanya sebagai placeholder antrean. Nilai tersebut bukan penempatan akun Admin dan tidak disalin ke profil pegawai saat ACC. **Index:** `idx_pendaftaran_status(status, created_at DESC)`.
 
 ### 1.15 `absensi_lokasi_cache`
 Cache hasil reverse geocoding untuk record absensi lama yang belum memiliki `absensi_sesi.lokasi_alamat`.
