@@ -2,7 +2,7 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import { apiFetch, getStoredToken, logoutApi } from './lib/api';
 import { useTheme } from './lib/theme';
 import type { AuthUser, SystemSettings } from './shared/types';
@@ -16,6 +16,19 @@ export default function App() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [settings, setSettings] = useState<SystemSettings | null>(null);
   const [checking, setChecking] = useState(true);
+
+  // LoginView and the role-based shell share the same document. Reset the
+  // viewport when an Admin/Superadmin session becomes active so the new
+  // Beranda never inherits the login form's previous scroll position.
+  useLayoutEffect(() => {
+    if (!user || (user.role !== 'ADMIN' && user.role !== 'SUPERADMIN')) {
+      return;
+    }
+
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }, [user?.id, user?.role]);
 
   useEffect(() => {
     apiFetch<{ settings: SystemSettings | null }>('/api/v1/settings/public')
