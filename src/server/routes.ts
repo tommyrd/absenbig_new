@@ -261,6 +261,7 @@ export function registerApiRoutes(app: Express) {
   // 1. Server Time
   app.get('/api/v1/time', (_req: Request, res: Response) => {
     const now = new Date();
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.json({
       serverTimeIso: getWibIsoString(now),
       date: getWibDateString(now),
