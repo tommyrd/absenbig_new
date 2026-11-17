@@ -16,6 +16,7 @@ import { getWibDateString } from '../src/server/time.ts';
 import type { Karyawan, Role } from '../src/shared/types.ts';
 import { isGpsAccuracyAcceptable, isWithinVerifiedGeofence, MAX_GPS_ACCURACY_METERS, requiresOfficeGeofence } from '../src/shared/geofence.ts';
 import { getSessionWindowState } from '../src/shared/session-window.ts';
+import { shouldOpenAttendanceOnEntry } from '../src/shared/employee-entry.ts';
 
 test('Geofence Haversine distance calculation', () => {
   const distSame = haversineMeters(-6.2088, 106.8456, -6.2088, 106.8456);
@@ -43,6 +44,36 @@ test('Attendance location policy requires office on session 1 by default and can
   assert.equal(requiresOfficeGeofence(undefined, 2), false);
   assert.equal(requiresOfficeGeofence(undefined, 1), true);
   assert.equal(requiresOfficeGeofence('SESI_PERTAMA_KANTOR', 0), true);
+});
+
+test('Employee lands on attendance only when the next session is currently open', () => {
+  const day = {
+    mustCheckIn: true,
+    sessionsCompleted: 0,
+    policySnapshot: {
+      jumlahSesi: 2,
+      sesiList: [
+        { jam_mulai: '09:00', jam_selesai: '09:30' },
+        { jam_mulai: '17:00', jam_selesai: '17:30' },
+      ],
+    },
+  };
+
+  assert.equal(shouldOpenAttendanceOnEntry(day, '08:59:59'), false);
+  assert.equal(shouldOpenAttendanceOnEntry(day, '09:00:00'), true);
+  assert.equal(shouldOpenAttendanceOnEntry(day, '09:30:00'), true);
+  assert.equal(shouldOpenAttendanceOnEntry(day, '09:31:00'), false);
+
+  const nextSessionDue = { ...day, sessionsCompleted: 1 };
+  assert.equal(shouldOpenAttendanceOnEntry(nextSessionDue, '17:10:00'), true);
+  assert.equal(shouldOpenAttendanceOnEntry(nextSessionDue, '16:59:00'), false);
+
+  assert.equal(
+    shouldOpenAttendanceOnEntry({ ...day, sessionsCompleted: 2 }, '09:10:00'),
+    false
+  );
+  assert.equal(shouldOpenAttendanceOnEntry({ ...day, mustCheckIn: false }, '09:10:00'), false);
+  assert.equal(shouldOpenAttendanceOnEntry(day, 'invalid'), false);
 });
 
 test('GPS accuracy and radius uncertainty are validated conservatively', () => {
