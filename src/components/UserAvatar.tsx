@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { getAuthorizedAvatarUrl } from '../lib/api';
 
 interface UserAvatarProps {
-  karyawanId?: number;
+  karyawanId?: number | null;
   name: string;
   role?: string;
   version?: string | null;
