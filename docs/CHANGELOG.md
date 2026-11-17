@@ -47,3 +47,11 @@
 - Untuk sesi fleksibel, koordinat dan akurasi GPS tetap disimpan; akurasi rendah ditampilkan sebagai perkiraan dan tidak dipakai untuk meloloskan atau menolak geofence karena geofence tidak diwajibkan pada sesi tersebut.
 - Backend API dan frontend memakai aturan yang sama. Migrasi database versi 005 menambahkan kolom aturan_lokasi dan memberi kebijakan lama nilai default SESI_PERTAMA_KANTOR.
 - Test unit dan integration mencakup kedua mode kebijakan.
+
+## 2026-11-17 — Mobile GPS prompt, centered photo viewer, and employee landing
+
+- GPS tidak lagi diminta otomatis ketika halaman Absensi dibuka. Status awal netral; browser baru diminta izin setelah karyawan menekan Aktifkan Lokasi.
+- Jika aplikasi dibuka melalui HTTP IP lokal yang bukan secure context, halaman menjelaskan bahwa GPS/kamera memerlukan HTTPS.
+- Lightbox foto Beranda kini diposisikan di tengah layar pada mobile dan desktop, dengan tinggi dibatasi viewport dan detail dapat discroll.
+- Saat login, aplikasi menggunakan waktu WIB dari endpoint server dan jadwal sesi berikutnya untuk memilih tab awal: Absensi hanya jika sesi berikutnya sedang terbuka; selain itu Beranda.
+- Pengujian unit ditambahkan untuk routing halaman awal berdasarkan status sesi.
