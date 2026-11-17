@@ -348,6 +348,15 @@ export interface ResolvedDay {
   sessionsRequired: number;
   sessionRecords: AbsensiSesiRecord[];
   mustCheckIn: boolean;
+  checkinOverride?: {
+    id: number;
+    active: boolean;
+    urutanSesi: number;
+    namaSesi: string;
+    alasan: string;
+    berlakuSampai: string;
+    adminNama: string;
+  } | null;
 }
 
 export interface MonthlySummary {
