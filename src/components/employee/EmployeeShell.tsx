@@ -123,7 +123,6 @@ export function EmployeeShell({
     return () => window.clearInterval(timerId);
   }, [fetchToday, tab]);
 
-  const nextSesi = myDay ? myDay.policySnapshot.sesiList[myDay.sessionsCompleted] : null;
   const nowWibHm =
     serverWibHm ||
     new Intl.DateTimeFormat('en-GB', {
@@ -132,13 +131,11 @@ export function EmployeeShell({
       minute: '2-digit',
       hour12: false,
     }).format(new Date());
-  const nextSesiStarted = nextSesi ? nowWibHm >= nextSesi.jam_mulai : false;
 
   const showIncompleteReminder =
     tab !== 'absensi' &&
-    myDay?.mustCheckIn &&
-    myDay.sessionsCompleted < myDay.policySnapshot.jumlahSesi &&
-    nextSesiStarted;
+    myDay !== null &&
+    shouldOpenAttendanceOnEntry(myDay, `${nowWibHm}:00`);
 
   if (!initialRouteReady) {
     return (
