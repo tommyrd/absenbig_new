@@ -76,6 +76,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const serverClockSyncRef = useRef<ServerClockSync | null>(null);
+  const todayRequestIdRef = useRef(0);
   const [liveWibHm, setLiveWibHm] = useState(() => getWibHmFromEpoch(Date.now()));
 
   // GPS State
@@ -142,6 +143,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   const [submitMsg, setSubmitMsg] = useState<{ type: 'loading' | 'ok' | 'err'; text: string } | null>(null);
 
   const loadToday = useCallback(async (silent = false) => {
+    const requestId = ++todayRequestIdRef.current;
     if (!silent) {
       setLoading(true);
       setError(null);
@@ -150,6 +152,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
       const requestStartedAt = performance.now();
       const res = await apiFetch<TodayResponse>('/api/v1/attendance/today');
       const responseReceivedAt = performance.now();
+      if (requestId !== todayRequestIdRef.current) return;
       setData(res);
 
       // The session gate follows the same server clock shown in the header.
@@ -166,6 +169,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
         const fallbackStartedAt = performance.now();
         const timeRes = await apiFetch<{ epochMs?: number }>('/api/v1/time');
         const fallbackReceivedAt = performance.now();
+        if (requestId !== todayRequestIdRef.current) return;
         serverEpochMs = timeRes.epochMs;
         if (typeof serverEpochMs === 'number') {
           sync = createServerClockSync(serverEpochMs, fallbackStartedAt, fallbackReceivedAt);
@@ -181,9 +185,11 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
         setLiveWibHm(res.serverTime.slice(0, 5));
       }
     } catch (err) {
-      if (!silent) setError(err instanceof Error ? err.message : 'Gagal memuat status absensi.');
+      if (requestId === todayRequestIdRef.current && !silent) {
+        setError(err instanceof Error ? err.message : 'Gagal memuat status absensi.');
+      }
     } finally {
-      if (!silent) setLoading(false);
+      if (requestId === todayRequestIdRef.current && !silent) setLoading(false);
     }
   }, []);
 
