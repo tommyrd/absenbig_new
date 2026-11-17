@@ -220,6 +220,8 @@ test('System settings table initializes default branding and login config', () =
   assert.ok(settings);
   assert.equal(settings.nama_aplikasi, 'Absensi BIGNET');
   assert.equal(Number(settings.izin_demo_login), 1);
+  assert.equal(settings.favicon_path, null);
+  assert.equal(settings.favicon_updated_at, null);
 });
 
 test('Registration table and profile photo columns are initialized', () => {
@@ -273,9 +275,13 @@ test('System settings API strictly enforces SUPERADMIN access while keeping publ
     const missingData = (await missingRes.json()) as { error?: string };
     assert.ok(typeof missingData.error === 'string');
 
-    // Public settings accessible without token
+    // Public settings and default favicon are accessible without a token
     const pubRes = await fetch(`${baseUrl}/api/v1/settings/public`);
     assert.equal(pubRes.status, 200);
+    const faviconRes = await fetch(`${baseUrl}/api/v1/assets/favicon`);
+    assert.equal(faviconRes.status, 200);
+    assert.equal(faviconRes.headers.get('content-type'), 'image/svg+xml');
+    assert.equal(faviconRes.headers.get('x-content-type-options'), 'nosniff');
 
     // Unauthenticated /api/v1/settings returns 401
     const anonRes = await fetch(`${baseUrl}/api/v1/settings`);
