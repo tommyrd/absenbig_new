@@ -162,6 +162,16 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
 12. Tekan **Reset Foto** dan pastikan avatar kembali ke inisial default tanpa mengubah `karyawan_id = NULL`.
 13. Pastikan database menolak `INSERT/UPDATE` yang mencoba menghubungkan SUPERADMIN ke `karyawan_id`, dan menolak akun ADMIN/KARYAWAN tanpa `karyawan_id`.
 
+## 6. UAT Admin Edit Bidang & Jam Absensi Mobile
+
+1. Login sebagai ADMIN operasional, buka **Master Karyawan & Kantor → Karyawan**, pilih **Edit** pada teknisi, lalu ubah **Bidang Kerja**. Simpan dan pastikan bidang baru muncul pada master karyawan, kebijakan efektif, dan laporan terkait.
+2. Buka tab **Bidang Kerja**, pilih **Ubah** pada kartu bidang, lalu ubah kode/nama/deskripsi. Pastikan perubahan tersimpan, tampil setelah refresh, dan tercatat pada Audit Trail.
+3. Coba memilih kantor/bidang yang tidak ada melalui request; backend harus mengembalikan HTTP 400 dan data lama tidak berubah.
+4. Di Safari iPhone, buka halaman Absensi sebelum sesi dibuka. Tunggu sampai sesi mulai, lalu pastikan status berubah tanpa harus logout/login.
+5. Buka Settings browser untuk memberi izin lokasi, kembali ke tab aplikasi, tekan **Perbarui Lokasi**, dan tunggu GPS berhasil. Jika waktu server sudah berada di dalam jadwal, tombol kamera harus terbuka; tombol kirim aktif setelah seluruh persyaratan foto/aktivitas/geofence terpenuhi.
+6. Ulangi dengan tab di-background atau layar terkunci lalu kembali. Pastikan jam di header dan gate Absensi selaras, meskipun jam perangkat manual berbeda.
+7. Pastikan sesi yang belum mulai tetap terkunci dan sesi yang sudah lewat tetap ditolak kecuali terdapat izin check-in khusus Admin yang aktif. API server tetap menolak submit di luar waktu sah.
+
 ## 7. UAT Hapus Kantor & Bidang Kerja yang Tidak Digunakan
 
 1. Login sebagai ADMIN operasional, buka **Master Karyawan & Kantor → Kantor & Geofence**. Kantor baru yang belum memiliki relasi bisnis harus menampilkan tombol **Hapus** aktif.
@@ -173,13 +183,3 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
 7. Hapus bidang kosong. Pastikan baris bidang hilang dan Audit Trail menyimpan aksi `DELETE_BIDANG`.
 8. Login sebagai Karyawan dan coba memanggil kedua endpoint DELETE; server harus menolak dengan HTTP 403.
 9. Pastikan percobaan menghapus data yang masih memiliki relasi tidak menghapus sebagian data anak maupun master; tidak ada perubahan jika validasi gagal.
-
-## 6. UAT Admin Edit Bidang & Jam Absensi Mobile
-
-1. Login sebagai ADMIN operasional, buka **Master Karyawan & Kantor → Karyawan**, pilih **Edit** pada teknisi, lalu ubah **Bidang Kerja**. Simpan dan pastikan bidang baru muncul pada master karyawan, kebijakan efektif, dan laporan terkait.
-2. Buka tab **Bidang Kerja**, pilih **Ubah** pada kartu bidang, lalu ubah kode/nama/deskripsi. Pastikan perubahan tersimpan, tampil setelah refresh, dan tercatat pada Audit Trail.
-3. Coba memilih kantor/bidang yang tidak ada melalui request; backend harus mengembalikan HTTP 400 dan data lama tidak berubah.
-4. Di Safari iPhone, buka halaman Absensi sebelum sesi dibuka. Tunggu sampai sesi mulai, lalu pastikan status berubah tanpa harus logout/login.
-5. Buka Settings browser untuk memberi izin lokasi, kembali ke tab aplikasi, tekan **Perbarui Lokasi**, dan tunggu GPS berhasil. Jika waktu server sudah berada di dalam jadwal, tombol kamera harus terbuka; tombol kirim aktif setelah seluruh persyaratan foto/aktivitas/geofence terpenuhi.
-6. Ulangi dengan tab di-background atau layar terkunci lalu kembali. Pastikan jam di header dan gate Absensi selaras, meskipun jam perangkat manual berbeda.
-7. Pastikan sesi yang belum mulai tetap terkunci dan sesi yang sudah lewat tetap ditolak kecuali terdapat izin check-in khusus Admin yang aktif. API server tetap menolak submit di luar waktu sah.
