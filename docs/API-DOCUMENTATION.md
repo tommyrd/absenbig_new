@@ -47,7 +47,7 @@ Seluruh endpoint berada di bawah prefix `/api/v1`. Autentikasi menggunakan heade
 | `GET` | `/api/v1/workforce/today` | Semua Role Terautentikasi | Status tenaga kerja hari ini (sudah disanitasi tanpa GPS mentah). |
 | `GET` | `/api/v1/workforce/stream` | Semua Role Terautentikasi | Stream SSE real-time (`event: connected`, `event: workforce`) untuk pembaruan feed & dashboard otomatis. |
 | `GET` | `/api/v1/attendance/today` | Semua Role Terautentikasi | Resolusi jadwal, kebijakan aktif (`policySnapshot`), sesi terselesaikan, dan hak check-in hari ini milik pengguna. |
-| `POST` | `/api/v1/attendance/session` | Semua Role Terautentikasi (Rate-limited) | Mengirim absensi sesi berikutnya. Wajib `fotoSource === 'BROWSER_CAMERA'`, memverifikasi `nowMin >= jam_mulai`, validasi magic-byte PNG/JPG/WEBP, validasi koordinat & geofence, serta menulis `absensi_sesi` + `audit_log` secara atomik. |
+| `POST` | `/api/v1/attendance/session` | Semua Role Terautentikasi (Rate-limited) | Mengirim absensi sesi berikutnya. Wajib GPS valid, koordinat harus berada dalam `radius_meter` kantor (di luar radius atau GPS kosong ditolak tanpa menyimpan absensi), `fotoSource === 'BROWSER_CAMERA'`, `nowMin >= jam_mulai`, validasi magic-byte PNG/JPG/WEBP, serta menulis `absensi_sesi` + `audit_log` secara atomik. |
 | `GET` | `/api/v1/photos/:sessionId` | Semua Role Terautentikasi | Mengambil foto sesi absensi. Karyawan dibatasi pada foto miliknya & feed <= 30 hari terakhir; Admin/Superadmin akses penuh. |
 
 ---
