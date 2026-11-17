@@ -753,7 +753,14 @@ export function registerApiRoutes(app: Express) {
       res.status(404).json({ error: 'Data karyawan tidak ditemukan.' });
       return;
     }
-    const today = getWibDateString();
+    // Capture one authoritative server instant for the date, session gate,
+    // override validity, and clock values returned to the browser.
+    const serverNow = new Date();
+    const today = getWibDateString(serverNow);
+    const serverTime = getWibTimeString(serverNow);
+    const serverNowIso = getWibIsoString(serverNow);
+    const serverEpochMs = serverNow.getTime();
+    const serverNowMinutes = parseHmToMinutes(serverTime.slice(0, 5));
     const resolved = resolveDayForEmployee(db, emp, today);
     const pendingRequests = db
       .prepare(
@@ -761,9 +768,20 @@ export function registerApiRoutes(app: Express) {
       )
       .all(emp.id, today, today);
 
-    const nextSession = resolved.policySnapshot.sesiList[resolved.sessionsCompleted];
+    const serverSessionWindowStates = resolved.policySnapshot.sesiList.map((session) =>
+      getSessionWindowState(serverNowMinutes, session.jam_mulai, session.jam_selesai)
+    );
+    const nextSessionIndex = resolved.sessionsCompleted;
+    const nextSession = resolved.policySnapshot.sesiList[nextSessionIndex];
+    const serverWindowState = nextSession
+      ? serverSessionWindowStates[nextSessionIndex]
+      : null;
+    const serverMinutesUntilStart =
+      nextSession && serverWindowState === 'NOT_STARTED'
+        ? Math.max(0, parseHmToMinutes(nextSession.jam_mulai) - serverNowMinutes)
+        : 0;
     const activeGrant = nextSession
-      ? getActiveCheckinOverride(db, emp.id, today, nextSession.urutan, getWibIsoString())
+      ? getActiveCheckinOverride(db, emp.id, today, nextSession.urutan, serverNowIso)
       : null;
     const day = {
       ...resolved,
@@ -780,10 +798,15 @@ export function registerApiRoutes(app: Express) {
         : null,
     };
 
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.json({
       serverDate: today,
-      serverTime: getWibTimeString(),
-      serverEpochMs: Date.now(),
+      serverTime,
+      serverEpochMs,
+      serverWindowCheckedAt: serverTime,
+      serverWindowState,
+      serverSessionWindowStates,
+      serverMinutesUntilStart,
       karyawan: emp,
       day,
       pendingRequestsToday: pendingRequests,
