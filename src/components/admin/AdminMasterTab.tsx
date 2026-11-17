@@ -43,6 +43,7 @@ export function AdminMasterTab() {
 
   // Bidang Modal
   const [bidangModal, setBidangModal] = useState(false);
+  const [editingBidang, setEditingBidang] = useState<BidangKerja | null>(null);
   const [bidangForm, setBidangForm] = useState({ kode: '', nama: '', deskripsi: '' });
 
   const [formErr, setFormErr] = useState<string | null>(null);
@@ -139,16 +140,42 @@ export function AdminMasterTab() {
     }
   };
 
+  const openCreateBidang = () => {
+    setEditingBidang(null);
+    setBidangForm({ kode: '', nama: '', deskripsi: '' });
+    setFormErr(null);
+    setBidangModal(true);
+  };
+
+  const openEditBidang = (bidang: BidangKerja) => {
+    setEditingBidang(bidang);
+    setBidangForm({
+      kode: bidang.kode,
+      nama: bidang.nama,
+      deskripsi: bidang.deskripsi || '',
+    });
+    setFormErr(null);
+    setBidangModal(true);
+  };
+
   const submitBidang = async (e: FormEvent) => {
     e.preventDefault();
     setSaving(true);
     setFormErr(null);
     try {
-      await apiFetch('/api/v1/master/bidang', {
-        method: 'POST',
-        body: JSON.stringify(bidangForm),
-      });
+      if (editingBidang) {
+        await apiFetch(`/api/v1/master/bidang/${editingBidang.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(bidangForm),
+        });
+      } else {
+        await apiFetch('/api/v1/master/bidang', {
+          method: 'POST',
+          body: JSON.stringify(bidangForm),
+        });
+      }
       setBidangModal(false);
+      setEditingBidang(null);
       setBidangForm({ kode: '', nama: '', deskripsi: '' });
       await loadAll();
     } catch (err) {
@@ -290,10 +317,7 @@ export function AdminMasterTab() {
           {subtab === 'bidang' && (
             <button
               type="button"
-              onClick={() => {
-                setFormErr(null);
-                setBidangModal(true);
-              }}
+              onClick={openCreateBidang}
               className="min-h-[44px] sm:min-h-[40px] px-4 bg-navy-900 hover:bg-navy-800 dark:bg-blue-700 dark:hover:bg-blue-600 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5 w-full sm:w-auto"
             >
               <Plus className="w-4 h-4" />
@@ -424,9 +448,19 @@ export function AdminMasterTab() {
               key={b.id}
               className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 sm:p-5"
             >
-              <div className="flex items-center gap-2 text-blue-700 dark:text-blue-400">
-                <Users className="w-4 h-4" />
-                <span className="font-mono text-xs font-semibold">{b.kode}</span>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-blue-700 dark:text-blue-400 min-w-0">
+                  <Users className="w-4 h-4 shrink-0" />
+                  <span className="font-mono text-xs font-semibold">{b.kode}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => openEditBidang(b)}
+                  className="min-h-[36px] px-2 text-xs font-semibold text-blue-700 dark:text-blue-400 hover:underline inline-flex items-center gap-1 shrink-0"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                  Ubah
+                </button>
               </div>
               <h3 className="font-display text-base font-bold text-slate-900 dark:text-slate-100 mt-1">
                 {b.nama}
@@ -747,7 +781,7 @@ export function AdminMasterTab() {
           <div className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[92vh] flex flex-col">
             <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
               <h2 className="font-display text-base font-bold text-slate-900 dark:text-slate-100">
-                Tambah Bidang Kerja
+                {editingBidang ? 'Edit Bidang Kerja' : 'Tambah Bidang Kerja'}
               </h2>
               <button
                 type="button"
@@ -808,7 +842,7 @@ export function AdminMasterTab() {
                   disabled={saving}
                   className="min-h-[44px] sm:min-h-[40px] px-5 text-xs font-semibold bg-navy-900 dark:bg-blue-700 text-white rounded-lg"
                 >
-                  Simpan
+                  {saving ? 'Menyimpan...' : editingBidang ? 'Simpan Perubahan' : 'Simpan'}
                 </button>
               </div>
             </form>
