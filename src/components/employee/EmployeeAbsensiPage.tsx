@@ -81,6 +81,10 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   const [coords, setCoords] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
   const [gpsStatus, setGpsStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle');
   const [gpsError, setGpsError] = useState<string | null>(null);
+  const [locationAddress, setLocationAddress] = useState<string | null>(null);
+  const [locationAddressStatus, setLocationAddressStatus] = useState<
+    'idle' | 'loading' | 'ready' | 'unconfigured' | 'error'
+  >('idle');
 
   const readCurrentGps = useCallback(
     () =>
@@ -250,15 +254,43 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
     setGpsStatus('loading');
     setGpsError(null);
     setCoords(null);
+    setLocationAddress(null);
+    setLocationAddressStatus('idle');
+
     readCurrentGps()
       .then((position) => {
         setCoords(position);
         setGpsStatus('ok');
+
+        // Reverse-geocode only after the employee explicitly presses
+        // Perbarui Lokasi. The server keeps the provider key private.
+        setLocationAddressStatus('loading');
+        const query = new URLSearchParams({
+          lat: String(position.lat),
+          lng: String(position.lng),
+        });
+        void apiFetch<{
+          address: string | null;
+          configured: boolean;
+          provider: string | null;
+        }>(`/api/v1/location/reverse?${query.toString()}`)
+          .then((result) => {
+            setLocationAddress(result.address);
+            setLocationAddressStatus(
+              !result.configured ? 'unconfigured' : result.address ? 'ready' : 'error'
+            );
+          })
+          .catch(() => {
+            setLocationAddress(null);
+            setLocationAddressStatus('error');
+          });
       })
       .catch((err) => {
         setCoords(null);
         setGpsStatus('error');
         setGpsError(err instanceof Error ? err.message : 'Gagal membaca lokasi GPS.');
+        setLocationAddress(null);
+        setLocationAddressStatus('idle');
       });
   }, [readCurrentGps, stopCamera]);
 
@@ -968,8 +1000,41 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                     {gpsStatus === 'ok' && coords ? (
                       <div className="text-xs text-slate-600 dark:text-slate-300 space-y-1">
                         <p className="font-mono tabular-nums">
-                          Koordinat: {coords.lat}, {coords.lng} (Akurasi ±{coords.accuracy}m)
+                          Koordinat GPS browser: {coords.lat}, {coords.lng} · Akurasi ±{coords.accuracy}m
                         </p>
+                        <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-900/50 p-2.5 space-y-1">
+                          <p className="font-semibold text-slate-800 dark:text-slate-100">
+                            Lokasi aktual terdeteksi browser
+                          </p>
+                          {locationAddressStatus === 'loading' ? (
+                            <p className="text-slate-500 dark:text-slate-400">Mencari alamat berdasarkan koordinat GPS...</p>
+                          ) : locationAddressStatus === 'ready' && locationAddress ? (
+                            <>
+                              <p className="leading-relaxed">{locationAddress}</p>
+                              <p className="text-[10px] text-slate-400">
+                                Alamat perkiraan dari Google Maps Geocoding. Koordinat GPS browser tetap menjadi data lokasi utama.
+                              </p>
+                            </>
+                          ) : locationAddressStatus === 'unconfigured' ? (
+                            <p className="text-amber-700 dark:text-amber-300">
+                              Alamat lengkap belum diaktifkan. Koordinat GPS dan tautan peta tetap tersedia.
+                            </p>
+                          ) : locationAddressStatus === 'error' ? (
+                            <p className="text-amber-700 dark:text-amber-300">
+                              Alamat tidak berhasil diperoleh. Koordinat GPS tetap tercatat dan dapat dibuka di peta.
+                            </p>
+                          ) : (
+                            <p className="text-slate-500 dark:text-slate-400">Alamat belum diminta.</p>
+                          )}
+                          <a
+                            href={`https://www.google.com/maps/search/?api=1&query=${coords.lat},${coords.lng}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex min-h-[32px] items-center text-blue-700 dark:text-blue-400 font-semibold hover:underline"
+                          >
+                            Lihat titik GPS di Google Maps
+                          </a>
+                        </div>
                         <div className="flex flex-wrap items-center gap-1.5 font-medium">
                           <span>Jarak ke kantor:</span>
                           <span className="font-mono tabular-nums text-slate-900 dark:text-slate-100">{distanceMeters} m</span>
