@@ -172,6 +172,8 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
 6. Ulangi dengan tab di-background atau layar terkunci lalu kembali. Pastikan jam di header dan gate Absensi selaras, meskipun jam perangkat manual berbeda.
 7. Pastikan sesi yang belum mulai tetap terkunci dan sesi yang sudah lewat tetap ditolak kecuali terdapat izin check-in khusus Admin yang aktif. API server tetap menolak submit di luar waktu sah.
 
+
+
 ## 8. UAT Gate Absensi Mengikuti Waktu Server Sepenuhnya
 
 1. Buka halaman Absensi dan pastikan jam header menampilkan status sinkronisasi sampai respons server pertama diterima; jam perangkat tidak boleh tampil sebagai sumber awal.
