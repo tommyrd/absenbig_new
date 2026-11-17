@@ -117,6 +117,30 @@ const MIGRATIONS: MigrationDef[] = [
       `);
     },
   },
+  {
+    version: '008',
+    name: 'admin_one_time_expired_attendance_checkin_access',
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS override_akses_absensi (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          karyawan_id INTEGER NOT NULL REFERENCES karyawan(id),
+          tanggal TEXT NOT NULL,
+          urutan_sesi INTEGER NOT NULL CHECK(urutan_sesi BETWEEN 1 AND 4),
+          nama_sesi TEXT NOT NULL,
+          alasan TEXT NOT NULL,
+          admin_id INTEGER NOT NULL REFERENCES pengguna(id),
+          status TEXT NOT NULL DEFAULT 'AKTIF' CHECK(status IN ('AKTIF','DIGUNAKAN','KEDALUWARSA','DICABUT')),
+          berlaku_sampai TEXT NOT NULL,
+          used_at TEXT,
+          used_session_id INTEGER REFERENCES absensi_sesi(id),
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_override_akses_emp_date
+          ON override_akses_absensi(karyawan_id, tanggal, urutan_sesi, status, berlaku_sampai);
+      `);
+    },
+  },
 ];
 
 export function runMigrations(db: DatabaseSync): string[] {
