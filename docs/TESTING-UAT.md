@@ -76,3 +76,10 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
    - Uji buka kamera depan, tunggu frame siap, ambil foto, pratinjau, hapus/ulang, dan pengiriman foto.
    - Uji pergantian kamera depan ke belakang dan kembali ke depan. Pastikan pratinjau benar-benar berubah dan tombol ambil foto baru aktif setelah frame tersedia.
    - Uji Batal, navigasi keluar halaman, GPS refresh, sesi kedaluwarsa, dan pergantian kamera ketika permintaan izin masih berjalan. Pastikan indikator kamera perangkat mati setelah stream dihentikan.
+
+8. **Attendance Capture, Caption & Submission UX (Android/PC):**
+   - Tombol LANGKAH 1 Perbarui Lokasi harus ditekan sebelum kamera dan kirim absensi dapat digunakan; lokasi dapat diperbarui ulang.
+   - Foto hasil kamera tampil sebagai draft sebelum submit; uji Ganti Foto, ganti kamera depan/belakang, dan pastikan foto lama tidak tersimpan ketika pengguna membatalkannya.
+   - Caption Sesi 1 dapat diedit dan opsional; caption sesi lanjutan dapat diedit dan tetap mengikuti kewajiban deskripsi dari kebijakan.
+   - Ketika mengirim, tampilkan status loading pemeriksaan GPS dan pengunggahan/penyimpanan. Tombol kirim tidak boleh dapat ditekan dua kali.
+   - Setelah API mengonfirmasi penyimpanan berhasil, kembali ke Beranda, scroll ke paling atas, tampilkan notifikasi sukses, dan pastikan posting/foto terbaru muncul di feed.
