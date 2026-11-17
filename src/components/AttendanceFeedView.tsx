@@ -148,6 +148,7 @@ export function AttendanceFeedView({
         post.bidangNama.toLowerCase().includes(q) ||
         post.kantorNama.toLowerCase().includes(q) ||
         post.kantorAlamat.toLowerCase().includes(q) ||
+        (post.lokasiAktualAlamat || '').toLowerCase().includes(q) ||
         post.deskripsiAktivitas.toLowerCase().includes(q) ||
         post.namaSesi.toLowerCase().includes(q)
       );
@@ -557,19 +558,26 @@ export function AttendanceFeedView({
                       <div className="flex items-center justify-between gap-3 pt-0.5">
                         <div className="min-w-0 flex-1">
                           <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                            Lokasi absensi
+                            Lokasi saat absen
                           </p>
-                          <p className="mt-0.5 text-[11px] leading-snug text-slate-600 dark:text-slate-300 line-clamp-2">
-                            {post.kantorAlamat || post.kantorNama}
+                          <p className="mt-0.5 text-[11px] leading-snug text-slate-700 dark:text-slate-200 line-clamp-2">
+                            {post.lokasiAktualAlamat ||
+                              'Alamat aktual belum tersimpan untuk catatan absensi lama.'}
                           </p>
                           {post.lat !== null && post.lng !== null && (
                             <p className="mt-1 text-[10px] font-mono tabular-nums text-slate-400 dark:text-slate-500">
                               GPS {post.lat.toFixed(5)}, {post.lng.toFixed(5)}
                             </p>
                           )}
+                          <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                            Kantor penempatan
+                          </p>
+                          <p className="mt-0.5 text-[11px] leading-snug text-slate-600 dark:text-slate-300 line-clamp-2">
+                            {post.kantorNama} · {post.kantorAlamat}
+                          </p>
                           {post.jarakKantorMeter !== null && (
                             <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
-                              Jarak dari kantor: {formatDistance(post.jarakKantorMeter)}
+                              Jarak aktual ke kantor: {formatDistance(post.jarakKantorMeter)}
                             </p>
                           )}
                         </div>
@@ -851,7 +859,10 @@ export function AttendanceFeedView({
                     : 'Tanpa GPS'}
                 </span>
                 <span className="sm:col-span-2">
-                  Lokasi Kantor: {lightboxPost.kantorNama} — {lightboxPost.kantorAlamat}
+                  Lokasi Saat Absen: {lightboxPost.lokasiAktualAlamat || 'Alamat aktual tidak tersimpan pada catatan absensi lama'}
+                </span>
+                <span className="sm:col-span-2">
+                  Kantor Penempatan: {lightboxPost.kantorNama} — {lightboxPost.kantorAlamat}
                 </span>
                 {lightboxPost.lat !== null && lightboxPost.lng !== null && (
                   <span className="sm:col-span-2">
