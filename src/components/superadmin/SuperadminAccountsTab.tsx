@@ -694,7 +694,7 @@ export function SuperadminAccountsTab({
               <option value="">Semua Role</option>
               <option value="KARYAWAN">KARYAWAN / TEKNISI</option>
               <option value="ADMIN">ADMIN</option>
-              <option value="SUPERADMIN">SUPERADMIN</option>
+              <option value="SUPERADMIN" disabled={Boolean(editingAccount && editingAccount.role !== 'SUPERADMIN')}>SUPERADMIN · AKUN PEMILIK</option>
             </select>
           }
         />
@@ -932,7 +932,7 @@ export function SuperadminAccountsTab({
             <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
               <h2 className="font-display text-base font-bold text-slate-900 dark:text-slate-100 truncate">
                 {editingAccount
-                  ? `Kelola Akun ${editingAccount.nik} (@${editingAccount.username})`
+                  ? `Kelola Akun ${editingAccount.nik ? `${editingAccount.nik} · ` : ''}(@${editingAccount.username})`
                   : 'Buat Akun Baru (Superadmin)'}
               </h2>
               <button
@@ -950,7 +950,8 @@ export function SuperadminAccountsTab({
                 </div>
               )}
 
-              {/* Foto Profil Control */}
+              {/* Foto Profil Control hanya untuk akun yang terhubung ke karyawan */}
+              {accountForm.role !== 'SUPERADMIN' && (
               <div className="flex items-center gap-3.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700">
                 <UserAvatar
                   karyawanId={editingAccount?.karyawan_id}
@@ -1001,9 +1002,10 @@ export function SuperadminAccountsTab({
                   </div>
                 </div>
               </div>
+              )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {!editingAccount && (
+                {!editingAccount && accountForm.role !== 'SUPERADMIN' && (
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                       NIK (Opsional)
@@ -1079,6 +1081,8 @@ export function SuperadminAccountsTab({
                 </div>
               </div>
 
+              {accountForm.role !== 'SUPERADMIN' && (
+              <>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
@@ -1143,6 +1147,20 @@ export function SuperadminAccountsTab({
                   />
                 </div>
               </div>
+              </>
+              )}
+
+              {accountForm.role === 'SUPERADMIN' && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">No. HP / WA (Opsional)</label>
+                  <input
+                    type="text"
+                    value={accountForm.no_hp}
+                    onChange={(e) => setAccountForm({ ...accountForm, no_hp: e.target.value })}
+                    className="w-full h-11 sm:h-10 px-3 text-sm font-mono border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg"
+                  />
+                </div>
+              )}
 
               {!editingAccount ? (
                 <div>
