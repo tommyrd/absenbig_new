@@ -1740,8 +1740,52 @@ export function registerApiRoutes(app: Express) {
   });
 
   // 8. Master Data (Kantor, Bidang, Karyawan)
+  const countMasterReferences = (sql: string, id: number): number => {
+    const row = db.prepare(sql).get(id) as { total: number } | undefined;
+    return Number(row?.total || 0);
+  };
+
+  // kalender_kerja is a child configuration generated automatically when an
+  // office is created. It is removed together with an otherwise-unused office.
+  // All business/history references remain hard blockers.
+  const getOfficeDeletionUsage = (id: number) => {
+    const usage = {
+      jumlah_karyawan: countMasterReferences('SELECT COUNT(*) AS total FROM karyawan WHERE kantor_id = ?', id),
+      jumlah_pendaftaran: countMasterReferences('SELECT COUNT(*) AS total FROM pendaftaran_akun WHERE kantor_id = ?', id),
+      jumlah_hari_libur: countMasterReferences('SELECT COUNT(*) AS total FROM hari_libur WHERE kantor_id = ?', id),
+      jumlah_periode_payroll: countMasterReferences('SELECT COUNT(*) AS total FROM periode_payroll WHERE kantor_id = ?', id),
+      jumlah_kalender: countMasterReferences('SELECT COUNT(*) AS total FROM kalender_kerja WHERE kantor_id = ?', id),
+    };
+    return {
+      ...usage,
+      can_delete:
+        usage.jumlah_karyawan === 0 &&
+        usage.jumlah_pendaftaran === 0 &&
+        usage.jumlah_hari_libur === 0 &&
+        usage.jumlah_periode_payroll === 0,
+    };
+  };
+
+  const getBidangDeletionUsage = (id: number) => {
+    const usage = {
+      jumlah_karyawan: countMasterReferences('SELECT COUNT(*) AS total FROM karyawan WHERE bidang_id = ?', id),
+      jumlah_kebijakan: countMasterReferences('SELECT COUNT(*) AS total FROM kebijakan_absensi WHERE bidang_id = ?', id),
+      jumlah_pendaftaran: countMasterReferences('SELECT COUNT(*) AS total FROM pendaftaran_akun WHERE bidang_id = ?', id),
+    };
+    return {
+      ...usage,
+      can_delete:
+        usage.jumlah_karyawan === 0 &&
+        usage.jumlah_kebijakan === 0 &&
+        usage.jumlah_pendaftaran === 0,
+    };
+  };
+
   app.get('/api/v1/master/offices', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (_req: Request, res: Response) => {
-    const items = db.prepare(`SELECT * FROM kantor ORDER BY id ASC`).all();
+    const items = (db.prepare(`SELECT * FROM kantor ORDER BY id ASC`).all() as Array<{ id: number }>).map((office) => ({
+      ...office,
+      ...getOfficeDeletionUsage(office.id),
+    }));
     res.json({ items });
   });
 
@@ -1819,8 +1863,64 @@ export function registerApiRoutes(app: Express) {
     res.json({ ok: true });
   });
 
+  app.delete('/api/v1/master/offices/:id', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: 'ID kantor tidak valid.' });
+      return;
+    }
+
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const before = db.prepare(`SELECT * FROM kantor WHERE id = ?`).get(id) as
+        | { id: number; kode: string; nama: string }
+        | undefined;
+      if (!before) {
+        db.exec('ROLLBACK');
+        res.status(404).json({ error: 'Kantor tidak ditemukan.' });
+        return;
+      }
+
+      const usage = getOfficeDeletionUsage(id);
+      if (!usage.can_delete) {
+        db.exec('ROLLBACK');
+        res.status(409).json({
+          error: 'Kantor tidak dapat dihapus karena masih memiliki data yang berelasi.',
+          references: usage,
+        });
+        return;
+      }
+
+      const deletedCalendarRows = db
+        .prepare(`DELETE FROM kalender_kerja WHERE kantor_id = ?`)
+        .run(id).changes;
+      db.prepare(`DELETE FROM kantor WHERE id = ?`).run(id);
+      writeAuditLog(db, {
+        actor: req.authUser!,
+        req,
+        modul: 'MASTER_KANTOR',
+        aksi: 'DELETE_KANTOR',
+        targetEntity: 'kantor',
+        targetId: id,
+        before,
+        after: { deleted: true, kalenderKerjaDihapus: deletedCalendarRows },
+      });
+      db.exec('COMMIT');
+      res.json({ ok: true });
+    } catch (err) {
+      try { db.exec('ROLLBACK'); } catch { /* transaction already closed */ }
+      res.status(409).json({
+        error: 'Kantor tidak dapat dihapus. Periksa kembali data yang masih berelasi.',
+        detail: safeErrorDetail(err),
+      });
+    }
+  });
+
   app.get('/api/v1/master/bidang', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (_req: Request, res: Response) => {
-    const items = db.prepare(`SELECT * FROM bidang_kerja ORDER BY id ASC`).all();
+    const items = (db.prepare(`SELECT * FROM bidang_kerja ORDER BY id ASC`).all() as Array<{ id: number }>).map((bidang) => ({
+      ...bidang,
+      ...getBidangDeletionUsage(bidang.id),
+    }));
     res.json({ items });
   });
 
@@ -1888,6 +1988,56 @@ export function registerApiRoutes(app: Express) {
       after,
     });
     res.json({ ok: true });
+  });
+
+  app.delete('/api/v1/master/bidang/:id', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: 'ID bidang kerja tidak valid.' });
+      return;
+    }
+
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const before = db.prepare(`SELECT * FROM bidang_kerja WHERE id = ?`).get(id) as
+        | { id: number; kode: string; nama: string; deskripsi: string }
+        | undefined;
+      if (!before) {
+        db.exec('ROLLBACK');
+        res.status(404).json({ error: 'Bidang kerja tidak ditemukan.' });
+        return;
+      }
+
+      const usage = getBidangDeletionUsage(id);
+      if (!usage.can_delete) {
+        db.exec('ROLLBACK');
+        res.status(409).json({
+          error: 'Bidang kerja tidak dapat dihapus karena masih digunakan atau memiliki data yang berelasi.',
+          references: usage,
+        });
+        return;
+      }
+
+      db.prepare(`DELETE FROM bidang_kerja WHERE id = ?`).run(id);
+      writeAuditLog(db, {
+        actor: req.authUser!,
+        req,
+        modul: 'MASTER_BIDANG',
+        aksi: 'DELETE_BIDANG',
+        targetEntity: 'bidang_kerja',
+        targetId: id,
+        before,
+        after: { deleted: true },
+      });
+      db.exec('COMMIT');
+      res.json({ ok: true });
+    } catch (err) {
+      try { db.exec('ROLLBACK'); } catch { /* transaction already closed */ }
+      res.status(409).json({
+        error: 'Bidang kerja tidak dapat dihapus. Periksa kembali data yang masih berelasi.',
+        detail: safeErrorDetail(err),
+      });
+    }
   });
 
   app.get('/api/v1/master/employees', requireRole('ADMIN', 'SUPERADMIN'), (_req: Request, res: Response) => {
