@@ -90,6 +90,15 @@ const MIGRATIONS: MigrationDef[] = [
       }
     },
   },
+  {
+    version: '006',
+    name: 'persist_actual_attendance_location_address',
+    up: (db) => {
+      if (!hasColumn(db, 'absensi_sesi', 'lokasi_alamat')) {
+        db.exec(`ALTER TABLE absensi_sesi ADD COLUMN lokasi_alamat TEXT;`);
+      }
+    },
+  },
 ];
 
 export function runMigrations(db: DatabaseSync): string[] {
