@@ -495,8 +495,8 @@ export function registerApiRoutes(app: Express) {
       ? (db.prepare(`SELECT id FROM bidang_kerja WHERE kode = 'ADM' ORDER BY id ASC LIMIT 1`).get() as { id: number } | undefined)
         || (db.prepare(`SELECT id FROM bidang_kerja ORDER BY id ASC LIMIT 1`).get() as { id: number } | undefined)
       : undefined;
-    const finalKantorId = requestedRole === 'ADMIN' ? defaultOffice?.id : Number(kantor_id);
-    const finalBidangId = requestedRole === 'ADMIN' ? defaultBidang?.id : Number(bidang_id);
+    const finalKantorId = requestedRole === 'ADMIN' ? (defaultOffice?.id ?? 0) : Number(kantor_id);
+    const finalBidangId = requestedRole === 'ADMIN' ? (defaultBidang?.id ?? 0) : Number(bidang_id);
     const officeRow = db
       .prepare(`SELECT id FROM kantor WHERE id = ? AND aktif = 1`)
       .get(finalKantorId);
@@ -510,7 +510,7 @@ export function registerApiRoutes(app: Express) {
       .prepare(`SELECT id FROM pengguna WHERE LOWER(username) = ? OR LOWER(email) = ?`)
       .get(cleanUser, cleanEmail);
     const existingEmp = db
-      .prepare(`SELECT id FROM karyawan WHERE LOWER(email) = ? AND COALESCE(is_system_archive, 0) = 0`)
+      .prepare(`SELECT id FROM karyawan WHERE LOWER(email) = ?`)
       .get(cleanEmail);
     const existingPending = db
       .prepare(
