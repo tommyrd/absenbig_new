@@ -33,6 +33,7 @@ import {
   resolveDayForEmployee,
 } from './services/resolver.ts';
 import { getWibDateString, getWibIsoString, getWibTimeString, parseHmToMinutes } from './time.ts';
+import { isGpsAccuracyAcceptable, isWithinVerifiedGeofence, MAX_GPS_ACCURACY_METERS } from '../shared/geofence.ts';
 import type {
   AttendanceFeedPost,
   AttendanceFeedRosterItem,
@@ -777,12 +778,26 @@ export function registerApiRoutes(app: Express) {
       return;
     }
 
-    // Enforce session start time: user can only check in once jam_mulai has started
+    // Enforce the complete session window using server WIB time.
+    // The session is open from jam_mulai through jam_selesai (inclusive).
     const nowMin = parseHmToMinutes(nowTime.slice(0, 5));
     const startMin = parseHmToMinutes(targetSesiConfig.jam_mulai);
+    const endMin = parseHmToMinutes(targetSesiConfig.jam_selesai);
+    if (endMin < startMin) {
+      res.status(400).json({
+        error: `Konfigurasi waktu ${targetSesiConfig.nama} tidak valid. Admin harus memperbaiki jam mulai dan jam selesai.`,
+      });
+      return;
+    }
     if (nowMin < startMin) {
       res.status(400).json({
         error: `Absensi ${targetSesiConfig.nama} belum dimulai. Sesi ini baru dapat dilakukan mulai pukul ${targetSesiConfig.jam_mulai} WIB (waktu server saat ini ${nowTime.slice(0, 5)} WIB).`,
+      });
+      return;
+    }
+    if (nowMin > endMin) {
+      res.status(400).json({
+        error: `Waktu absensi ${targetSesiConfig.nama} sudah berakhir pada pukul ${targetSesiConfig.jam_selesai} WIB. Absensi mandiri untuk sesi ini telah dikunci. Jika terjadi kendala perangkat atau keadaan khusus, hubungi Admin untuk Admin Override payroll.`,
       });
       return;
     }
@@ -839,11 +854,22 @@ export function registerApiRoutes(app: Express) {
       return;
     }
 
+    if (!isGpsAccuracyAcceptable(accuracyMeter)) {
+      res.status(400).json({
+        error: `Akurasi GPS belum memenuhi syarat. Akurasi perangkat harus maksimal ±${MAX_GPS_ACCURACY_METERS}m; hasil saat ini ${typeof accuracyMeter === 'number' && Number.isFinite(accuracyMeter) ? `±${Math.ceil(accuracyMeter)}m` : 'tidak tersedia'}. Aktifkan lokasi presisi dan perbarui GPS di area terbuka.`,
+      });
+      return;
+    }
+
     const jarakMeter = haversineMeters(lat!, lng!, office.lat, office.lng);
-    const dalamGeofence = jarakMeter <= office.radius_meter ? 1 : 0;
+    const dalamGeofence = isWithinVerifiedGeofence(
+      jarakMeter,
+      accuracyMeter,
+      office.radius_meter
+    ) ? 1 : 0;
     if (!dalamGeofence) {
       res.status(400).json({
-        error: `Absensi ditolak. Lokasi Anda berjarak ${jarakMeter}m dari kantor, sedangkan radius yang diizinkan hanya ${office.radius_meter}m. Silakan datang ke area kantor dan perbarui lokasi GPS.`,
+        error: `Absensi ditolak. Jarak titik GPS ${jarakMeter}m dengan estimasi akurasi ±${Math.ceil(accuracyMeter)}m tidak cukup meyakinkan berada di dalam radius kantor ${office.radius_meter}m. Dekati bagian tengah area kantor dan perbarui GPS.`,
       });
       return;
     }
