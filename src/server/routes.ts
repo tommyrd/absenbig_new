@@ -23,6 +23,7 @@ import {
   registerLimiter,
   safeErrorDetail,
   validateAndSanitizeLogoBase64,
+  validateAndSanitizeFaviconBase64,
   validateRasterImageBase64,
 } from './security.ts';
 import { writeAuditLog } from './services/audit.ts';
@@ -2684,6 +2685,13 @@ export function registerApiRoutes(app: Express) {
   <circle cx="94" cy="34" r="10" fill="#10B981" stroke="#0B1528" stroke-width="4"/>
 </svg>`;
 
+  const DEFAULT_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="15" fill="#1D4ED8"/>
+  <path d="M17 14h15a12 12 0 0 1 7.9 21 13 13 0 0 1-7.3 22H17V14Zm7 7v12h8a6 6 0 0 0 0-12h-8Zm0 19v10h8a5 5 0 0 0 0-10h-8Z" fill="#fff"/>
+  <path d="M24 34h12" stroke="#93C5FD" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="48" cy="16" r="6" fill="#10B981" stroke="#0B1528" stroke-width="2"/>
+</svg>`;
+
   function mapSettingsRow(row: Record<string, unknown>) {
     return {
       id: Number(row.id),
@@ -2696,6 +2704,8 @@ export function registerApiRoutes(app: Express) {
       footer_login: String(row.footer_login || ''),
       has_custom_logo: Boolean(row.logo_path),
       logo_updated_at: row.logo_updated_at ? String(row.logo_updated_at) : null,
+      has_custom_favicon: Boolean(row.favicon_path),
+      favicon_updated_at: row.favicon_updated_at ? String(row.favicon_updated_at) : null,
       retensi_foto_hari: Number(row.retensi_foto_hari || 365),
       wajib_gps_absensi: Number(row.wajib_gps_absensi ?? 1),
       izin_demo_login: Number(row.izin_demo_login ?? 1),
@@ -2746,6 +2756,41 @@ export function registerApiRoutes(app: Express) {
     res.send(DEFAULT_LOGO_SVG);
   });
 
+  app.get('/api/v1/assets/favicon', (req: Request, res: Response) => {
+    const row =
+      req.query.reset === '1'
+        ? undefined
+        : (db.prepare(\`SELECT favicon_path FROM pengaturan_aplikasi WHERE id = 1\`).get() as
+            | { favicon_path: string | null }
+            | undefined);
+
+    if (row?.favicon_path) {
+      const safeFile = path.basename(row.favicon_path);
+      const fullPath = path.join(getAssetsDir(), safeFile);
+      if (fs.existsSync(fullPath)) {
+        const ext = path.extname(safeFile).toLowerCase();
+        const mime =
+          ext === '.svg'
+            ? 'image/svg+xml'
+            : ext === '.ico'
+            ? 'image/x-icon'
+            : 'image/png';
+        res.setHeader('Content-Type', mime);
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
+        res.setHeader('Cache-Control', 'no-cache');
+        fs.createReadStream(fullPath).pipe(res);
+        return;
+      }
+    }
+
+    res.setHeader('Content-Type', 'image/svg+xml');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
+    res.setHeader('Cache-Control', 'no-cache');
+    res.send(DEFAULT_FAVICON_SVG);
+  });
+
   app.get('/api/v1/settings', requireRole('SUPERADMIN'), (_req: Request, res: Response) => {
     const row = db.prepare(`SELECT * FROM pengaturan_aplikasi WHERE id = 1`).get() as Record<
       string,
@@ -2772,6 +2817,8 @@ export function registerApiRoutes(app: Express) {
       izin_demo_login?: boolean | number;
       logoBase64?: string | null;
       resetLogo?: boolean;
+      faviconBase64?: string | null;
+      resetFavicon?: boolean;
     };
 
     const namaAplikasi = (body.nama_aplikasi ?? String(before.nama_aplikasi)).trim();
@@ -2782,6 +2829,8 @@ export function registerApiRoutes(app: Express) {
 
     let nextLogoPath = before.logo_path ? String(before.logo_path) : null;
     let nextLogoUpdatedAt = before.logo_updated_at ? String(before.logo_updated_at) : null;
+    let nextFaviconPath = before.favicon_path ? String(before.favicon_path) : null;
+    let nextFaviconUpdatedAt = before.favicon_updated_at ? String(before.favicon_updated_at) : null;
     const nowIso = getWibIsoString();
     const assetsDir = getAssetsDir();
 
@@ -2814,6 +2863,35 @@ export function registerApiRoutes(app: Express) {
       nextLogoUpdatedAt = nowIso;
     }
 
+    if (body.resetFavicon) {
+      if (nextFaviconPath) {
+        const oldFile = path.join(assetsDir, path.basename(nextFaviconPath));
+        if (fs.existsSync(oldFile)) fs.unlinkSync(oldFile);
+      }
+      nextFaviconPath = null;
+      nextFaviconUpdatedAt = nowIso;
+    } else if (body.faviconBase64) {
+      let ext: 'png' | 'svg' | 'ico';
+      let buf: Buffer;
+      try {
+        const parsed = validateAndSanitizeFaviconBase64(body.faviconBase64, 512 * 1024);
+        ext = parsed.ext;
+        buf = parsed.buf;
+      } catch (err) {
+        res.status(400).json({ error: err instanceof Error ? err.message : 'Favicon tidak valid.' });
+        return;
+      }
+      if (!fs.existsSync(assetsDir)) fs.mkdirSync(assetsDir, { recursive: true });
+      if (nextFaviconPath) {
+        const oldFile = path.join(assetsDir, path.basename(nextFaviconPath));
+        if (fs.existsSync(oldFile)) fs.unlinkSync(oldFile);
+      }
+      const fileName = `favicon_${crypto.randomBytes(8).toString('hex')}.${ext}`;
+      fs.writeFileSync(path.join(assetsDir, fileName), buf);
+      nextFaviconPath = fileName;
+      nextFaviconUpdatedAt = nowIso;
+    }
+
     db.prepare(
       `UPDATE pengaturan_aplikasi SET
         nama_aplikasi = ?,
@@ -2825,6 +2903,8 @@ export function registerApiRoutes(app: Express) {
         footer_login = ?,
         logo_path = ?,
         logo_updated_at = ?,
+        favicon_path = ?,
+        favicon_updated_at = ?,
         retensi_foto_hari = ?,
         wajib_gps_absensi = ?,
         izin_demo_login = ?,
@@ -2841,6 +2921,8 @@ export function registerApiRoutes(app: Express) {
       (body.footer_login ?? String(before.footer_login)).trim(),
       nextLogoPath,
       nextLogoUpdatedAt,
+      nextFaviconPath,
+      nextFaviconUpdatedAt,
       Math.max(30, Number(body.retensi_foto_hari ?? before.retensi_foto_hari ?? 365)),
       body.wajib_gps_absensi !== undefined ? (body.wajib_gps_absensi ? 1 : 0) : Number(before.wajib_gps_absensi),
       body.izin_demo_login !== undefined ? (body.izin_demo_login ? 1 : 0) : Number(before.izin_demo_login),
@@ -2860,10 +2942,10 @@ export function registerApiRoutes(app: Express) {
       targetId: 1,
       before: mapSettingsRow(before),
       after: mapSettingsRow(after),
-      alasan: body.logoBase64
-        ? 'Pembaruan pengaturan sistem dan logo aplikasi oleh Superadmin'
-        : body.resetLogo
-        ? 'Reset logo aplikasi ke default oleh Superadmin'
+      alasan: body.logoBase64 || body.faviconBase64
+        ? 'Pembaruan pengaturan sistem, logo, dan/atau favicon aplikasi oleh Superadmin'
+        : body.resetLogo || body.resetFavicon
+        ? 'Reset logo dan/atau favicon aplikasi ke default oleh Superadmin'
         : 'Pembaruan pengaturan sistem oleh Superadmin',
     });
 
