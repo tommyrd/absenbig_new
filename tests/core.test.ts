@@ -434,6 +434,8 @@ test('System settings API strictly enforces SUPERADMIN access while keeping publ
     });
     assert.equal(ownerAttendance.status, 403);
 
+    const testOwnerUsername = `owner_pengujian_${Date.now()}`;
+    const testOwnerEmail = `${testOwnerUsername}@bignet.id`;
     const createOwner = await fetch(`${baseUrl}/api/v1/superadmin/accounts`, {
       method: 'POST',
       headers: {
@@ -442,8 +444,8 @@ test('System settings API strictly enforces SUPERADMIN access while keeping publ
       },
       body: JSON.stringify({
         nama_lengkap: 'Owner Pengujian',
-        username: 'owner_pengujian',
-        email: 'owner.pengujian@bignet.id',
+        username: testOwnerUsername,
+        email: testOwnerEmail,
         no_hp: '081234567890',
         password: 'OwnerPassword123',
         role: 'SUPERADMIN',
@@ -451,13 +453,13 @@ test('System settings API strictly enforces SUPERADMIN access while keeping publ
     });
     assert.equal(createOwner.status, 201);
     const ownerAccount = db.prepare(
-      `SELECT role, karyawan_id, nama_tampilan FROM pengguna WHERE username = 'owner_pengujian'`
-    ).get() as { role: string; karyawan_id: number | null; nama_tampilan: string };
+      `SELECT role, karyawan_id, nama_tampilan FROM pengguna WHERE username = ?`
+    ).get(testOwnerUsername) as { role: string; karyawan_id: number | null; nama_tampilan: string };
     assert.equal(ownerAccount.role, 'SUPERADMIN');
     assert.equal(ownerAccount.karyawan_id, null);
     assert.equal(ownerAccount.nama_tampilan, 'Owner Pengujian');
     assert.equal(
-      db.prepare(`SELECT id FROM karyawan WHERE email = 'owner.pengujian@bignet.id'`).get(),
+      db.prepare(`SELECT id FROM karyawan WHERE email = ?`).get(),
       undefined
     );
 
