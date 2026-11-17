@@ -2675,7 +2675,7 @@ export function registerApiRoutes(app: Express) {
     });
   });
 
-  // 13. System Settings & Custom Login Logo
+  // 13. System Settings, Custom Logo & Website Favicon
   const DEFAULT_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" fill="none">
   <rect width="128" height="128" rx="28" fill="#1D4ED8"/>
   <rect x="8" y="8" width="112" height="112" rx="22" stroke="rgba(255,255,255,0.22)" stroke-width="2"/>
