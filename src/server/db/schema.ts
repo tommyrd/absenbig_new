@@ -46,7 +46,9 @@ export const SCHEMA_SQL = `
     email TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL CHECK(role IN ('KARYAWAN','ADMIN','SUPERADMIN')),
-    karyawan_id INTEGER NOT NULL REFERENCES karyawan(id),
+    karyawan_id INTEGER REFERENCES karyawan(id),
+    nama_tampilan TEXT NOT NULL DEFAULT '',
+    no_hp TEXT NOT NULL DEFAULT '',
     aktif INTEGER NOT NULL DEFAULT 1,
     token_version INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL
