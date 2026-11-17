@@ -167,8 +167,8 @@ test('System settings API strictly enforces SUPERADMIN access while keeping publ
 
   try {
     const getUserByRole = (role: Role) =>
-      db.prepare(`SELECT id, role FROM pengguna WHERE role = ? AND aktif = 1 LIMIT 1`).get(role) as
-        | { id: number; role: Role }
+      db.prepare(`SELECT id, role, karyawan_id FROM pengguna WHERE role = ? AND aktif = 1 LIMIT 1`).get(role) as
+        | { id: number; role: Role; karyawan_id: number }
         | undefined;
 
     const superadmin = getUserByRole('SUPERADMIN');
