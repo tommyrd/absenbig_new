@@ -173,7 +173,9 @@ export function AdminCheckinOverrideTab() {
                   <p className="font-mono text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{item.jamMulai}–{item.jamSelesai} WIB</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">Terlambat</p>
+                  <p className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+                    {item.urutanSesi === 1 ? 'Terlambat' : 'Lewat Jadwal'}
+                  </p>
                   <p className="font-mono text-sm font-bold text-red-700 dark:text-red-300">{formatLate(item.terlambatMenit)}</p>
                 </div>
               </div>
