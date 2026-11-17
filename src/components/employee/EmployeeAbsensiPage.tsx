@@ -17,6 +17,7 @@ import { apiFetch, getAuthorizedPhotoUrl } from '../../lib/api';
 import type { AuthUser, Karyawan, ResolvedDay } from '../../shared/types';
 import { isGpsAccuracyAcceptable, isWithinVerifiedGeofence, MAX_GPS_ACCURACY_METERS, requiresOfficeGeofence } from '../../shared/geofence';
 import { getSessionWindowState } from '../../shared/session-window';
+import { createServerClockSync, getEstimatedServerEpochMs, type ServerClockSync } from '../../shared/server-clock';
 import { StatusBadge } from '../StatusBadge';
 
 interface TodayResponse {
@@ -74,7 +75,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   const [data, setData] = useState<TodayResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [clockOffsetMs, setClockOffsetMs] = useState(0);
+  const serverClockSyncRef = useRef<ServerClockSync | null>(null);
   const [liveWibHm, setLiveWibHm] = useState(() => getWibHmFromEpoch(Date.now()));
 
   // GPS State
@@ -146,12 +147,36 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
       setError(null);
     }
     try {
+      const requestStartedAt = performance.now();
       const res = await apiFetch<TodayResponse>('/api/v1/attendance/today');
+      const responseReceivedAt = performance.now();
       setData(res);
-      if (typeof res.serverEpochMs === 'number' && Number.isFinite(res.serverEpochMs)) {
-        const offset = res.serverEpochMs - Date.now();
-        setClockOffsetMs(offset);
-        setLiveWibHm(getWibHmFromEpoch(Date.now() + offset));
+
+      // The session gate follows the same server clock shown in the header.
+      // Use a monotonic clock so device clock drift or changes cannot leave
+      // the camera disabled after the session has already opened.
+      let serverEpochMs = res.serverEpochMs;
+      let sync = typeof serverEpochMs === 'number'
+        ? createServerClockSync(serverEpochMs, requestStartedAt, responseReceivedAt)
+        : null;
+
+      // Compatibility fallback for an older backend that has not yet returned
+      // serverEpochMs on /attendance/today.
+      if (!sync) {
+        const fallbackStartedAt = performance.now();
+        const timeRes = await apiFetch<{ epochMs?: number }>('/api/v1/time');
+        const fallbackReceivedAt = performance.now();
+        serverEpochMs = timeRes.epochMs;
+        if (typeof serverEpochMs === 'number') {
+          sync = createServerClockSync(serverEpochMs, fallbackStartedAt, fallbackReceivedAt);
+        }
+      }
+
+      if (sync) {
+        serverClockSyncRef.current = sync;
+        setLiveWibHm(
+          getWibHmFromEpoch(getEstimatedServerEpochMs(sync, performance.now()))
+        );
       } else if (res.serverTime) {
         setLiveWibHm(res.serverTime.slice(0, 5));
       }
@@ -164,18 +189,37 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
 
   useEffect(() => {
     void loadToday();
-    // Pick up a newly issued Admin check-in permission without forcing the
-    // employee to sign out or reopen the page.
+
+    // iOS Safari may suspend timers while the user approves GPS or switches
+    // app. Resync the schedule and server clock immediately on returning.
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') void loadToday(true);
+    };
+    window.addEventListener('focus', refreshWhenVisible);
+    window.addEventListener('pageshow', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+
+    // Refresh any newly issued Admin check-in permission and correct the clock.
     const refreshId = window.setInterval(() => void loadToday(true), 15000);
-    return () => window.clearInterval(refreshId);
+    return () => {
+      window.clearInterval(refreshId);
+      window.removeEventListener('focus', refreshWhenVisible);
+      window.removeEventListener('pageshow', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
   }, [loadToday]);
 
   useEffect(() => {
     const id = window.setInterval(() => {
-      setLiveWibHm(getWibHmFromEpoch(Date.now() + clockOffsetMs));
-    }, 10000);
+      const sync = serverClockSyncRef.current;
+      if (sync) {
+        setLiveWibHm(
+          getWibHmFromEpoch(getEstimatedServerEpochMs(sync, performance.now()))
+        );
+      }
+    }, 1000);
     return () => window.clearInterval(id);
-  }, [clockOffsetMs]);
+  }, []);
 
   const stopCamera = useCallback(() => {
     // Invalidate any getUserMedia request that is still pending.
@@ -267,13 +311,15 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
       .then((position) => {
         setCoords(position);
         setGpsStatus('ok');
+        // Refresh the server time after the browser returns from its GPS prompt.
+        void loadToday(true);
       })
       .catch((err) => {
         setCoords(null);
         setGpsStatus('error');
         setGpsError(err instanceof Error ? err.message : 'Gagal membaca lokasi GPS.');
       });
-  }, [readCurrentGps, stopCamera]);
+  }, [readCurrentGps, stopCamera, loadToday]);
 
   const startCamera = async (requestedFacing: 'user' | 'environment' = facingMode) => {
     setCameraError(null);
