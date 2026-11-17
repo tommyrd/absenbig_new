@@ -7,6 +7,8 @@ import {
   MapPin,
   RefreshCw,
   Search,
+  Share2,
+  Loader2,
   SlidersHorizontal,
   Users,
   X,
@@ -22,6 +24,7 @@ import type {
 } from '../shared/types';
 import { StatusBadge } from './StatusBadge';
 import { UserAvatar } from './UserAvatar';
+import { createAttendanceShareImage } from '../lib/attendance-share';
 
 interface FeedTodayResponse {
   tanggal: string;
@@ -37,6 +40,8 @@ interface AttendanceFeedViewProps {
   user: AuthUser;
   myDay?: ResolvedDay | null;
   onGoToAbsensi?: () => void;
+  focusAttendanceId?: number | null;
+  onFocusHandled?: () => void;
   onNavigateMonitoring?: () => void;
   onNavigateAudit?: () => void;
 }
@@ -55,6 +60,8 @@ export function AttendanceFeedView({
   user,
   myDay,
   onGoToAbsensi,
+  focusAttendanceId,
+  onFocusHandled,
   onNavigateMonitoring,
   onNavigateAudit,
 }: AttendanceFeedViewProps) {
@@ -73,11 +80,9 @@ export function AttendanceFeedView({
   const [liveConnected, setLiveConnected] = useState(false);
   const [lightboxPost, setLightboxPost] = useState<AttendanceFeedPost | null>(null);
   const [failedPhotoIds, setFailedPhotoIds] = useState<Record<number, boolean>>({});
-  const [resolvedLocationByPost, setResolvedLocationByPost] = useState<Record<number, string>>({});
-  const [locationLookupStatus, setLocationLookupStatus] = useState<
-    Record<number, 'loading' | 'unconfigured' | 'not-found' | 'error'>
-  >({});
-  const requestedLocationIdsRef = useRef<Set<number>>(new Set());
+  const [sharingPostId, setSharingPostId] = useState<number | null>(null);
+  const [shareNotice, setShareNotice] = useState<string | null>(null);
+  const focusedPostRef = useRef<number | null>(null);
 
   const loadFeed = useCallback(async () => {
     setError(null);
@@ -131,67 +136,62 @@ export function AttendanceFeedView({
     };
   }, [loadFeed]);
 
-  // Automatically resolve older feed records as soon as the feed loads.
-  // Successful and negative results are persisted by the backend in
-  // absensi_lokasi_cache, so refreshing Beranda does not repeatedly call Geoapify.
   useEffect(() => {
-    const missing = (feed?.posts || []).filter(
-      (post) =>
-        !post.lokasiAlamatLookupDone &&
-        !post.lokasiAktualAlamat &&
-        !resolvedLocationByPost[post.id] &&
-        post.lat !== null &&
-        post.lng !== null &&
-        !requestedLocationIdsRef.current.has(post.id)
-    );
-    if (missing.length === 0) return;
+    if (
+      !focusAttendanceId ||
+      focusedPostRef.current === focusAttendanceId ||
+      !feed?.posts.some((post) => post.id === focusAttendanceId)
+    ) {
+      return;
+    }
 
-    const ids = missing.map((post) => post.id);
-    ids.forEach((id) => requestedLocationIdsRef.current.add(id));
-    setLocationLookupStatus((current) => {
-      const next = { ...current };
-      for (const id of ids) next[id] = 'loading';
-      return next;
-    });
+    const targetId = focusAttendanceId;
+    const timerId = window.setTimeout(() => {
+      const target = document.getElementById(`attendance-post-${targetId}`);
+      if (!target) return;
+      focusedPostRef.current = targetId;
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      onFocusHandled?.();
+    }, 180);
 
-    void apiFetch<{
-      items: { sessionId: number; address: string | null; configured: boolean }[];
-    }>('/api/v1/feed/location-addresses', {
-      method: 'POST',
-      body: JSON.stringify({ sessionIds: ids }),
-    })
-      .then((result) => {
-        const byId = new Map(result.items.map((item) => [item.sessionId, item]));
-        setResolvedLocationByPost((current) => {
-          const next = { ...current };
-          for (const item of result.items) {
-            if (item.address) next[item.sessionId] = item.address;
-          }
-          return next;
-        });
-        setLocationLookupStatus((current) => {
-          const next = { ...current };
-          for (const id of ids) {
-            const item = byId.get(id);
-            if (!item) {
-              next[id] = 'error';
-            } else if (item.address) {
-              delete next[id];
-            } else {
-              next[id] = item.configured ? 'not-found' : 'unconfigured';
-            }
-          }
-          return next;
-        });
-      })
-      .catch(() => {
-        setLocationLookupStatus((current) => {
-          const next = { ...current };
-          for (const id of ids) next[id] = 'error';
-          return next;
-        });
-      });
-  }, [feed?.posts, resolvedLocationByPost]);
+    return () => window.clearTimeout(timerId);
+  }, [focusAttendanceId, feed?.posts, onFocusHandled]);
+
+  const handleSharePost = async (post: AttendanceFeedPost) => {
+    if (sharingPostId !== null) return;
+    setSharingPostId(post.id);
+    setShareNotice(null);
+    try {
+      const file = await createAttendanceShareImage(post);
+      const shareData: ShareData = {
+        files: [file],
+        title: `Bukti Absensi BIGNET - ${post.namaLengkap}`,
+        text: `Bukti absensi ${post.namaLengkap}, ${post.namaSesi}, ${post.tanggal} pukul ${post.jamWib} WIB.`,
+      };
+
+      if (navigator.share && navigator.canShare?.({ files: [file] })) {
+        await navigator.share(shareData);
+        setShareNotice('Kartu absensi berhasil dibagikan.');
+      } else {
+        const objectUrl = URL.createObjectURL(file);
+        const link = document.createElement('a');
+        link.href = objectUrl;
+        link.download = file.name;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
+        setShareNotice('Gambar kartu absensi diunduh. Lampirkan file PNG ini ke WhatsApp atau Telegram.');
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') return;
+      setShareNotice(
+        error instanceof Error ? error.message : 'Gagal menyiapkan gambar kartu absensi.'
+      );
+    } finally {
+      setSharingPostId(null);
+    }
+  };
 
   const sortedRoster = useMemo(() => {
     const list = [...(feed?.roster || [])];
@@ -458,6 +458,15 @@ export function AttendanceFeedView({
               </button>
             </div>
           )}
+          {shareNotice && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 px-3 py-2.5 text-xs text-blue-800 dark:text-blue-200"
+            >
+              {shareNotice}
+            </div>
+          )}
 
           {/* 3. Instagram-Style Scroll-Down Stream */}
           {loading ? (
@@ -504,12 +513,16 @@ export function AttendanceFeedView({
               {filteredPosts.map((post) => {
                 const photoBroken = failedPhotoIds[post.id];
                 const dateLabel = formatDateLabel(post.tanggal, feed?.tanggal);
-                const actualLocationAddress =
-                  post.lokasiAktualAlamat || resolvedLocationByPost[post.id] || null;
+                const actualLocationAddress = post.lokasiAktualAlamat;
                 return (
                   <article
                     key={post.id}
-                    className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm"
+                    id={`attendance-post-${post.id}`}
+                    className={`bg-white dark:bg-slate-900 border rounded-2xl overflow-hidden shadow-sm transition-all ${
+                      focusAttendanceId === post.id
+                        ? 'border-blue-500 ring-4 ring-blue-500/25 shadow-lg'
+                        : 'border-slate-200 dark:border-slate-800'
+                    }`}
                   >
                     {/* 1. Employee identity and attendance time */}
                     <header className="px-3.5 sm:px-4 py-3.5 border-b border-slate-100 dark:border-slate-800">
@@ -631,15 +644,7 @@ export function AttendanceFeedView({
                           </p>
                           <p className="mt-0.5 text-[11px] leading-snug text-slate-700 dark:text-slate-200 line-clamp-2">
                             {actualLocationAddress ||
-                              (locationLookupStatus[post.id] === 'loading'
-                                ? 'Sedang mencari alamat dari koordinat GPS...'
-                                : locationLookupStatus[post.id] === 'unconfigured'
-                                  ? 'Alamat belum dikonfigurasi pada server. Koordinat GPS tetap tersedia.'
-                                  : locationLookupStatus[post.id] === 'not-found'
-                                    ? 'Alamat tidak ditemukan dari koordinat ini.'
-                                    : locationLookupStatus[post.id] === 'error'
-                                      ? 'Gagal mengambil alamat. Coba muat ulang Beranda.'
-                                      : 'Alamat aktual tidak tersedia untuk catatan ini.')}
+                              'Alamat tidak tersimpan pada saat absensi. Koordinat GPS tetap tersedia.'}
                           </p>
                           {(actualLocationAddress || post.lat !== null) && (
                             <p className="mt-1 text-[9px] text-slate-400 dark:text-slate-500">
@@ -660,11 +665,17 @@ export function AttendanceFeedView({
                         </div>
                         <button
                           type="button"
-                          onClick={() => setLightboxPost(post)}
-                          className="min-h-[38px] shrink-0 inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 px-3 text-[11px] font-semibold text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40"
+                          onClick={() => void handleSharePost(post)}
+                          disabled={sharingPostId !== null}
+                          className="min-h-[42px] shrink-0 inline-flex items-center justify-center gap-2 rounded-lg bg-blue-700 hover:bg-blue-800 disabled:opacity-60 disabled:cursor-wait px-4 text-xs font-bold text-white shadow-sm focus:outline-none focus:ring-4 focus:ring-blue-500/20"
+                          aria-label={`Bagikan kartu absensi ${post.namaLengkap}`}
                         >
-                          <MapPin className="w-3.5 h-3.5" />
-                          Detail lokasi
+                          {sharingPostId === post.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Share2 className="w-4 h-4" />
+                          )}
+                          {sharingPostId === post.id ? 'Menyiapkan...' : 'Bagikan'}
                         </button>
                       </div>
                     </div>
@@ -945,17 +956,7 @@ export function AttendanceFeedView({
                     : 'Tanpa GPS'}
                 </span>
                 <span className="sm:col-span-2">
-                  Lokasi Saat Absen: {lightboxPost.lokasiAktualAlamat || resolvedLocationByPost[lightboxPost.id] || (
-                    locationLookupStatus[lightboxPost.id] === 'loading'
-                      ? 'Sedang mencari alamat dari koordinat GPS...'
-                      : locationLookupStatus[lightboxPost.id] === 'unconfigured'
-                        ? 'Geoapify belum dikonfigurasi pada server'
-                        : locationLookupStatus[lightboxPost.id] === 'not-found'
-                          ? 'Alamat tidak ditemukan untuk koordinat ini'
-                          : locationLookupStatus[lightboxPost.id] === 'error'
-                            ? 'Gagal mengambil alamat. Koordinat GPS tetap menjadi bukti lokasi.'
-                            : 'Alamat belum tersimpan pada catatan absensi lama'
-                  )}
+                  Lokasi Saat Absen: {lightboxPost.lokasiAktualAlamat || 'Alamat tidak tersimpan pada saat absensi'}
                 </span>
                 <span className="sm:col-span-2">
                   Kantor Penempatan: {lightboxPost.kantorNama} — {lightboxPost.kantorAlamat}
