@@ -44,7 +44,7 @@ test('GPS accuracy and radius uncertainty are validated conservatively', () => {
   assert.equal(isWithinVerifiedGeofence(100, 10, 250), true);
   assert.equal(isWithinVerifiedGeofence(200, 50, 250), true);
   assert.equal(isWithinVerifiedGeofence(201, 50, 250), false);
-  assert.equal(isWithinVerifiedGeofence(10, 101, 250), false);
+  assert.equal(isWithinVerifiedGeofence(241, 10, 250), false);
 });
 
 test('Policy Hierarchy resolves KARYAWAN > BIDANG > DEFAULT', () => {
