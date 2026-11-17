@@ -3234,6 +3234,11 @@ export function registerApiRoutes(app: Express) {
     requireRole('KARYAWAN', 'ADMIN'),
     (req: AuthenticatedRequest, res: Response) => {
       const user = req.authUser!;
+      if (employeeId === null) {
+        res.status(403).json({ error: 'Akun Superadmin tidak memiliki foto profil pegawai.' });
+        return;
+      }
+      const employeeId = employeeId;
       const { fotoBase64, removePhoto } = req.body as {
         fotoBase64?: string | null;
         removePhoto?: boolean;
@@ -3241,7 +3246,7 @@ export function registerApiRoutes(app: Express) {
 
       const existing = db
         .prepare(`SELECT foto_profil_path FROM karyawan WHERE id = ?`)
-        .get(user.karyawan_id) as { foto_profil_path: string | null } | undefined;
+        .get(employeeId) as { foto_profil_path: string | null } | undefined;
 
       const nowIso = getWibIsoString();
       let nextPath: string | null = existing?.foto_profil_path ?? null;
@@ -3252,7 +3257,7 @@ export function registerApiRoutes(app: Express) {
       } else if (fotoBase64) {
         let saved: string;
         try {
-          saved = saveAvatarBase64(fotoBase64, `emp_${user.karyawan_id}`);
+          saved = saveAvatarBase64(fotoBase64, `emp_${employeeId}`);
         } catch (err) {
           res.status(400).json({
             error: err instanceof Error ? err.message : 'Foto profil tidak valid.',
@@ -3268,7 +3273,7 @@ export function registerApiRoutes(app: Express) {
 
       db.prepare(
         `UPDATE karyawan SET foto_profil_path = ?, foto_profil_updated_at = ? WHERE id = ?`
-      ).run(nextPath, nowIso, user.karyawan_id);
+      ).run(nextPath, nowIso, employeeId);
 
       writeAuditLog(db, {
         actor: user,
@@ -3276,8 +3281,8 @@ export function registerApiRoutes(app: Express) {
         modul: 'PROFIL_AKUN',
         aksi: removePhoto ? 'REMOVE_PROFILE_PHOTO' : 'UPDATE_PROFILE_PHOTO',
         targetEntity: 'karyawan',
-        targetId: user.karyawan_id,
-        karyawanId: user.karyawan_id,
+        targetId: employeeId,
+        karyawanId: employeeId,
         before: { has_foto_profil: Boolean(existing?.foto_profil_path) },
         after: { has_foto_profil: Boolean(nextPath) },
       });
