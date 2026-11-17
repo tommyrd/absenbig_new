@@ -1,4 +1,4 @@
-export const MAX_GPS_ACCURACY_METERS = 50;
+export const MAX_GPS_ACCURACY_METERS = 100;
 
 export function isGpsAccuracyAcceptable(accuracyMeters: unknown): accuracyMeters is number {
   return (
