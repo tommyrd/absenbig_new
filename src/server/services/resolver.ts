@@ -369,7 +369,7 @@ export function computeMonthlySummary(
        FROM karyawan k
        JOIN kantor kt ON k.kantor_id = kt.id
        JOIN bidang_kerja b ON k.bidang_id = b.id
-       WHERE k.id = ?`
+       WHERE k.id = ? AND COALESCE(k.is_system_archive, 0) = 0`
     )
     .get(karyawanId) as Karyawan | undefined;
 
@@ -474,7 +474,7 @@ export function getWorkforceToday(
     FROM karyawan k
     JOIN kantor kt ON k.kantor_id = kt.id
     JOIN bidang_kerja b ON k.bidang_id = b.id
-    WHERE k.aktif = 1
+    WHERE k.aktif = 1 AND COALESCE(k.is_system_archive, 0) = 0
   `;
   const params: (number | string)[] = [];
   if (kantorId) {
