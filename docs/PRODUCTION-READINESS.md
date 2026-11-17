@@ -14,7 +14,7 @@
 | Standalone Production Boot | Perlu verifikasi ulang | Jalankan server production dan cek healthcheck setelah build terbaru. |
 | Session Time Window & GPS Quality | Diperbarui | Frontend dan backend memakai waktu WIB server; batas `jam_selesai` dikunci; GPS wajib akurasi maksimum ±100m dan margin akurasi tetap di dalam radius pada sesi yang diwajibkan kantor. |
 | Attendance Location Policy | Diperbarui | Admin dapat memilih Sesi 1 wajib kantor (default, sesi 2+ fleksibel) atau semua sesi wajib kantor; diterapkan di API dan UI. |
-| Employee Login Landing | Diperbarui | Menggunakan waktu server WIB; langsung membuka Absensi hanya ketika sesi berikutnya sedang terbuka, selain itu Beranda. |
+| Employee Login & Session Navigation | Diperbarui | Menggunakan waktu server WIB; masuk ke Absensi hanya ketika sesi berikutnya sedang terbuka; setelah check-in kembali ke Beranda bila sesi selanjutnya belum terbuka; Beranda memeriksa jadwal setiap 15 detik. |
 | Mobile GPS Prompt & Photo Viewer | Diperbarui | GPS tidak diminta otomatis; izin diminta setelah aksi pengguna; lightbox foto berada di tengah viewport dan konten detail dapat discroll. |
 | Database Schema, Migrasi & Seed | Lulus | `schema_migrations` mencatat versi `001`–`005`, termasuk migrasi aturan lokasi per kebijakan; `seedProductionBaseline` memisahkan data demo dari production. |
 | Keamanan Autentikasi & API | Lulus | `scrypt`, HMAC-SHA256 + `jti` revocation + `token_version`, brute-force `429`, RBAC backend, validasi magic-bytes & sanitasi SVG. |
