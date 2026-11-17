@@ -147,7 +147,7 @@ export function SuperadminAccountsTab({
     setSaving(true);
     setModalErr(null);
     try {
-      const res = await apiFetch<{ nik: string }>(
+      const res = await apiFetch<{ nik: string | null; role: 'KARYAWAN' | 'ADMIN' }>(
         `/api/v1/superadmin/registrations/${approveTarget.id}/approve`,
         {
           method: 'POST',
@@ -156,7 +156,9 @@ export function SuperadminAccountsTab({
       );
       setApproveTarget(null);
       setBannerMsg(
-        `Akun @${approveTarget.username} (${approveForm.role}) telah di-ACC dengan NIK ${res.nik}.`
+        res.role === 'ADMIN'
+          ? `Akun @${approveTarget.username} telah di-ACC sebagai Admin Operasional non-pegawai tanpa NIK.`
+          : `Akun @${approveTarget.username} telah di-ACC sebagai Karyawan dengan NIK ${res.nik || '—'}.`
       );
       await loadAll();
     } catch (err) {
@@ -284,7 +286,9 @@ export function SuperadminAccountsTab({
         setBannerMsg(
           accountForm.role === 'SUPERADMIN'
             ? `Akun SUPERADMIN @${accountForm.username} berhasil dibuat sebagai akun pemilik tanpa profil pegawai.`
-            : `Akun @${accountForm.username} (${accountForm.role}) berhasil dibuat dengan NIK ${res.nik}.`
+            : accountForm.role === 'ADMIN'
+              ? `Akun Admin Operasional @${accountForm.username} berhasil dibuat sebagai akun non-pegawai tanpa NIK.`
+              : `Akun Karyawan @${accountForm.username} berhasil dibuat dengan NIK ${res.nik || '—'}.`
         );
       }
       setAccountModal(false);
@@ -361,10 +365,10 @@ export function SuperadminAccountsTab({
       header: 'Kantor & Bidang',
       render: (r) => (
         <div className="text-xs">
-          {r.role === 'SUPERADMIN' ? (
+          {r.role_diminta === 'ADMIN' ? (
             <>
               <p className="font-medium text-amber-700 dark:text-amber-300">Bukan Pegawai</p>
-              <p className="text-slate-500 dark:text-slate-400">Akun pemilik sistem</p>
+              <p className="text-slate-500 dark:text-slate-400">Admin Operasional</p>
             </>
           ) : (
             <>
@@ -467,8 +471,12 @@ export function SuperadminAccountsTab({
       sortValue: (r) => r.role,
       render: (r) => (
         <div className="text-xs">
-          <p className="font-bold text-navy-900 dark:text-blue-400">{r.role === 'SUPERADMIN' ? 'SUPERADMIN · OWNER' : r.role}</p>
-          <p className="text-slate-500 dark:text-slate-400">{r.role === 'SUPERADMIN' ? 'Akun pengelola sistem' : r.jabatan}</p>
+          <p className="font-bold text-navy-900 dark:text-blue-400">
+            {r.role === 'SUPERADMIN' ? 'SUPERADMIN · OWNER' : r.role === 'ADMIN' ? 'ADMIN OPERASIONAL' : 'KARYAWAN'}
+          </p>
+          <p className="text-slate-500 dark:text-slate-400">
+            {r.role === 'SUPERADMIN' ? 'Akun pemilik sistem' : r.role === 'ADMIN' ? 'Akun pengelola operasional' : r.jabatan}
+          </p>
         </div>
       ),
     },
@@ -478,10 +486,12 @@ export function SuperadminAccountsTab({
       sortValue: (r) => r.kantor_nama || '',
       render: (r) => (
         <div className="text-xs">
-          {r.role === 'SUPERADMIN' ? (
+          {r.karyawan_id === null ? (
             <>
               <p className="font-medium text-amber-700 dark:text-amber-300">Bukan Pegawai</p>
-              <p className="text-slate-500 dark:text-slate-400">Akun pemilik sistem</p>
+              <p className="text-slate-500 dark:text-slate-400">
+                {r.role === 'ADMIN' ? 'Admin Operasional' : 'Akun pemilik sistem'}
+              </p>
             </>
           ) : (
             <>
@@ -961,10 +971,11 @@ export function SuperadminAccountsTab({
               )}
 
               {/* Foto Profil Control hanya untuk akun yang terhubung ke karyawan */}
-              {accountForm.role !== 'SUPERADMIN' && (
+              {accountForm.role === 'KARYAWAN' && (
               <div className="flex items-center gap-3.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700">
                 <UserAvatar
                   karyawanId={editingAccount?.karyawan_id}
+                  userId={editingAccount?.karyawan_id === null ? editingAccount.user_id : null}
                   name={accountForm.nama_lengkap || 'BG'}
                   role={accountForm.role}
                   version={editingAccount?.foto_profil_updated_at}
@@ -1015,7 +1026,7 @@ export function SuperadminAccountsTab({
               )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {!editingAccount && accountForm.role !== 'SUPERADMIN' && (
+                {!editingAccount && accountForm.role === 'KARYAWAN' && (
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                       NIK (Opsional)
@@ -1036,9 +1047,18 @@ export function SuperadminAccountsTab({
                   <select
                     value={accountForm.role}
                     disabled={Boolean(editingAccount && editingAccount.role === 'SUPERADMIN')}
-                    onChange={(e) =>
-                      setAccountForm({ ...accountForm, role: e.target.value as Role })
-                    }
+                    onChange={(e) => {
+                      const nextRole = e.target.value as Role;
+                      setAccountForm({
+                        ...accountForm,
+                        role: nextRole,
+                        jabatan: nextRole === 'ADMIN'
+                          ? 'Admin Operasional'
+                          : accountForm.jabatan === 'Admin Operasional'
+                            ? 'Teknisi Lapangan'
+                            : accountForm.jabatan,
+                      });
+                    }}
                     className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 disabled:opacity-60"
                   >
                     <option value="KARYAWAN">KARYAWAN / TEKNISI</option>
@@ -1161,7 +1181,7 @@ export function SuperadminAccountsTab({
               </>
               )}
 
-              {accountForm.role === 'SUPERADMIN' && (
+              {accountForm.role !== 'KARYAWAN' && (
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">No. HP / WA (Opsional)</label>
                   <input
