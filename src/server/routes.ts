@@ -1781,11 +1781,12 @@ export function registerApiRoutes(app: Express) {
     };
   };
 
-  app.get('/api/v1/master/offices', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (_req: Request, res: Response) => {
-    const items = (db.prepare(`SELECT * FROM kantor ORDER BY id ASC`).all() as Array<{ id: number }>).map((office) => ({
-      ...office,
-      ...getOfficeDeletionUsage(office.id),
-    }));
+  app.get('/api/v1/master/offices', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const offices = db.prepare(`SELECT * FROM kantor ORDER BY id ASC`).all() as Array<{ id: number }>;
+    // Usage counts are administrative metadata and are only returned to ADMIN.
+    const items = req.authUser?.role === 'ADMIN'
+      ? offices.map((office) => ({ ...office, ...getOfficeDeletionUsage(office.id) }))
+      : offices;
     res.json({ items });
   });
 
@@ -1916,11 +1917,12 @@ export function registerApiRoutes(app: Express) {
     }
   });
 
-  app.get('/api/v1/master/bidang', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (_req: Request, res: Response) => {
-    const items = (db.prepare(`SELECT * FROM bidang_kerja ORDER BY id ASC`).all() as Array<{ id: number }>).map((bidang) => ({
-      ...bidang,
-      ...getBidangDeletionUsage(bidang.id),
-    }));
+  app.get('/api/v1/master/bidang', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const bidangItems = db.prepare(`SELECT * FROM bidang_kerja ORDER BY id ASC`).all() as Array<{ id: number }>;
+    // Usage counts are administrative metadata and are only returned to ADMIN.
+    const items = req.authUser?.role === 'ADMIN'
+      ? bidangItems.map((bidang) => ({ ...bidang, ...getBidangDeletionUsage(bidang.id) }))
+      : bidangItems;
     res.json({ items });
   });
 
