@@ -125,8 +125,11 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   // Camera & Photo State (Browser Camera ONLY — no file upload allowed)
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const cameraRequestIdRef = useRef(0);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [cameraActive, setCameraActive] = useState(false);
+  const [cameraLoading, setCameraLoading] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
 
@@ -168,12 +171,49 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   }, [clockOffsetMs]);
 
   const stopCamera = useCallback(() => {
+    // Invalidate any getUserMedia request that is still pending.
+    cameraRequestIdRef.current += 1;
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.srcObject = null;
+    }
+    setCameraReady(false);
+    setCameraLoading(false);
     setCameraActive(false);
   }, []);
+
+  useEffect(() => {
+    if (!cameraActive) return;
+    const video = videoRef.current;
+    const stream = streamRef.current;
+    if (!video || !stream) return;
+
+    let active = true;
+    const markReady = () => {
+      if (active) setCameraReady(true);
+    };
+    video.srcObject = stream;
+    video.addEventListener('loadeddata', markReady);
+
+    video.play().catch(() => {
+      if (active) {
+        setCameraError('Pratinjau kamera tidak dapat diputar. Tutup aplikasi lain yang menggunakan kamera, lalu coba lagi.');
+      }
+    });
+
+    return () => {
+      active = false;
+      video.removeEventListener('loadeddata', markReady);
+      if (video.srcObject === stream) {
+        video.pause();
+        video.srcObject = null;
+      }
+    };
+  }, [cameraActive]);
 
   useEffect(() => {
     return () => stopCamera();
@@ -210,6 +250,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
   const startCamera = async (requestedFacing: 'user' | 'environment' = facingMode) => {
     setCameraError(null);
     stopCamera();
+    const requestId = ++cameraRequestIdRef.current;
 
     const next = data?.day.policySnapshot.sesiList[data.day.sessionsCompleted];
     const currentMinute = parseHm(liveWibHm);
@@ -258,31 +299,64 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
       );
       return;
     }
+
+    setCameraLoading(true);
+    setCameraReady(false);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: requestedFacing, width: { ideal: 960 }, height: { ideal: 720 } },
+        video: {
+          facingMode: { ideal: requestedFacing },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
         audio: false,
       });
+
+      // If the user cancelled, switched cameras again, or left the page while
+      // the permission prompt was open, never keep the late stream alive.
+      if (requestId !== cameraRequestIdRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+
+      const actualFacing = stream.getVideoTracks()[0]?.getSettings().facingMode;
+      if (actualFacing && actualFacing !== requestedFacing) {
+        stream.getTracks().forEach((track) => track.stop());
+        setCameraError(
+          requestedFacing === 'environment'
+            ? 'Kamera belakang tidak tersedia pada perangkat ini. Coba kamera depan.'
+            : 'Kamera depan tidak tersedia pada perangkat ini. Coba kamera belakang.'
+        );
+        return;
+      }
+
       streamRef.current = stream;
       setFacingMode(requestedFacing);
       setCameraActive(true);
-      setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play().catch(() => {});
-        }
-      }, 60);
-    } catch {
-      setCameraError(
-        'Akses kamera browser ditolak atau perangkat kamera tidak tersedia. Absensi wajib menggunakan kamera browser secara langsung (unggah foto dari galeri dinonaktifkan).'
-      );
+    } catch (err) {
+      if (requestId !== cameraRequestIdRef.current) return;
+      const name = err instanceof Error ? err.name : '';
+      if (name === 'NotAllowedError' || name === 'SecurityError') {
+        setCameraError('Izin kamera ditolak. Izinkan akses kamera untuk situs ini melalui pengaturan browser, lalu coba lagi.');
+      } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+        setCameraError('Kamera tidak ditemukan. Periksa kamera perangkat atau sambungkan kamera yang tersedia.');
+      } else if (name === 'NotReadableError' || name === 'TrackStartError') {
+        setCameraError('Kamera sedang digunakan aplikasi lain atau tidak dapat dimulai. Tutup aplikasi kamera lain, lalu coba lagi.');
+      } else {
+        setCameraError('Kamera gagal dibuka. Periksa izin browser dan ketersediaan kamera, lalu coba lagi.');
+      }
+    } finally {
+      if (requestId === cameraRequestIdRef.current) {
+        setCameraLoading(false);
+      }
     }
   };
 
   const toggleFacingMode = () => {
     const nextMode = facingMode === 'user' ? 'environment' : 'user';
+    setCameraError(null);
     if (cameraActive) {
-      startCamera(nextMode);
+      void startCamera(nextMode);
     } else {
       setFacingMode(nextMode);
     }
@@ -290,25 +364,50 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
 
   const captureFromVideo = () => {
     const video = videoRef.current;
-    if (!video) return;
-    const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 480;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    // Stamp server date, live WIB time & employee name watermark on capture
-    ctx.fillStyle = 'rgba(11, 21, 40, 0.8)';
-    ctx.fillRect(0, canvas.height - 46, canvas.width, 46);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 13px sans-serif';
-    ctx.fillText(
-      `${user.nama_lengkap} · ${data?.serverDate || ''} ${liveWibHm} WIB · ${user.kantor_nama.split('(')[0].trim()}`,
-      14,
-      canvas.height - 17
-    );
-    setPhotoDataUrl(canvas.toDataURL('image/jpeg', 0.86));
-    stopCamera();
+    if (
+      !video ||
+      !cameraReady ||
+      video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA ||
+      video.videoWidth <= 0 ||
+      video.videoHeight <= 0
+    ) {
+      setCameraError('Kamera belum siap mengambil gambar. Tunggu pratinjau tampil jelas, lalu coba lagi.');
+      return;
+    }
+
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        setCameraError('Gagal menyiapkan gambar. Silakan buka kamera kembali.');
+        return;
+      }
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      // Stamp employee identity, server date/time and office on the capture.
+      ctx.fillStyle = 'rgba(11, 21, 40, 0.8)';
+      ctx.fillRect(0, canvas.height - 46, canvas.width, 46);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 13px sans-serif';
+      ctx.fillText(
+        `${user.nama_lengkap} · ${data?.serverDate || ''} ${liveWibHm} WIB · ${user.kantor_nama.split('(')[0].trim()}`,
+        14,
+        canvas.height - 17
+      );
+
+      const capturedPhoto = canvas.toDataURL('image/jpeg', 0.86);
+      if (!capturedPhoto.startsWith('data:image/jpeg;base64,')) {
+        setCameraError('Hasil foto tidak valid. Silakan ambil foto ulang.');
+        return;
+      }
+      setPhotoDataUrl(capturedPhoto);
+      stopCamera();
+      setCameraError(null);
+    } catch {
+      setCameraError('Foto gagal diproses. Periksa memori perangkat, lalu coba ambil foto kembali.');
+    }
   };
 
   const handleSubmitSession = async () => {
@@ -858,28 +957,31 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                             className="w-full max-h-72 object-cover"
                           />
                         </div>
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-stretch gap-2">
                           <button
                             type="button"
+                            disabled={!cameraReady || cameraLoading}
                             onClick={captureFromVideo}
-                            className="flex-1 min-h-[44px] h-11 bg-navy-900 hover:bg-navy-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white text-sm font-semibold rounded-lg flex items-center justify-center gap-2"
+                            className="min-w-0 min-h-[44px] h-11 px-2.5 bg-navy-900 hover:bg-navy-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white text-xs sm:text-sm font-semibold rounded-lg flex items-center justify-center gap-1.5 whitespace-nowrap disabled:opacity-55 disabled:cursor-wait"
                           >
-                            <Camera className="w-4 h-4" />
-                            Ambil Foto Sekarang
+                            <Camera className="w-4 h-4 shrink-0" />
+                            <span>{cameraReady ? 'Ambil Foto' : 'Menyiapkan...'}</span>
                           </button>
                           <button
                             type="button"
+                            disabled={cameraLoading}
                             onClick={toggleFacingMode}
-                            className="min-h-[44px] h-11 px-3.5 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 inline-flex items-center gap-1.5"
-                            title="Ganti kamera depan/belakang"
+                            className="min-w-0 min-h-[44px] h-11 px-2.5 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 inline-flex items-center justify-center gap-1.5 whitespace-nowrap disabled:opacity-55"
+                            title={facingMode === 'user' ? 'Ganti ke kamera belakang' : 'Ganti ke kamera depan'}
+                            aria-label={facingMode === 'user' ? 'Ganti ke kamera belakang' : 'Ganti ke kamera depan'}
                           >
-                            <SwitchCamera className="w-4 h-4" />
-                            {facingMode === 'user' ? 'Depan' : 'Belakang'}
+                            <SwitchCamera className="w-4 h-4 shrink-0" />
+                            <span>{facingMode === 'user' ? 'Belakang' : 'Depan'}</span>
                           </button>
                           <button
                             type="button"
                             onClick={stopCamera}
-                            className="min-h-[44px] h-11 px-4 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+                            className="min-w-0 min-h-[44px] h-11 px-2.5 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap"
                           >
                             Batal
                           </button>
@@ -895,29 +997,31 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                         <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5">
                           <button
                             type="button"
-                            disabled={!nextSessionStarted || !canCheckInByLocation}
-                            onClick={() => startCamera(facingMode)}
+                            disabled={!nextSessionStarted || !canCheckInByLocation || cameraLoading}
+                            onClick={() => void startCamera(facingMode)}
                             className="w-full sm:w-auto min-h-[44px] px-4 py-2.5 bg-navy-900 hover:bg-navy-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <Camera className="w-4 h-4" />
-                            {!canCheckInByLocation
-                              ? gpsStatus !== 'ok' || !coords
+                            {cameraLoading
+                              ? 'Menyiapkan kamera...'
+                              : !canCheckInByLocation
+                                ? gpsStatus !== 'ok' || !coords
                                 ? 'Aktifkan lokasi terlebih dahulu'
                                 : sessionRequiresOffice
                                   ? 'Lokasi di luar radius kantor'
                                   : 'Periksa lokasi terlebih dahulu'
-                              : nextSessionStarted
-                                ? 'Buka Kamera Browser'
-                                : `Menunggu Pukul ${nextSesi.jam_mulai} WIB`}
+                                : nextSessionStarted
+                                  ? `Buka Kamera ${facingMode === 'user' ? 'Depan' : 'Belakang'}`
+                                  : `Menunggu Pukul ${nextSesi.jam_mulai} WIB`}
                           </button>
                           <button
                             type="button"
-                            disabled={!nextSessionStarted || !canCheckInByLocation}
+                            disabled={!nextSessionStarted || !canCheckInByLocation || cameraLoading}
                             onClick={toggleFacingMode}
                             className="w-full sm:w-auto min-h-[44px] px-3.5 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium rounded-lg inline-flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <SwitchCamera className="w-4 h-4" />
-                            Mode: {facingMode === 'user' ? 'Kamera Depan' : 'Kamera Belakang'}
+                            Pilih: {facingMode === 'user' ? 'Kamera Depan' : 'Kamera Belakang'}
                           </button>
                         </div>
                       </div>
