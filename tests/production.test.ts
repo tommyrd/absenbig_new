@@ -452,6 +452,12 @@ test('5. Authorization boundaries, query-token restriction, logout jti & token_v
     body: { kode: 'QA_TMP', nama: 'Bidang QA Sementara', deskripsi: 'Bidang untuk uji perubahan Admin' },
   });
   assert.equal(createField.status, 201);
+  const fieldListBeforeUse = await apiJson<{
+    items: Array<{ id: number; can_delete: boolean; jumlah_karyawan: number; jumlah_kebijakan: number; jumlah_pendaftaran: number }>;
+  }>('/api/v1/master/bidang', { token: adminToken });
+  const newFieldBeforeUse = fieldListBeforeUse.data.items.find((field) => field.id === createField.data.id);
+  assert.ok(newFieldBeforeUse);
+  assert.equal(newFieldBeforeUse.can_delete, true);
   const editField = await apiJson(`/api/v1/master/bidang/${createField.data.id}`, {
     method: 'PUT',
     token: adminToken,
@@ -477,6 +483,13 @@ test('5. Authorization boundaries, query-token restriction, logout jti & token_v
     `SELECT bidang_id FROM karyawan WHERE id = ?`
   ).get(karyawanId) as { bidang_id: number };
   assert.equal(reassigned.bidang_id, createField.data.id);
+  const fieldListWhileUsed = await apiJson<{
+    items: Array<{ id: number; can_delete: boolean; jumlah_karyawan: number }>;
+  }>('/api/v1/master/bidang', { token: adminToken });
+  const usedField = fieldListWhileUsed.data.items.find((field) => field.id === createField.data.id);
+  assert.ok(usedField);
+  assert.equal(usedField.can_delete, false);
+  assert.equal(usedField.jumlah_karyawan, 1);
 
   // A field assigned to an employee must be protected from deletion.
   const fieldDeleteBlocked = await apiJson(
@@ -546,6 +559,13 @@ test('5. Authorization boundaries, query-token restriction, logout jti & token_v
     body: { ...beforeFieldEdit, kantor_id: createOffice.data.id },
   });
   assert.equal(assignOffice.status, 200);
+  const officeListWhileUsed = await apiJson<{
+    items: Array<{ id: number; can_delete: boolean; jumlah_karyawan: number }>;
+  }>('/api/v1/master/offices', { token: adminToken });
+  const usedOffice = officeListWhileUsed.data.items.find((office) => office.id === createOffice.data.id);
+  assert.ok(usedOffice);
+  assert.equal(usedOffice.can_delete, false);
+  assert.equal(usedOffice.jumlah_karyawan, 1);
 
   const officeDeleteBlocked = await apiJson(
     `/api/v1/master/offices/${createOffice.data.id}`,
