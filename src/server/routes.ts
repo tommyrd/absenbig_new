@@ -306,7 +306,7 @@ export function registerApiRoutes(app: Express) {
          WHERE (LOWER(u.username) = LOWER(?) OR LOWER(u.email) = LOWER(?)) LIMIT 1`
       )
       .get(cleanIdentifier, cleanIdentifier) as
-      | { id: number; password_hash: string; role: Role; aktif: number; token_version: number; emp_aktif: number }
+      | { id: number; password_hash: string; role: Role; aktif: number; token_version: number; emp_aktif: number | null }
       | undefined;
 
     if (!row) {
@@ -618,7 +618,7 @@ export function registerApiRoutes(app: Express) {
         `SELECT k.id as karyawan_id, k.foto_profil_updated_at, COALESCE(u.role, 'KARYAWAN') as role
          FROM karyawan k
          LEFT JOIN pengguna u ON u.karyawan_id = k.id AND u.aktif = 1
-         WHERE k.aktif = 1`
+         WHERE k.aktif = 1 AND COALESCE(k.is_system_archive, 0) = 0`
       )
       .all() as { karyawan_id: number; foto_profil_updated_at: string | null; role: Role }[];
 
@@ -648,7 +648,7 @@ export function registerApiRoutes(app: Express) {
       JOIN bidang_kerja b ON k.bidang_id = b.id
       LEFT JOIN absensi_lokasi_cache alc ON alc.absensi_sesi_id = s.id
       LEFT JOIN pengguna u ON u.karyawan_id = k.id AND u.aktif = 1
-      WHERE k.aktif = 1
+      WHERE k.aktif = 1 AND COALESCE(k.is_system_archive, 0) = 0
     `;
     const postParams: (string | number)[] = [];
     if (scope === 'today') {
@@ -2387,7 +2387,7 @@ export function registerApiRoutes(app: Express) {
     const kantorId = req.query.kantorId ? Number(req.query.kantorId) : undefined;
     const bidangId = req.query.bidangId ? Number(req.query.bidangId) : undefined;
 
-    let sql = `SELECT id FROM karyawan WHERE aktif = 1`;
+    let sql = `SELECT id FROM karyawan WHERE aktif = 1 AND COALESCE(is_system_archive, 0) = 0`;
     const params: number[] = [];
     if (kantorId) {
       sql += ` AND kantor_id = ?`;
@@ -2422,7 +2422,7 @@ export function registerApiRoutes(app: Express) {
          JOIN kantor kt ON k.kantor_id = kt.id
          JOIN bidang_kerja b ON k.bidang_id = b.id
          LEFT JOIN absensi_sesi a ON a.karyawan_id = k.id AND a.tanggal = ? AND a.urutan_sesi = 1
-         WHERE k.aktif = 1
+         WHERE k.aktif = 1 AND COALESCE(k.is_system_archive, 0) = 0
          ORDER BY a.waktu_server ASC NULLS LAST, k.nama_lengkap ASC`
       )
       .all(tanggal);
