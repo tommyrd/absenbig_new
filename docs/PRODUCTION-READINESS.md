@@ -10,10 +10,12 @@
 |---|---|---|
 | Build Frontend (`npm run build`) | Perlu verifikasi ulang | Jalankan pada checkout terbaru setelah perubahan sesi dan GPS. |
 | Type Check (`npm run lint`) | Perlu verifikasi ulang | Jalankan pada checkout terbaru untuk memastikan import helper dan UI TypeScript. |
-| Automated Tests (`npm test`) | Perlu verifikasi ulang | Cakupan saat ini 20 test (`12` test inti + `8` test production); hasil lulus belum diklaim sebelum dijalankan ulang. |
+| Automated Tests (`npm test`) | Perlu verifikasi ulang | Cakupan saat ini 21 test (`13` test inti + `8` test production); hasil lulus belum diklaim sebelum dijalankan ulang. |
 | Standalone Production Boot | Perlu verifikasi ulang | Jalankan server production dan cek healthcheck setelah build terbaru. |
 | Session Time Window & GPS Quality | Diperbarui | Frontend dan backend memakai waktu WIB server; batas `jam_selesai` dikunci; GPS wajib akurasi maksimum ±100m dan margin akurasi tetap di dalam radius pada sesi yang diwajibkan kantor. |
 | Attendance Location Policy | Diperbarui | Admin dapat memilih Sesi 1 wajib kantor (default, sesi 2+ fleksibel) atau semua sesi wajib kantor; diterapkan di API dan UI. |
+| Employee Login Landing | Diperbarui | Menggunakan waktu server WIB; langsung membuka Absensi hanya ketika sesi berikutnya sedang terbuka, selain itu Beranda. |
+| Mobile GPS Prompt & Photo Viewer | Diperbarui | GPS tidak diminta otomatis; izin diminta setelah aksi pengguna; lightbox foto berada di tengah viewport dan konten detail dapat discroll. |
 | Database Schema, Migrasi & Seed | Lulus | `schema_migrations` mencatat versi `001`–`005`, termasuk migrasi aturan lokasi per kebijakan; `seedProductionBaseline` memisahkan data demo dari production. |
 | Keamanan Autentikasi & API | Lulus | `scrypt`, HMAC-SHA256 + `jti` revocation + `token_version`, brute-force `429`, RBAC backend, validasi magic-bytes & sanitasi SVG. |
 | Penyimpanan Foto & Aset Persisten | Lulus | `DATA_DIR` configurable di luar rilis kode; nama file acak kriptografis + SHA-256 checksum. |
