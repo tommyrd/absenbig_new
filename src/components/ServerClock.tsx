@@ -65,23 +65,27 @@ export function ServerClock({ compact = false, onDark = false }: ServerClockProp
   }, []);
 
   const serverDate = nowMs === null ? null : new Date(nowMs);
-  const formattedTime = serverDate ? new Intl.DateTimeFormat('id-ID', {
-    timeZone: 'Asia/Jakarta',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  })
-    .format(serverDate)
-    .replace(/\./g, ':');
+  const formattedTime = serverDate
+    ? new Intl.DateTimeFormat('id-ID', {
+        timeZone: 'Asia/Jakarta',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      })
+        .format(serverDate)
+        .replace(/\\./g, ':')
+    : '--:--:--';
 
-  const formattedDate = new Intl.DateTimeFormat('id-ID', {
-    timeZone: 'Asia/Jakarta',
-    weekday: 'short',
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  }).format(serverDate) : '--:--:--';
+  const formattedDate = serverDate
+    ? new Intl.DateTimeFormat('id-ID', {
+        timeZone: 'Asia/Jakarta',
+        weekday: 'short',
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      }).format(serverDate)
+    : '--';
 
   if (compact) {
     return (
