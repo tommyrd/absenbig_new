@@ -160,7 +160,7 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
 10. Pastikan akun ADMIN dan KARYAWAN tetap menjadi akun pegawai dan semua fitur absensi mereka tetap berjalan.
 11. Pada profil SUPERADMIN, unggah foto PNG/JPG/WEBP maksimal 2 MB. Pastikan foto muncul di header profil, navigasi, dan daftar Kelola Akun, serta kolom foto tersimpan pada `pengguna`, bukan `karyawan`.
 12. Tekan **Reset Foto** dan pastikan avatar kembali ke inisial default tanpa mengubah `karyawan_id = NULL`.
-11. Pastikan database menolak `INSERT/UPDATE` yang mencoba menghubungkan SUPERADMIN ke `karyawan_id`, dan menolak akun ADMIN/KARYAWAN tanpa `karyawan_id`.
+13. Pastikan database menolak `INSERT/UPDATE` yang mencoba menghubungkan SUPERADMIN ke `karyawan_id`, dan menolak akun ADMIN/KARYAWAN tanpa `karyawan_id`.
 
 ## 6. UAT Admin Edit Bidang & Jam Absensi Mobile
 
