@@ -1,5 +1,14 @@
 # Changelog — Absensi BIGNET
 
+## 2026-11-17 — Admin one-time check-in override
+
+- Ditambahkan menu Admin **Izin Check-in Terlambat** untuk melihat sesi berikutnya yang sudah kedaluwarsa.
+- Admin dapat membuka akses selama 5, 10, 15, atau 30 menit dengan alasan wajib; izin hanya berlaku satu kali untuk satu karyawan, tanggal, dan sesi.
+- Karyawan menerima pembaruan izin otomatis pada halaman Absensi tanpa login ulang. Kamera browser, selfie, GPS/geofence, urutan sesi, dan waktu server tetap diwajibkan.
+- Check-in yang memakai izin tetap menyimpan waktu aktual dan status keterlambatan; izin tidak mengubah bukti absensi atau hasil payroll.
+- Pemberian izin dan penggunaannya dicatat sebagai audit `OVERRIDE_ABSENSI`; Superadmin dapat memantau melalui audit log.
+- Migrasi database `008_admin_one_time_expired_attendance_checkin_access` menambahkan tabel `override_akses_absensi`.
+
 ## [1.0.0] — Production Preparation Hardening
 
 ### Ditambahkan
