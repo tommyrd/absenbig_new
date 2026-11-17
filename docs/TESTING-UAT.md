@@ -21,6 +21,7 @@ Suite berisi 23 test (15 inti + 8 production) dan dijalankan menggunakan `tsx --
 12. **Registration table and profile photo columns** — Kolom profil dan tabel `pendaftaran_akun` tersedia.
 13. **Employee entry routing** — Saat login, karyawan diarahkan ke Absensi hanya jika sesi berikutnya sedang berada dalam jendela waktu server; jika belum waktunya, sesi berakhir, atau semua sesi selesai, mulai dari Beranda.
 14. **System settings RBAC & Feed access across all roles** — Endpoint settings terproteksi khusus `SUPERADMIN`, Beranda Feed dan foto dapat diakses lintas role, validasi sumber kamera & jam mulai sesi berjalan.
+15. **History calendar reflects attendance and final Admin Override** — Status kalender histori konsisten terhadap bukti sesi dan hasil koreksi payroll.
 
 ### B. Suite Hardening Production (`tests/production.test.ts` — 8 Test)
 Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
