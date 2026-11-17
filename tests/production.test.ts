@@ -123,10 +123,10 @@ after(async () => {
 test('1. Migrations are idempotent and production baseline enforces zero demo accounts', () => {
   const db = getDb();
   const applied = getAppliedMigrations(db);
-  assert.equal(applied.length, 4);
+  assert.equal(applied.length, 5);
   assert.deepEqual(
     applied.map((m) => m.version),
-    ['001', '002', '003', '004']
+    ['001', '002', '003', '004', '005']
   );
 
   // Re-running migrations should apply 0 new steps
@@ -502,6 +502,10 @@ test('6. SVG logo XSS sanitization, attendance camera-only, jam_mulai gate, geof
     },
   });
   assert.equal(futurePol.status, 201);
+  const storedLocationRule = db
+    .prepare(`SELECT aturan_lokasi FROM kebijakan_absensi WHERE id = ?`)
+    .get(futurePol.data.id) as { aturan_lokasi: string };
+  assert.equal(storedLocationRule.aturan_lokasi, 'SESI_PERTAMA_KANTOR');
 
   const nowHm = new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Jakarta', hour12: false }).slice(0, 5);
   if (nowHm < '23:59') {
@@ -671,6 +675,29 @@ test('6. SVG logo XSS sanitization, attendance camera-only, jam_mulai gate, geof
   const rec = validCheckin.data.day.sessionRecords[0];
   savedAttendanceSessionId = rec.id;
   assert.ok(rec.foto_checksum && rec.foto_checksum.length === 64);
+
+  // Default location rule: session 2 may be taken off-site; retain approximate GPS evidence.
+  const flexibleOffsite = await apiJson<{
+    ok: boolean;
+    day: { sessionsCompleted: number; sessionRecords: { id: number; dalam_geofence: boolean; accuracy_meter: number }[] };
+  }>('/api/v1/attendance/session', {
+    method: 'POST',
+    token: karyawanToken,
+    body: {
+      urutanSesi: 2,
+      lat: -6.25,
+      lng: 106.85,
+      accuracyMeter: 50000,
+      tipeAktivitas: 'STANDBY',
+      deskripsiAktivitas: 'Uji sesi fleksibel dari lokasi kerja luar kantor',
+      fotoBase64: SAMPLE_PNG_BASE64,
+      fotoSource: 'BROWSER_CAMERA',
+    },
+  });
+  assert.equal(flexibleOffsite.status, 201);
+  assert.equal(flexibleOffsite.data.day.sessionsCompleted, 2);
+  assert.equal(flexibleOffsite.data.day.sessionRecords[1].accuracy_meter, 50000);
+  assert.equal(flexibleOffsite.data.day.sessionRecords[1].dalam_geofence, false);
 
   // Feed lists the post and photo endpoint returns PNG with security headers
   const feed = await apiJson<{ posts: { id: number; namaLengkap: string; hasFoto: boolean }[] }>(
