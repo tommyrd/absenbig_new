@@ -63,11 +63,13 @@ test('Policy Hierarchy resolves KARYAWAN > BIDANG > DEFAULT', () => {
   assert.equal(andiPolicy.level, 'BIDANG');
   assert.equal(andiPolicy.jumlah_sesi, 3);
 
-  // Dewi (id 7) is NOC (DEFAULT policy: 4 sesi)
+  // Use a synthetic division with no matching BIDANG policy to verify DEFAULT fallback.
+  // A real employee such as Dewi may have a company-specific NOC BIDANG policy in the local DB.
   const dewi = db.prepare('SELECT * FROM karyawan WHERE id = 7').get() as unknown as Karyawan;
-  const dewiPolicy = getEffectivePolicy(db, dewi, today);
-  assert.equal(dewiPolicy.level, 'DEFAULT');
-  assert.equal(dewiPolicy.jumlah_sesi, 4);
+  const employeeWithoutDivisionPolicy = { ...dewi, bidang_id: -999999 };
+  const defaultPolicy = getEffectivePolicy(db, employeeWithoutDivisionPolicy, today);
+  assert.equal(defaultPolicy.level, 'DEFAULT');
+  assert.equal(defaultPolicy.jumlah_sesi, 4);
 });
 
 test('Kantor A Sunday is HARI_LIBUR (not TIDAK_HADIR), Kantor B Sunday is 2 sessions', () => {
@@ -269,13 +271,21 @@ test('System settings API strictly enforces SUPERADMIN access while keeping publ
     const samplePng =
       'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
-    // Temporarily set a future session jam_mulai (23:59) or test non-camera upload
+    // Read the actual employee policy so this test remains valid when the local DB
+    // contains Admin-created schedules that differ from the development seed.
+    const fajarEmployee = db
+      .prepare('SELECT * FROM karyawan WHERE id = ?')
+      .get(fajarUser.karyawan_id) as unknown as Karyawan;
+    const fajarPolicy = getEffectivePolicy(db, fajarEmployee, getWibDateString());
+    const firstSession = fajarPolicy.sesiList[0];
     const nowTimeRes = await fetch(`${baseUrl}/api/v1/time`);
     const nowTimeJson = (await nowTimeRes.json()) as { time: string };
     const nowHm = nowTimeJson.time.slice(0, 5);
+    const nowMinutes = Number(nowHm.slice(0, 2)) * 60 + Number(nowHm.slice(3, 5));
+    const firstStart = Number(firstSession.jam_mulai.slice(0, 2)) * 60 + Number(firstSession.jam_mulai.slice(3, 5));
+    const firstEnd = Number(firstSession.jam_selesai.slice(0, 2)) * 60 + Number(firstSession.jam_selesai.slice(3, 5));
 
-    if (nowHm < '08:00') {
-      // Before 08:00 WIB, session 1 must be rejected as not started yet
+    if (nowMinutes < firstStart) {
       const earlyRes = await fetch(`${baseUrl}/api/v1/attendance/session`, {
         method: 'POST',
         headers: {
@@ -291,12 +301,24 @@ test('System settings API strictly enforces SUPERADMIN access while keeping publ
       assert.equal(earlyRes.status, 400);
       const earlyData = (await earlyRes.json()) as { error: string };
       assert.match(earlyData.error, /belum dimulai/i);
-    }
-
-    // Reject non-camera upload (e.g., FILE_UPLOAD) when session is open or before/after check
-    // Force an active policy check on an open window by testing with explicit FILE_UPLOAD on default policy if open,
-    // or verify future jam_mulai rejection with an isolated temporary test policy if past 08:00.
-    if (nowHm >= '08:00') {
+    } else if (nowMinutes > firstEnd) {
+      const expiredRes = await fetch(`${baseUrl}/api/v1/attendance/session`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${fajarToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          urutanSesi: 1,
+          fotoBase64: samplePng,
+          fotoSource: 'BROWSER_CAMERA',
+        }),
+      });
+      assert.equal(expiredRes.status, 400);
+      const expiredData = (await expiredRes.json()) as { error: string };
+      assert.match(expiredData.error, /sudah berakhir/i);
+    } else {
+      // Test the camera-only rule only while the employee's actual session is open.
       const uploadRes = await fetch(`${baseUrl}/api/v1/attendance/session`, {
         method: 'POST',
         headers: {
