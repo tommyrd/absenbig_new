@@ -397,7 +397,7 @@ test('System settings API strictly enforces SUPERADMIN access while keeping publ
         `SELECT u.id, u.role, u.karyawan_id FROM pengguna u WHERE u.role = 'KARYAWAN' AND u.aktif = 1 ORDER BY u.id ASC`
       )
       .all() as { id: number; role: Role; karyawan_id: number }[];
-    const fajarUser = empRow.find((e) => e.karyawan_id === 6) || karyawan;
+    const fajarUser = empRow.find((e) => e.karyawan_id === 5) || karyawan;
     const fajarToken = makeToken({ id: fajarUser.id, role: fajarUser.role });
 
     // 1x1 transparent PNG base64 sample
