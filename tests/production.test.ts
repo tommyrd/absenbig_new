@@ -123,10 +123,10 @@ after(async () => {
 test('1. Migrations are idempotent and production baseline enforces zero demo accounts', () => {
   const db = getDb();
   const applied = getAppliedMigrations(db);
-  assert.equal(applied.length, 11);
+  assert.equal(applied.length, 12);
   assert.deepEqual(
     applied.map((m) => m.version),
-    ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011']
+    ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012']
   );
 
   const attendanceColumns = db
