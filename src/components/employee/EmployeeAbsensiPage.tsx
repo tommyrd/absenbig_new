@@ -195,7 +195,10 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
     let active = true;
     const videoTrack = stream.getVideoTracks()[0];
     const markReady = () => {
-      if (active) setCameraReady(true);
+      if (active) {
+        setCameraReady(true);
+        setCameraError(null);
+      }
     };
     const handleTrackEnded = () => {
       if (active) {
@@ -210,6 +213,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
 
     video.play().catch(() => {
       if (active) {
+        setCameraReady(false);
         setCameraError('Pratinjau kamera tidak dapat diputar. Tutup aplikasi lain yang menggunakan kamera, lalu coba lagi.');
       }
     });
@@ -959,6 +963,11 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                       </div>
                     ) : cameraActive && nextSessionStarted && canCheckInByLocation ? (
                       <div className="space-y-3">
+                        {cameraError && (
+                          <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-left text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+                            {cameraError}
+                          </p>
+                        )}
                         <div className="rounded-xl overflow-hidden border border-slate-300 dark:border-slate-700 bg-black">
                           <video
                             ref={videoRef}
@@ -987,7 +996,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                             aria-label={facingMode === 'user' ? 'Ganti ke kamera belakang' : 'Ganti ke kamera depan'}
                           >
                             <SwitchCamera className="w-4 h-4 shrink-0" />
-                            <span>Ganti ke {facingMode === 'user' ? 'Belakang' : 'Depan'}</span>
+                            <span>{facingMode === 'user' ? 'Belakang' : 'Depan'}</span>
                           </button>
                           <button
                             type="button"
