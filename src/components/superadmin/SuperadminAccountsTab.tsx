@@ -703,7 +703,7 @@ export function SuperadminAccountsTab({
               <option value="">Semua Role</option>
               <option value="KARYAWAN">KARYAWAN / TEKNISI</option>
               <option value="ADMIN">ADMIN</option>
-              <option value="SUPERADMIN" disabled={Boolean(editingAccount && editingAccount.role !== 'SUPERADMIN')}>SUPERADMIN · AKUN PEMILIK</option>
+              <option value="SUPERADMIN">SUPERADMIN · AKUN PEMILIK</option>
             </select>
           }
         />
