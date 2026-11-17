@@ -10,7 +10,7 @@ interface ServerClockProps {
 
 export function ServerClock({ compact = false, onDark = false }: ServerClockProps) {
   const syncRef = useRef<ServerClockSync | null>(null);
-  const [nowMs, setNowMs] = useState(Date.now());
+  const [nowMs, setNowMs] = useState<number | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -64,8 +64,8 @@ export function ServerClock({ compact = false, onDark = false }: ServerClockProp
     };
   }, []);
 
-  const serverDate = new Date(nowMs);
-  const formattedTime = new Intl.DateTimeFormat('id-ID', {
+  const serverDate = nowMs === null ? null : new Date(nowMs);
+  const formattedTime = serverDate ? new Intl.DateTimeFormat('id-ID', {
     timeZone: 'Asia/Jakarta',
     hour: '2-digit',
     minute: '2-digit',
@@ -81,7 +81,7 @@ export function ServerClock({ compact = false, onDark = false }: ServerClockProp
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  }).format(serverDate);
+  }).format(serverDate) : '--:--:--';
 
   if (compact) {
     return (
@@ -107,7 +107,7 @@ export function ServerClock({ compact = false, onDark = false }: ServerClockProp
         <span className="text-sm font-semibold text-blue-700 dark:text-blue-400">WIB</span>
       </div>
       <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-        {formattedDate} · Waktu Server Terkunci
+        {serverDate ? `${formattedDate} · Waktu Server Terkunci` : 'Menyinkronkan waktu server...'}
       </div>
     </div>
   );
