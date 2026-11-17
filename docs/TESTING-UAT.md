@@ -131,3 +131,14 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
     - Check-in berhasil hanya satu kali; status tetap TERLAMBAT untuk Sesi 1 dan waktu absensi adalah waktu server saat permintaan masuk, bukan jam jadwal atau waktu yang dimundurkan.
     - Setelah digunakan, izin berubah menjadi `DIGUNAKAN`; pengiriman kedua ditolak dan audit mencatat `BUKA_AKSES_CHECKIN` serta `GUNAKAN_AKSES_CHECKIN`.
     - Uji role Karyawan tidak dapat membuka izin; Superadmin hanya memantau aktivitas melalui Audit Log, bukan memberikan izin.
+
+## 4. UAT Pengaturan Logo & Favicon SUPERADMIN
+
+1. Login sebagai SUPERADMIN, buka menu **Pengaturan Sistem**.
+2. Pastikan pratinjau logo perusahaan dan pratinjau favicon/tab browser tampil.
+3. Unggah favicon PNG, SVG, dan ICO valid secara bergantian; pastikan pratinjau berubah sebelum penyimpanan.
+4. Tekan **Simpan Pengaturan**. Pastikan ikon tab browser website ikut berubah tanpa perlu mengganti URL aplikasi.
+5. Refresh halaman dan buka aplikasi pada role ADMIN serta KARYAWAN; favicon yang sama tetap tampil.
+6. Uji file SVG dengan elemen/script aktif; server harus menolak unggahan dengan HTTP 400.
+7. Tekan **Reset Default** pada favicon, simpan, lalu pastikan favicon kembali ke ikon default.
+8. Login sebagai ADMIN dan KARYAWAN; keduanya tidak boleh dapat membaca atau mengubah endpoint pengaturan sistem (`GET/PUT /api/v1/settings` harus ditolak).
