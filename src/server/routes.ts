@@ -766,8 +766,8 @@ export function registerApiRoutes(app: Express) {
   // mutating the historical attendance proof row.
   app.post('/api/v1/feed/location-addresses', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), asyncRoute(async (req, res) => {
     const rawIds = (req.body as { sessionIds?: unknown }).sessionIds;
-    if (!Array.isArray(rawIds) || rawIds.length < 1 || rawIds.length > 10) {
-      res.status(400).json({ error: 'Kirim 1 sampai 10 ID sesi absensi per permintaan.' });
+    if (!Array.isArray(rawIds) || rawIds.length < 1 || rawIds.length > 60) {
+      res.status(400).json({ error: 'Kirim 1 sampai 60 ID sesi absensi per permintaan.' });
       return;
     }
     if (rawIds.some((id) => !Number.isSafeInteger(id) || Number(id) <= 0)) {
@@ -775,8 +775,8 @@ export function registerApiRoutes(app: Express) {
       return;
     }
     const sessionIds = [...new Set(rawIds as number[])];
-    if (sessionIds.length < 1 || sessionIds.length > 10) {
-      res.status(400).json({ error: 'Jumlah ID sesi absensi tidak valid.' });
+    if (sessionIds.length < 1 || sessionIds.length > 60) {
+      res.status(400).json({ error: 'Jumlah ID sesi absensi tidak valid (maksimal 60).' });
       return;
     }
 
