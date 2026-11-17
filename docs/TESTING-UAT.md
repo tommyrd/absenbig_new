@@ -64,3 +64,9 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
    - Akses melalui IP lokal HTTP menampilkan penjelasan bahwa GPS/kamera membutuhkan HTTPS; uji GPS dan kamera melalui HTTPS.
    - Foto Beranda dibuka sebagai modal di tengah viewport, dapat ditutup dan kontennya dapat discroll tanpa menempatkan modal di bawah layar.
    - Login saat sesi berikutnya sedang terbuka langsung menuju Absensi; login ketika belum waktunya, sesi sudah berakhir, atau semua sesi selesai menuju Beranda.
+
+6. **Employee Session Navigation (after login and check-in):**
+   - Login saat sesi berikutnya sedang aktif langsung menampilkan Absensi tanpa menampilkan Beranda terlebih dahulu.
+   - Jika sesi berikutnya belum dimulai, sudah berakhir, atau seluruh sesi selesai, tampilkan Beranda.
+   - Setelah submit sesi berhasil, kembali ke Beranda jika belum ada sesi berikutnya yang sedang terbuka.
+   - Saat karyawan tetap berada di Beranda, sistem mengecek jadwal server secara berkala (15 detik) dan otomatis membuka Absensi ketika sesi berikutnya mulai.
