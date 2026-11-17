@@ -920,6 +920,9 @@ export function AttendanceFeedView({
                 Alamat GPS merupakan hasil perkiraan reverse geocoding. Powered by{' '}
                 <a href="https://www.geoapify.com/" target="_blank" rel="noopener noreferrer" className="font-semibold text-blue-700 dark:text-blue-400 underline">
                   Geoapify
+                </a>{' · '}©{' '}
+                <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer" className="font-semibold text-blue-700 dark:text-blue-400 underline">
+                  OpenStreetMap contributors
                 </a>.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-1 text-[11px] font-mono text-slate-500 dark:text-slate-400 tabular-nums">
