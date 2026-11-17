@@ -10,8 +10,16 @@ Seluruh endpoint berada di bawah prefix `/api/v1`. Autentikasi menggunakan heade
 |---|---|---|---|
 | `GET` | `/api/v1/health` | Publik | Health check server & konektivitas SQLite (`status: "ok"`, `timezone: "Asia/Jakarta"`, `serverTimeIso`, `uptimeSeconds`). |
 | `GET` | `/api/v1/time` | Publik | Sinkronisasi waktu server WIB (`serverTimeIso`, `date`, `time`, `timezone`, `epochMs`). |
-| `GET` | `/api/v1/settings/public` | Publik | Konfigurasi branding halaman login (`nama_aplikasi`, teks hero/form, `pengumuman_login`, `has_custom_logo`, `izin_demo_login`). |
+| `GET` | `/api/v1/settings/public` | Publik | Konfigurasi branding halaman login (`nama_aplikasi`, teks hero/form, `pengumuman_login`, `has_custom_logo`, `has_custom_favicon`, waktu pembaruan aset, `izin_demo_login`). |
 | `GET` | `/api/v1/assets/logo` | Publik | Mengambil gambar logo kustom perusahaan (atau SVG default jika belum dikustomisasi), disertai `nosniff` & sandbox CSP. |
+| `GET` | `/api/v1/assets/favicon` | Publik | Mengambil favicon kustom PNG/SVG/ICO (atau SVG default); respons memakai `nosniff`, sandbox CSP, dan cache revalidation. |
+
+### Pengaturan Sistem (SUPERADMIN)
+
+| Method | Endpoint | Akses | Keterangan |
+|---|---|---|---|
+| `GET` | `/api/v1/settings` | `SUPERADMIN` | Mengambil seluruh pengaturan sistem, termasuk status dan versi logo/favicon kustom. |
+| `PUT` | `/api/v1/settings` | `SUPERADMIN` | Memperbarui branding dan pengaturan operasional. Unggah logo melalui `logoBase64` / `resetLogo`; unggah favicon melalui `faviconBase64` / `resetFavicon`. Favicon menerima PNG, SVG, atau ICO maksimal 512 KB. Unggahan SVG disanitasi. |
 
 ---
 
