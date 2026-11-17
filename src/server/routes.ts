@@ -1000,7 +1000,7 @@ export function registerApiRoutes(app: Express) {
         modul: 'ABSENSI',
         aksi: 'CHECKIN_SESI',
         targetEntity: 'absensi_sesi',
-        targetId: Number(info.lastInsertRowid),
+        targetId: createdSessionId,
         karyawanId: emp.id,
         tanggalTerdampak: today,
         after: {
