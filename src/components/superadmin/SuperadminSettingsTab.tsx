@@ -113,8 +113,13 @@ export function SuperadminSettingsTab({ onSettingsUpdated }: SuperadminSettingsT
     reader.onload = () => {
       if (typeof reader.result === 'string') {
         let dataUrl = reader.result;
-        if (isIco && !dataUrl.startsWith('data:image/x-icon;') && !dataUrl.startsWith('data:image/vnd.microsoft.icon;')) {
-          dataUrl = `data:image/x-icon;base64,${dataUrl.split(',').pop() || ''}`;
+        const encodedPayload = dataUrl.split(',').pop() || '';
+        if (isIco) {
+          dataUrl = `data:image/x-icon;base64,${encodedPayload}`;
+        } else if (isPng) {
+          dataUrl = `data:image/png;base64,${encodedPayload}`;
+        } else if (isSvg) {
+          dataUrl = `data:image/svg+xml;base64,${encodedPayload}`;
         }
         setPendingFaviconBase64(dataUrl);
         setFaviconPreview(dataUrl);
@@ -197,7 +202,7 @@ export function SuperadminSettingsTab({ onSettingsUpdated }: SuperadminSettingsT
             Pengaturan Sistem & Branding Aplikasi (Superadmin)
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Kelola logo perusahaan, teks dashboard halaman login, pengumuman masuk, serta parameter operasional global.
+            Kelola logo dan favicon perusahaan, teks dashboard halaman login, pengumuman masuk, serta parameter operasional global.
           </p>
         </div>
         <button
@@ -224,7 +229,7 @@ export function SuperadminSettingsTab({ onSettingsUpdated }: SuperadminSettingsT
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left: Live Login Dashboard Preview + Logo Upload */}
+        {/* Left: Live Login Dashboard Preview, Logo and Favicon Upload */}
         <div className="lg:col-span-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 sm:p-5 space-y-4">
           <h2 className="font-display text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <ImageIcon className="w-4 h-4 text-blue-700 dark:text-blue-400" />
