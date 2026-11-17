@@ -123,10 +123,10 @@ after(async () => {
 test('1. Migrations are idempotent and production baseline enforces zero demo accounts', () => {
   const db = getDb();
   const applied = getAppliedMigrations(db);
-  assert.equal(applied.length, 8);
+  assert.equal(applied.length, 9);
   assert.deepEqual(
     applied.map((m) => m.version),
-    ['001', '002', '003', '004', '005', '006', '007', '008']
+    ['001', '002', '003', '004', '005', '006', '007', '008', '009']
   );
 
   const attendanceColumns = db
@@ -143,6 +143,12 @@ test('1. Migrations are idempotent and production baseline enforces zero demo ac
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'override_akses_absensi'")
     .get() as { name: string } | undefined;
   assert.equal(checkinOverrideTable?.name, 'override_akses_absensi');
+
+  const settingsColumns = db
+    .prepare('PRAGMA table_info(pengaturan_aplikasi)')
+    .all() as { name: string }[];
+  assert.ok(settingsColumns.some((column) => column.name === 'favicon_path'));
+  assert.ok(settingsColumns.some((column) => column.name === 'favicon_updated_at'));
 
   // Re-running migrations should apply 0 new steps
   const rerun = runMigrations(db);
@@ -457,7 +463,7 @@ test('6. SVG logo XSS sanitization, attendance camera-only, jam_mulai gate, geof
   });
   assert.equal(xssRes.status, 400);
 
-  // Clean SVG logo accepted & served with nosniff + sandbox CSP
+  // Clean SVG logo and favicon accepted and served with nosniff + sandbox CSP
   const cleanRes = await apiJson('/api/v1/settings', {
     method: 'PUT',
     token: superToken,
@@ -468,6 +474,35 @@ test('6. SVG logo XSS sanitization, attendance camera-only, jam_mulai gate, geof
   assert.equal(logoFetch.status, 200);
   assert.equal(logoFetch.headers.get('x-content-type-options'), 'nosniff');
   assert.match(logoFetch.headers.get('content-security-policy') || '', /default-src 'none'/i);
+
+  const unsafeFavicon = await apiJson('/api/v1/settings', {
+    method: 'PUT',
+    token: superToken,
+    body: { faviconBase64: XSS_SVG_BASE64 },
+  });
+  assert.equal(unsafeFavicon.status, 400);
+
+  const cleanFavicon = await apiJson<{ settings: { has_custom_favicon: boolean } }>('/api/v1/settings', {
+    method: 'PUT',
+    token: superToken,
+    body: { faviconBase64: CLEAN_SVG_BASE64 },
+  });
+  assert.equal(cleanFavicon.status, 200);
+  assert.equal(cleanFavicon.data.settings.has_custom_favicon, true);
+
+  const faviconFetch = await fetch(`${baseUrl}/api/v1/assets/favicon`);
+  assert.equal(faviconFetch.status, 200);
+  assert.equal(faviconFetch.headers.get('content-type'), 'image/svg+xml');
+  assert.equal(faviconFetch.headers.get('x-content-type-options'), 'nosniff');
+  assert.match(faviconFetch.headers.get('content-security-policy') || '', /default-src 'none'/i);
+
+  const resetFavicon = await apiJson<{ settings: { has_custom_favicon: boolean } }>('/api/v1/settings', {
+    method: 'PUT',
+    token: superToken,
+    body: { resetFavicon: true },
+  });
+  assert.equal(resetFavicon.status, 200);
+  assert.equal(resetFavicon.data.settings.has_custom_favicon, false);
 
   // Create a legacy CATAT_DENGAN_FLAG office; strict server enforcement must still reject outside-radius attendance.
   const officeRes = await apiJson<{ id: number }>('/api/v1/master/offices', {
