@@ -120,7 +120,7 @@ export function EmployeeHistoryPage() {
     year: 'numeric',
     timeZone: 'UTC',
   }).format(new Date(Date.UTC(calendarYear, calendarMonth - 1, 1)));
-  const dayByDate = new Map((summary?.days || []).map((day) => [day.tanggal, day]));
+  const dayByDate = new Map((summary?.days || []).map((day) => [day.tanggal, day] as const));
   const selectedDay = selectedDate
     ? summary?.days.find((day) => day.tanggal === selectedDate) || null
     : null;
