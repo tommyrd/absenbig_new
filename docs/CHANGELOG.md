@@ -81,3 +81,11 @@
 - Halaman History menampilkan kalender Senin–Minggu dengan status dari resolver, hari hadir hijau, tidak hadir merah, belum selesai amber, kategori non-kerja dengan warna tersendiri, dan Admin Override ditandai O.
 - Tanggal pada kalender dapat dipilih untuk memfilter timeline dan bukti foto. Hari mendatang tanpa hasil resolver tidak ditandai alfa.
 - Test inti ditambah untuk aturan status kalender dan Admin Override.
+
+## 2026-11-17 — Attendance feed card visual hierarchy
+
+- Kartu beranda disusun ulang menjadi identitas/waktu, bukti foto, status sesi/geofence, dan caption/lokasi.
+- Nama karyawan tidak diulang pada caption; jabatan, bidang, kantor, jam dan tanggal tersusun pada header.
+- Foto memakai tinggi maksimum konsisten dan `object-contain` agar bukti foto utuh tanpa crop agresif.
+- Status sesi, ketepatan waktu, dan geofence memakai label visual terpisah; lokasi, koordinat GPS, jarak, dan Detail lokasi tetap dipertahankan.
+- Jarak di atas 1 km diringkas dalam kilometer agar lebih mudah dibaca.
