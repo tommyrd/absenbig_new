@@ -15,6 +15,7 @@ import {
 import { apiFetch, getAuthorizedPhotoUrl } from '../../lib/api';
 import type { AuthUser, Karyawan, ResolvedDay } from '../../shared/types';
 import { isGpsAccuracyAcceptable, isWithinVerifiedGeofence, MAX_GPS_ACCURACY_METERS } from '../../shared/geofence';
+import { requiresOfficeGeofence } from '../../shared/geofence';
 import { getSessionWindowState } from '../../shared/session-window';
 import { StatusBadge } from '../StatusBadge';
 
@@ -219,24 +220,30 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
       setCameraError(gpsError || 'Lokasi GPS wajib terbaca sebelum kamera absensi dapat dibuka.');
       return;
     }
-    if (!isGpsAccuracyAcceptable(coords.accuracy)) {
-      setCameraError(
-        `Akurasi GPS ±${coords.accuracy}m belum memenuhi batas maksimal ±${MAX_GPS_ACCURACY_METERS}m. Aktifkan lokasi presisi dan perbarui GPS di area terbuka.`
-      );
-      return;
-    }
-
-    const currentDistance = haversineClient(
-      coords.lat,
-      coords.lng,
-      user.kantor_lat,
-      user.kantor_lng
+    const mustBeAtOffice = requiresOfficeGeofence(
+      data?.day.policySnapshot.aturanLokasi,
+      next.urutan
     );
-    if (!isWithinVerifiedGeofence(currentDistance, coords.accuracy, user.kantor_radius)) {
-      setCameraError(
-        `Kamera dikunci. Jarak ke kantor ${currentDistance}m dengan estimasi akurasi ±${coords.accuracy}m belum dapat dipastikan berada dalam radius ${user.kantor_radius}m.`
+    if (mustBeAtOffice) {
+      if (!isGpsAccuracyAcceptable(coords.accuracy)) {
+        setCameraError(
+          `Sesi ini wajib di kantor. Akurasi GPS ±${coords.accuracy}m belum memenuhi batas maksimal ±${MAX_GPS_ACCURACY_METERS}m. Aktifkan lokasi presisi atau gunakan perangkat GPS yang lebih akurat.`
+        );
+        return;
+      }
+
+      const currentDistance = haversineClient(
+        coords.lat,
+        coords.lng,
+        user.kantor_lat,
+        user.kantor_lng
       );
-      return;
+      if (!isWithinVerifiedGeofence(currentDistance, coords.accuracy, user.kantor_radius)) {
+        setCameraError(
+          `Kamera dikunci. Sesi ${next.urutan} wajib dilakukan di kantor; jarak ${currentDistance}m dengan akurasi ±${coords.accuracy}m belum dapat dipastikan berada dalam radius ${user.kantor_radius}m.`
+        );
+        return;
+      }
     }
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -343,30 +350,36 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
       setGpsStatus('ok');
       setGpsError(null);
 
-      if (!isGpsAccuracyAcceptable(freshCoords.accuracy)) {
-        stopCamera();
-        setPhotoDataUrl(null);
-        setSubmitMsg({
-          type: 'err',
-          text: `Akurasi GPS ±${freshCoords.accuracy}m belum memenuhi batas maksimal ±${MAX_GPS_ACCURACY_METERS}m. Perbarui lokasi di area terbuka atau hubungi Admin.`,
-        });
-        return;
-      }
-
-      const freshDistance = haversineClient(
-        freshCoords.lat,
-        freshCoords.lng,
-        user.kantor_lat,
-        user.kantor_lng
+      const mustBeAtOffice = requiresOfficeGeofence(
+        data.day.policySnapshot.aturanLokasi,
+        nextUrutan
       );
-      if (!isWithinVerifiedGeofence(freshDistance, freshCoords.accuracy, user.kantor_radius)) {
-        stopCamera();
-        setPhotoDataUrl(null);
-        setSubmitMsg({
-          type: 'err',
-          text: `Absensi ditolak. Jarak titik GPS ${freshDistance}m dengan estimasi akurasi ±${freshCoords.accuracy}m belum dapat dipastikan berada dalam radius kantor ${user.kantor_radius}m. Dekati bagian tengah kantor dan perbarui GPS.`,
-        });
-        return;
+      if (mustBeAtOffice) {
+        if (!isGpsAccuracyAcceptable(freshCoords.accuracy)) {
+          stopCamera();
+          setPhotoDataUrl(null);
+          setSubmitMsg({
+            type: 'err',
+            text: `Sesi ini wajib di kantor. Akurasi GPS ±${freshCoords.accuracy}m belum memenuhi batas maksimal ±${MAX_GPS_ACCURACY_METERS}m. Perbarui lokasi di area terbuka atau gunakan perangkat GPS yang lebih akurat.`,
+          });
+          return;
+        }
+
+        const freshDistance = haversineClient(
+          freshCoords.lat,
+          freshCoords.lng,
+          user.kantor_lat,
+          user.kantor_lng
+        );
+        if (!isWithinVerifiedGeofence(freshDistance, freshCoords.accuracy, user.kantor_radius)) {
+          stopCamera();
+          setPhotoDataUrl(null);
+          setSubmitMsg({
+            type: 'err',
+            text: `Absensi ditolak. Sesi ${nextUrutan} wajib di kantor; jarak ${freshDistance}m dengan estimasi akurasi ±${freshCoords.accuracy}m belum dapat dipastikan berada dalam radius kantor ${user.kantor_radius}m.`,
+          });
+          return;
+        }
       }
 
       await apiFetch('/api/v1/attendance/session', {
@@ -443,12 +456,18 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
     ? haversineClient(coords.lat, coords.lng, user.kantor_lat, user.kantor_lng)
     : null;
   const withinRadius = distanceMeters !== null ? distanceMeters <= user.kantor_radius : false;
+  const sessionRequiresOffice = nextSesi
+    ? requiresOfficeGeofence(day.policySnapshot.aturanLokasi, nextSesi.urutan)
+    : true;
   const gpsAccuracyOk = coords !== null && isGpsAccuracyAcceptable(coords.accuracy);
   const verifiedWithinRadius =
     distanceMeters !== null &&
     coords !== null &&
     isWithinVerifiedGeofence(distanceMeters, coords.accuracy, user.kantor_radius);
-  const canCheckInByLocation = gpsStatus === 'ok' && coords !== null && gpsAccuracyOk && verifiedWithinRadius;
+  const canCheckInByLocation =
+    gpsStatus === 'ok' &&
+    coords !== null &&
+    (!sessionRequiresOffice || (gpsAccuracyOk && verifiedWithinRadius));
 
   return (
     <div className="space-y-5 sm:space-y-6">
@@ -755,12 +774,19 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                           <span className="font-mono tabular-nums text-slate-900 dark:text-slate-100">{distanceMeters} m</span>
                           <span className="text-slate-400">·</span>
                           <span className={canCheckInByLocation ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}>
-                            {canCheckInByLocation
-                              ? `Dalam radius terverifikasi (${user.kantor_radius}m) · Absensi tersedia`
-                              : !gpsAccuracyOk
-                              ? `Akurasi GPS harus maksimal ±${MAX_GPS_ACCURACY_METERS}m`
-                              : `Di luar / belum pasti dalam radius ${user.kantor_radius}m · Absensi ditolak`}
+                            {sessionRequiresOffice
+                              ? canCheckInByLocation
+                                ? `Sesi wajib di kantor · Dalam radius terverifikasi (${user.kantor_radius}m)`
+                                : !gpsAccuracyOk
+                                  ? `Sesi wajib di kantor · Akurasi harus maksimal ±${MAX_GPS_ACCURACY_METERS}m`
+                                  : `Sesi wajib di kantor · Lokasi di luar radius ${user.kantor_radius}m`
+                              : `Sesi fleksibel · Lokasi luar kantor diizinkan dan GPS tetap dicatat`}
                           </span>
+                          {!sessionRequiresOffice && !gpsAccuracyOk && (
+                            <p className="text-amber-700 dark:text-amber-300">
+                              Peringatan: akurasi lokasi ±{coords.accuracy}m rendah. Absensi sesi fleksibel tetap diizinkan, tetapi koordinat hanya perkiraan dan bukan bukti lokasi presisi.
+                            </p>
+                          )}
                         </p>
                       </div>
                     ) : gpsStatus === 'loading' ? (
@@ -930,7 +956,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                       {submitting
                         ? 'Menyimpan ke Server...'
                         : !canCheckInByLocation
-                        ? 'Absensi terkunci · wajib dalam radius kantor'
+                        ? 'Absensi terkunci · sesi ini wajib di kantor'
                         : !nextSessionStarted
                         ? `Terkunci hingga ${nextSesi.jam_mulai} WIB`
                         : `Kirim Absensi ${nextSesi.nama}`}
