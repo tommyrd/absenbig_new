@@ -1,6 +1,6 @@
 # Struktur Database — Absensi BIGNET
 
-Dokumentasi lengkap 17 tabel, relasi kunci asing (*foreign key*), constraint, trigger, dan index pada skema database (`src/server/db/schema.ts`).
+Dokumentasi lengkap 18 tabel, relasi kunci asing (*foreign key*), constraint, trigger, dan index pada skema database (`src/server/db/schema.ts`).
 
 ---
 
