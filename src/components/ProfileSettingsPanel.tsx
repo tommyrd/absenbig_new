@@ -45,6 +45,7 @@ export function ProfileSettingsPanel({
   const [confirmPassword, setConfirmPassword] = useState('');
   const [savingPass, setSavingPass] = useState(false);
   const [passMsg, setPassMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+  const isStandaloneSuperadmin = user.role === 'SUPERADMIN' && user.karyawan_id === null;
 
   const handleUploadPhoto = (file: File | undefined) => {
     if (!file) return;
@@ -171,17 +172,26 @@ export function ProfileSettingsPanel({
               <h1 className="font-display text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100 truncate">
                 {user.nama_lengkap}
               </h1>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                NIK:{' '}
-                <span className="font-mono font-semibold text-slate-700 dark:text-slate-200">
-                  {user.nik}
-                </span>{' '}
-                · {user.jabatan} · Role:{' '}
-                <strong className="text-navy-900 dark:text-blue-400">{user.role}</strong>
-              </p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                {user.bidang_nama} · {user.kantor_nama}
-              </p>
+              {isStandaloneSuperadmin ? (
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Akun Pemilik Sistem · <strong className="text-amber-700 dark:text-amber-300">SUPERADMIN</strong>
+                </p>
+              ) : (
+                <>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    NIK:{' '}
+                    <span className="font-mono font-semibold text-slate-700 dark:text-slate-200">
+                      {user.nik}
+                    </span>{' '}
+                    · {user.jabatan} · Role:{' '}
+                    <strong className="text-navy-900 dark:text-blue-400">{user.role}</strong>
+                  </p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {user.bidang_nama} · {user.kantor_nama}
+                  </p>
+                </>
+              )}
+              {!isStandaloneSuperadmin && (
               <div className="pt-2 flex flex-wrap items-center gap-2">
                 <label className="min-h-[44px] sm:min-h-[36px] px-3.5 py-2 bg-navy-900 hover:bg-navy-800 dark:bg-blue-700 dark:hover:bg-blue-600 text-white text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 cursor-pointer">
                   <Camera className="w-3.5 h-3.5" />
@@ -209,6 +219,7 @@ export function ProfileSettingsPanel({
                   </button>
                 )}
               </div>
+              )}
             </div>
           </div>
           <button
