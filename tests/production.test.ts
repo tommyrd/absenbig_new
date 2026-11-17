@@ -467,6 +467,10 @@ test('6. SVG logo XSS sanitization, attendance camera-only, jam_mulai gate, geof
     .prepare(`SELECT geofence_mode FROM kantor WHERE id = ?`)
     .get(strictOfficeId) as { geofence_mode: string };
   assert.equal(persistedGeofence.geofence_mode, 'TOLAK_LUAR_RADIUS');
+
+  // Simulate a legacy office row that still contains the old permissive mode.
+  // Attendance must nevertheless be rejected by the backend's strict geofence rule.
+  db.prepare(`UPDATE kantor SET geofence_mode = 'CATAT_DENGAN_FLAG' WHERE id = ?`).run(strictOfficeId);
   db.prepare(`UPDATE kalender_kerja SET status_hari = 'HARI_KERJA' WHERE kantor_id = ?`).run(strictOfficeId);
   db.prepare(`UPDATE karyawan SET kantor_id = ? WHERE id = ?`).run(strictOfficeId, karyawanId);
 
