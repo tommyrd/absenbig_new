@@ -196,10 +196,6 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
       });
   }, [readCurrentGps, stopCamera]);
 
-  useEffect(() => {
-    requestGps();
-  }, [requestGps]);
-
   const startCamera = async (requestedFacing: 'user' | 'environment' = facingMode) => {
     setCameraError(null);
     stopCamera();
@@ -759,7 +755,11 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                         className="min-h-[36px] px-2 text-xs font-medium text-blue-700 dark:text-blue-400 hover:underline inline-flex items-center gap-1"
                       >
                         <RefreshCw className={`w-3.5 h-3.5 ${gpsStatus === 'loading' ? 'animate-spin' : ''}`} />
-                        Perbarui Lokasi
+                        {gpsStatus === 'idle'
+                          ? 'Aktifkan Lokasi'
+                          : gpsStatus === 'loading'
+                            ? 'Mencari Lokasi...'
+                            : 'Perbarui Lokasi'}
                       </button>
                     </div>
 
@@ -789,11 +789,20 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                         </p>
                       </div>
                     ) : gpsStatus === 'loading' ? (
-                      <p className="text-xs text-slate-500 dark:text-slate-400">Membaca koordinat GPS browser...</p>
-                    ) : (
-                      <div className="flex items-start gap-2 text-xs text-amber-800 dark:text-amber-300">
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Meminta lokasi perangkat. Izinkan akses lokasi pada browser...
+                      </p>
+                    ) : gpsStatus === 'error' ? (
+                      <div className="flex items-start gap-2 text-xs text-amber-800 dark:text-amber-300" role="status">
                         <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                        <span>{gpsError || 'Lokasi belum tersedia.'}</span>
+                        <span>{gpsError || 'Lokasi belum dapat dibaca. Periksa izin lokasi browser.'}</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-start gap-2 text-xs text-slate-500 dark:text-slate-400" role="status">
+                        <MapPin className="w-4 h-4 shrink-0 mt-0.5" />
+                        <span>
+                          Lokasi belum diperiksa. Tekan <strong>Aktifkan Lokasi</strong> ketika siap melakukan absensi. Browser tidak akan meminta izin lokasi sebelum tombol ini ditekan.
+                        </span>
                       </div>
                     )}
                   </div>
@@ -880,7 +889,15 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                             className="w-full sm:w-auto min-h-[44px] px-4 py-2.5 bg-navy-900 hover:bg-navy-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <Camera className="w-4 h-4" />
-                            {!canCheckInByLocation ? 'Lokasi wajib dalam radius kantor' : nextSessionStarted ? 'Buka Kamera Browser' : `Menunggu Pukul ${nextSesi.jam_mulai} WIB`}
+                            {!canCheckInByLocation
+                              ? gpsStatus !== 'ok' || !coords
+                                ? 'Aktifkan lokasi terlebih dahulu'
+                                : sessionRequiresOffice
+                                  ? 'Lokasi di luar radius kantor'
+                                  : 'Periksa lokasi terlebih dahulu'
+                              : nextSessionStarted
+                                ? 'Buka Kamera Browser'
+                                : `Menunggu Pukul ${nextSesi.jam_mulai} WIB`}
                           </button>
                           <button
                             type="button"
@@ -955,7 +972,11 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                       {submitting
                         ? 'Menyimpan ke Server...'
                         : !canCheckInByLocation
-                        ? 'Absensi terkunci · sesi ini wajib di kantor'
+                        ? gpsStatus !== 'ok' || !coords
+                          ? 'Aktifkan lokasi untuk melanjutkan absensi'
+                          : sessionRequiresOffice
+                            ? 'Absensi terkunci · sesi ini wajib di kantor'
+                            : 'Lokasi belum tersedia'
                         : !nextSessionStarted
                         ? `Terkunci hingga ${nextSesi.jam_mulai} WIB`
                         : `Kirim Absensi ${nextSesi.nama}`}
