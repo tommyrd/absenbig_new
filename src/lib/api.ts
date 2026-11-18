@@ -1,6 +1,5 @@
 import type { AuthUser } from '../shared/types';
 
-const TOKEN_KEY = 'bignet_auth_token';
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
 
 export function buildApiUrl(path: string): string {
@@ -8,32 +7,35 @@ export function buildApiUrl(path: string): string {
   return `${API_BASE}${path}`;
 }
 
-export function getStoredToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
-}
-
-export function setStoredToken(token: string | null) {
-  if (token) {
-    localStorage.setItem(TOKEN_KEY, token);
-  } else {
-    localStorage.removeItem(TOKEN_KEY);
+function readCookie(name: string): string | null {
+  if (typeof document === 'undefined') return null;
+  const prefix = `${name}=`;
+  const entry = document.cookie.split(';').map((part) => part.trim()).find((part) => part.startsWith(prefix));
+  if (!entry) return null;
+  try {
+    return decodeURIComponent(entry.slice(prefix.length));
+  } catch {
+    return null;
   }
 }
 
 export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = getStoredToken();
   const headers = new Headers(options.headers || {});
+  const method = (options.method || 'GET').toUpperCase();
   if (!headers.has('Content-Type') && options.body && typeof options.body === 'string') {
     headers.set('Content-Type', 'application/json');
   }
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+    const csrfToken = readCookie('bignet_csrf');
+    if (csrfToken) headers.set('X-CSRF-Token', csrfToken);
   }
 
   const res = await fetch(buildApiUrl(path), {
     ...options,
+    method,
     headers,
-    credentials: 'include',
+    credentials: 'same-origin',
+    cache: options.cache || 'no-store',
   });
 
   const text = await res.text();
@@ -59,52 +61,42 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
 }
 
 export function getAuthorizedPhotoUrl(sessionId: number): string {
-  const token = getStoredToken();
-  return buildApiUrl(
-    token ? `/api/v1/photos/${sessionId}?token=${encodeURIComponent(token)}` : `/api/v1/photos/${sessionId}`
-  );
+  return buildApiUrl(`/api/v1/photos/${sessionId}`);
 }
 
 export function getAuthorizedAvatarUrl(karyawanId: number, version?: string | null): string {
-  const token = getStoredToken();
-  const qs = new URLSearchParams();
-  if (token) qs.set('token', token);
-  if (version) qs.set('v', version);
-  const query = qs.toString();
-  return buildApiUrl(`/api/v1/avatars/karyawan/${karyawanId}${query ? `?${query}` : ''}`);
+  const query = version ? `?v=${encodeURIComponent(version)}` : '';
+  return buildApiUrl(`/api/v1/avatars/karyawan/${karyawanId}${query}`);
 }
 
 export function getAuthorizedUserAvatarUrl(userId: number, version?: string | null): string {
-  const token = getStoredToken();
-  const qs = new URLSearchParams();
-  if (token) qs.set('token', token);
-  if (version) qs.set('v', version);
-  const query = qs.toString();
-  return buildApiUrl(`/api/v1/avatars/pengguna/${userId}${query ? `?${query}` : ''}`);
+  const query = version ? `?v=${encodeURIComponent(version)}` : '';
+  return buildApiUrl(`/api/v1/avatars/pengguna/${userId}${query}`);
 }
 
 export function getAuthorizedRegistrationAvatarUrl(regId: number): string {
-  const token = getStoredToken();
-  return buildApiUrl(
-    token
-      ? `/api/v1/avatars/registration/${regId}?token=${encodeURIComponent(token)}`
-      : `/api/v1/avatars/registration/${regId}`
-  );
+  return buildApiUrl(`/api/v1/avatars/registration/${regId}`);
 }
 
-export async function loginApi(identifier: string, password: string): Promise<{ token: string; user: AuthUser }> {
-  const res = await apiFetch<{ token: string; user: AuthUser }>('/api/v1/auth/login', {
+export interface LoginStartResult {
+  user?: AuthUser;
+  mfaRequired?: boolean;
+  mfaSetupRequired?: boolean;
+  challengeId?: string;
+}
+
+export async function loginApi(identifier: string, password: string): Promise<LoginStartResult> {
+  return apiFetch<LoginStartResult>('/api/v1/auth/login', {
     method: 'POST',
     body: JSON.stringify({ identifier, password }),
   });
-  setStoredToken(res.token);
-  return res;
 }
 
 export async function logoutApi(): Promise<void> {
   try {
     await apiFetch('/api/v1/auth/logout', { method: 'POST' });
-  } finally {
-    setStoredToken(null);
+  } catch {
+    // Even if the server session expired, the browser will stop using its cookie
+    // when the user reloads or the browser expires it.
   }
 }
