@@ -53,6 +53,8 @@ const superPassword = 'SuperAdmin#Prod2026!';
 let superToken = '';
 let adminToken = '';
 let adminMfaSecret = '';
+let adminMfaRecoveryCode = '';
+let superadminUsedTotpCode = '';
 let karyawanToken = '';
 let adminUserId = 0;
 let karyawanUserId = 0;
@@ -255,9 +257,10 @@ test('2. Health check and initial Superadmin authentication work with HttpOnly c
   assert.equal(okLogin.status, 200);
   assert.equal(okLogin.data.mfaRequired, true);
   assert.equal(okLogin.data.mfaSetupRequired, false);
+  superadminUsedTotpCode = generateTotpCode(ownerMfaSecret);
   const mfaLogin = await apiJson<{ token: string; user: { role: string } }>('/api/v1/auth/mfa/verify', {
     method: 'POST',
-    body: { challengeId: okLogin.data.challengeId, code: generateTotpCode(ownerMfaSecret) },
+    body: { challengeId: okLogin.data.challengeId, code: superadminUsedTotpCode },
   });
   assert.equal(mfaLogin.status, 200);
   assert.equal(mfaLogin.data.user.role, 'SUPERADMIN');
@@ -284,7 +287,7 @@ test('2. Health check and initial Superadmin authentication work with HttpOnly c
   assert.equal(csrfMissing.status, 403);
 
   // A TOTP time-step may only be consumed once, even across a new login challenge.
-  const replayCode = generateTotpCode(ownerMfaSecret);
+  const replayCode = superadminUsedTotpCode;
   const replayChallenge = await apiJson<{ challengeId: string }>('/api/v1/auth/login', {
     method: 'POST',
     body: { identifier: 'owner_prod', password: superPassword },
@@ -411,6 +414,7 @@ test('4. Superadmin can create Admin & Karyawan accounts (explicit password enfo
   assert.equal(adminMfaConfirm.status, 200);
   assert.equal(adminMfaConfirm.data.user.role, 'ADMIN');
   assert.equal(adminMfaConfirm.data.recoveryCodes.length, 10);
+  adminMfaRecoveryCode = adminMfaConfirm.data.recoveryCodes[0];
   adminToken = adminMfaConfirm.data.token;
 
   // Admin profile and avatar are stored on the standalone pengguna record.
@@ -826,7 +830,7 @@ test('5. Authorization boundaries, query-token restriction, logout jti & token_v
   assert.equal(adminRelogin.data.mfaSetupRequired, false);
   const adminReloginVerified = await apiJson<{ token: string }>('/api/v1/auth/mfa/verify', {
     method: 'POST',
-    body: { challengeId: adminRelogin.data.challengeId, code: generateTotpCode(adminMfaSecret) },
+    body: { challengeId: adminRelogin.data.challengeId, code: adminMfaRecoveryCode },
   });
   assert.equal(adminReloginVerified.status, 200);
   adminToken = adminReloginVerified.data.token;
