@@ -461,6 +461,7 @@ export function ProfileSettingsPanel({
             </label>
             <input
               type="password"
+                    maxLength={128}
               required
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
@@ -475,6 +476,7 @@ export function ProfileSettingsPanel({
               </label>
               <input
                 type="password"
+                    maxLength={128}
                 required
                 minLength={15}
                 value={newPassword}
@@ -489,6 +491,7 @@ export function ProfileSettingsPanel({
               </label>
               <input
                 type="password"
+                    maxLength={128}
                 required
                 minLength={15}
                 value={confirmPassword}
