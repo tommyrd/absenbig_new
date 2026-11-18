@@ -9,6 +9,7 @@ import {
   extractCsrfCookie,
   extractToken,
   hashOpaqueSecret,
+  getTotpCounterForCode,
   hashPassword,
   requireRole,
   verifyPassword,
@@ -593,13 +594,13 @@ export function registerApiRoutes(app: Express) {
       res.status(400).json({ error: 'Secret MFA belum dibuat. Mulai ulang proses setup.' });
       return;
     }
-    let valid = false;
+    let verifiedCounter: number | null = null;
     try {
-      valid = verifyTotpCode(decryptMfaSecret(account.mfa_pending_secret_enc), code || '');
+      verifiedCounter = getTotpCounterForCode(decryptMfaSecret(account.mfa_pending_secret_enc), code || '');
     } catch {
-      valid = false;
+      verifiedCounter = null;
     }
-    if (!valid) {
+    if (verifiedCounter === null) {
       recordChallengeFailure(db, challenge.challenge_hash);
       res.status(400).json({ error: 'Kode autentikator salah atau sudah kedaluwarsa. Periksa jam perangkat dan coba lagi.' });
       return;
@@ -612,9 +613,10 @@ export function registerApiRoutes(app: Express) {
     try {
       db.prepare(`
         UPDATE pengguna
-        SET mfa_secret_enc = ?, mfa_pending_secret_enc = NULL, mfa_enabled = 1, mfa_enrolled_at = ?
+        SET mfa_secret_enc = ?, mfa_pending_secret_enc = NULL, mfa_enabled = 1,
+            mfa_enrolled_at = ?, mfa_last_totp_counter = ?
         WHERE id = ?
-      `).run(encryptedSecret, getWibIsoString(), account.id);
+      `).run(encryptedSecret, getWibIsoString(), verifiedCounter, account.id);
       db.prepare('DELETE FROM auth_challenges WHERE challenge_hash = ?').run(challenge.challenge_hash);
       recoveryCodes = createRecoveryCodes(db, account.id);
       sessionUser = loadAuthUserById(account.id);
@@ -656,16 +658,17 @@ export function registerApiRoutes(app: Express) {
       return;
     }
     const account = db.prepare(`
-      SELECT id, role, COALESCE(mfa_enabled, 0) AS mfa_enabled, mfa_secret_enc
+      SELECT id, role, COALESCE(mfa_enabled, 0) AS mfa_enabled, mfa_secret_enc,
+             COALESCE(mfa_last_totp_counter, -1) AS mfa_last_totp_counter
       FROM pengguna WHERE id = ? AND aktif = 1
     `).get(challenge.user_id) as
-      | { id: number; role: Role; mfa_enabled: number; mfa_secret_enc: string | null }
+      | { id: number; role: Role; mfa_enabled: number; mfa_secret_enc: string | null; mfa_last_totp_counter: number }
       | undefined;
     if (!account || account.mfa_enabled !== 1 || !account.mfa_secret_enc) {
       res.status(401).json({ error: 'MFA akun tidak aktif. Silakan login ulang atau hubungi Superadmin.' });
       return;
     }
-    const verification = verifyMfaOrRecoveryCode(db, account.id, account.mfa_secret_enc, code || '');
+    const verification = verifyMfaOrRecoveryCode(db, account.id, account.mfa_secret_enc, code || '', account.mfa_last_totp_counter);
     if (!verification.valid) {
       recordChallengeFailure(db, challenge.challenge_hash);
       res.status(401).json({ error: 'Kode autentikator atau recovery code tidak valid.' });
