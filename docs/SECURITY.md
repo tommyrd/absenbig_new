@@ -8,7 +8,7 @@ Dokumen ini menjelaskan kontrol yang benar-benar tersedia pada branch hardening 
 
 ### Password
 - Password baru minimal **15 karakter** dan maksimal **128 karakter** pada endpoint pendaftaran, pembuatan akun, reset password, dan ubah password.
-- Password disimpan dengan format hash scrypt berversi: `$scrypt$N$r$p$salt$hash`, salt acak 16-byte dan perbandingan hash menggunakan `crypto.timingSafeEqual`.
+- Password disimpan dengan format hash scrypt berversi: `scrypt-v1:N:r:p:salt:hash`, salt acak 16-byte dan perbandingan hash menggunakan `crypto.timingSafeEqual`.
 - Format hash lama `salt:hash` tetap dapat diverifikasi agar akun lama tidak terkunci setelah migrasi. Hash baru menggunakan parameter scrypt eksplisit `N=32768, r=8, p=1`.
 - Password tidak pernah dikembalikan ke frontend.
 - Password lama di bawah panjang minimum tetap dapat digunakan untuk login. Pengguna diminta menggantinya dengan password minimal 15 karakter saat melakukan perubahan password berikutnya.
