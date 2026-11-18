@@ -427,39 +427,6 @@ export function requireRole(...roles: Role[]) {
     next();
   };
 }
-);
-      if (parts.length !== 7) return false;
-      const [, scheme, nText, rText, pText, saltText, key] = parts;
-      const N = Number(nText);
-      const r = Number(rText);
-      const p = Number(pText);
-      if (
-        scheme !== 'scrypt' ||
-        !Number.isSafeInteger(N) || N < 16_384 || N > 131_072 || (N & (N - 1)) !== 0 ||
-        !Number.isSafeInteger(r) || r < 1 || r > 16 ||
-        !Number.isSafeInteger(p) || p < 1 || p > 4 ||
-        !/^[a-f0-9]{128}$/i.test(key)
-      ) return false;
-      const salt = Buffer.from(saltText, 'base64url');
-      if (salt.length < 16 || salt.length > 64) return false;
-      const maxmem = Math.max(64 * 1024 * 1024, 256 * N * r);
-      const derived = crypto.scryptSync(password, salt, 64, { N, r, p, maxmem });
-      const keyBuf = Buffer.from(key, 'hex');
-      return derived.length === keyBuf.length && crypto.timingSafeEqual(derived, keyBuf);
-    }
-
-    // Backward compatibility for existing accounts created before the
-    // versioned scrypt format was introduced.
-    const [salt, key] = stored.split(':');
-    if (!salt || !key || !/^[a-f0-9]{128}$/i.test(key)) return false;
-    const derived = crypto.scryptSync(password, salt, 64);
-    const keyBuf = Buffer.from(key, 'hex');
-    return derived.length === keyBuf.length && crypto.timingSafeEqual(derived, keyBuf);
-  } catch {
-    return false;
-  }
-}
-
 export interface TokenPayload {
   userId: number;
   role: Role;
