@@ -1475,7 +1475,6 @@ test('8. Backup and Restore verify SHA-256 checksums, integrity, and preserve DB
     });
   }, /Checksum tidak cocok/i);
 });
-), 'Password must use versioned, salted scrypt hash');
   assert.ok(!users[0].password_hash.includes(superPassword));
 
   const settings = db.prepare('SELECT izin_demo_login FROM pengaturan_aplikasi WHERE id = 1').get() as {
