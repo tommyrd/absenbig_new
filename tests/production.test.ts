@@ -1414,67 +1414,7 @@ test('7. Payroll override preserves original proof, monthly closing enforces pos
   assert.ok(auditRes.data.items.some((a) => a.aksi === 'POST_CLOSING_OVERRIDE'));
 });
 
-test('8. Backup and Restore verify SHA-256 checksums, integrity, and preserve DB + photo links after disaster', async () => {
-  const backupRes = runBackup({
-    dataDir: tempDataDir,
-    dbPath: tempDbPath,
-    backupRootDir: tempBackupDir,
-    compressTarGz: true,
-  });
-
-  assert.ok(fs.existsSync(backupRes.backupDir));
-  assert.ok(backupRes.manifest.archivePath && fs.existsSync(backupRes.manifest.archivePath));
-  assert.ok(backupRes.manifest.mediaCounts.photos >= 1);
-  assert.ok(fs.existsSync(path.join(backupRes.backupDir, 'manifest.json')));
-  assert.ok(fs.existsSync(path.join(backupRes.backupDir, 'checksums.sha256')));
-
-  // Simulate disaster: delete live DB and photos directory
-  closeDb();
-  for (const suffix of ['', '-wal', '-shm']) {
-    const f = `${tempDbPath}${suffix}`;
-    if (fs.existsSync(f)) fs.unlinkSync(f);
-  }
-  fs.rmSync(path.join(tempDataDir, 'photos'), { recursive: true, force: true });
-  assert.equal(fs.existsSync(tempDbPath), false);
-
-  // Restore from compressed .tar.gz archive
-  const restoreRes = runRestore({
-    fromPath: backupRes.manifest.archivePath!,
-    dataDir: tempDataDir,
-    dbPath: tempDbPath,
-    backupRootDir: tempBackupDir,
-    skipSafetySnapshot: true,
-  });
-  assert.equal(restoreRes.missingPhotosCount, 0);
-  assert.ok(restoreRes.photoLinksChecked >= 1);
-  assert.equal(restoreRes.verifiedFilesCount, backupRes.manifest.files.length);
-
-  // Verify restored DB returns attendance & password hash intact
-  const restoredDb = getDb();
-  const restoredSession = restoredDb
-    .prepare('SELECT id, foto_path FROM absensi_sesi WHERE id = ?')
-    .get(savedAttendanceSessionId) as { id: number; foto_path: string } | undefined;
-  assert.ok(restoredSession);
-  assert.ok(fs.existsSync(path.join(tempDataDir, 'photos', path.basename(restoredSession.foto_path))));
-  const superRow = restoredDb
-    .prepare(`SELECT password_hash FROM pengguna WHERE username = 'owner_prod'`)
-    .get() as { password_hash: string };
-  assert.equal(verifyPassword(superPassword, superRow.password_hash), true);
-
-  // Tampering a backup file causes restore to abort before modifying DB
-  const tamperedPhoto = path.join(backupRes.backupDir, 'bignet_absensi.db');
-  fs.appendFileSync(tamperedPhoto, Buffer.from('corrupt'));
-  assert.throws(() => {
-    runRestore({
-      fromPath: backupRes.backupDir,
-      dataDir: tempDataDir,
-      dbPath: tempDbPath,
-      backupRootDir: tempBackupDir,
-      skipSafetySnapshot: true,
-    });
-  }, /Checksum tidak cocok/i);
-});
-test('9. Session inventory, Superadmin MFA reset, idle expiration and stale-cookie re-login', async () => {
+test('8. Session inventory, Superadmin MFA reset, idle expiration and stale-cookie re-login', async () => {
   const ownerSecurity = await apiJson<{
     mfaEnabled: boolean;
     mfaRequired: boolean;
@@ -1541,3 +1481,65 @@ test('9. Session inventory, Superadmin MFA reset, idle expiration and stale-cook
   assert.equal(staleCookieLoginBody.mfaRequired, true);
   assert.ok(staleCookieLoginBody.challengeId);
 });
+
+test('9. Backup and Restore verify SHA-256 checksums, integrity, and preserve DB + photo links after disaster', async () => {
+  const backupRes = runBackup({
+    dataDir: tempDataDir,
+    dbPath: tempDbPath,
+    backupRootDir: tempBackupDir,
+    compressTarGz: true,
+  });
+
+  assert.ok(fs.existsSync(backupRes.backupDir));
+  assert.ok(backupRes.manifest.archivePath && fs.existsSync(backupRes.manifest.archivePath));
+  assert.ok(backupRes.manifest.mediaCounts.photos >= 1);
+  assert.ok(fs.existsSync(path.join(backupRes.backupDir, 'manifest.json')));
+  assert.ok(fs.existsSync(path.join(backupRes.backupDir, 'checksums.sha256')));
+
+  // Simulate disaster: delete live DB and photos directory
+  closeDb();
+  for (const suffix of ['', '-wal', '-shm']) {
+    const f = `${tempDbPath}${suffix}`;
+    if (fs.existsSync(f)) fs.unlinkSync(f);
+  }
+  fs.rmSync(path.join(tempDataDir, 'photos'), { recursive: true, force: true });
+  assert.equal(fs.existsSync(tempDbPath), false);
+
+  // Restore from compressed .tar.gz archive
+  const restoreRes = runRestore({
+    fromPath: backupRes.manifest.archivePath!,
+    dataDir: tempDataDir,
+    dbPath: tempDbPath,
+    backupRootDir: tempBackupDir,
+    skipSafetySnapshot: true,
+  });
+  assert.equal(restoreRes.missingPhotosCount, 0);
+  assert.ok(restoreRes.photoLinksChecked >= 1);
+  assert.equal(restoreRes.verifiedFilesCount, backupRes.manifest.files.length);
+
+  // Verify restored DB returns attendance & password hash intact
+  const restoredDb = getDb();
+  const restoredSession = restoredDb
+    .prepare('SELECT id, foto_path FROM absensi_sesi WHERE id = ?')
+    .get(savedAttendanceSessionId) as { id: number; foto_path: string } | undefined;
+  assert.ok(restoredSession);
+  assert.ok(fs.existsSync(path.join(tempDataDir, 'photos', path.basename(restoredSession.foto_path))));
+  const superRow = restoredDb
+    .prepare(`SELECT password_hash FROM pengguna WHERE username = 'owner_prod'`)
+    .get() as { password_hash: string };
+  assert.equal(verifyPassword(superPassword, superRow.password_hash), true);
+
+  // Tampering a backup file causes restore to abort before modifying DB
+  const tamperedPhoto = path.join(backupRes.backupDir, 'bignet_absensi.db');
+  fs.appendFileSync(tamperedPhoto, Buffer.from('corrupt'));
+  assert.throws(() => {
+    runRestore({
+      fromPath: backupRes.backupDir,
+      dataDir: tempDataDir,
+      dbPath: tempDbPath,
+      backupRootDir: tempBackupDir,
+      skipSafetySnapshot: true,
+    });
+  }, /Checksum tidak cocok/i);
+});
+
