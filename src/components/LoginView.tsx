@@ -825,7 +825,7 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
                             value={regPassword}
                             onChange={(e) => setRegPassword(e.target.value)}
                             autoComplete="new-password"
-                            placeholder="Minimal 6 karakter"
+                            placeholder="Minimal 15 karakter"
                             className={inputClass}
                           />
                         </div>
@@ -835,7 +835,7 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
                             id="register-confirm-password"
                             type="password"
                             required
-                            minLength={6}
+                            minLength={15}
                             value={regConfirmPassword}
                             onChange={(e) => setRegConfirmPassword(e.target.value)}
                             autoComplete="new-password"
