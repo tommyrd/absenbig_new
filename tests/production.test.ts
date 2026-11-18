@@ -148,10 +148,10 @@ after(async () => {
 test('1. Migrations are idempotent and production baseline enforces zero demo accounts', () => {
   const db = getDb();
   const applied = getAppliedMigrations(db);
-  assert.equal(applied.length, 14);
+  assert.equal(applied.length, 15);
   assert.deepEqual(
     applied.map((m) => m.version),
-    ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014']
+    ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014', '015']
   );
 
   const attendanceColumns = db
@@ -178,6 +178,11 @@ test('1. Migrations are idempotent and production baseline enforces zero demo ac
   const userColumns = db.prepare('PRAGMA table_info(pengguna)').all() as { name: string }[];
   assert.ok(userColumns.some((column) => column.name === 'foto_profil_path'));
   assert.ok(userColumns.some((column) => column.name === 'foto_profil_updated_at'));
+  assert.ok(userColumns.some((column) => column.name === 'mfa_secret_enc'));
+  assert.ok(userColumns.some((column) => column.name === 'mfa_enabled'));
+  assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='auth_sessions'").get());
+  assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='auth_challenges'").get());
+  assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='mfa_recovery_codes'").get());
   assert.ok(employeeColumns.some((column) => column.name === 'is_system_archive'));
   const roleLinkTriggers = db.prepare(
     `SELECT name FROM sqlite_master WHERE type = 'trigger' AND name IN (
