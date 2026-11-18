@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { useEffect, useLayoutEffect, useState } from 'react';
-import { apiFetch, getStoredToken, logoutApi } from './lib/api';
+import { apiFetch, logoutApi } from './lib/api';
 import { useTheme } from './lib/theme';
 import type { AuthUser, SystemSettings } from './shared/types';
 import { LoginView } from './components/LoginView';
@@ -45,11 +45,6 @@ export default function App() {
       })
       .catch(() => {});
 
-    const token = getStoredToken();
-    if (!token) {
-      setChecking(false);
-      return;
-    }
     apiFetch<{ user: AuthUser }>('/api/v1/auth/me')
       .then((res) => setUser(res.user))
       .catch(() => setUser(null))
