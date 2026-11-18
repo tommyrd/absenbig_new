@@ -448,7 +448,7 @@ test('System settings API strictly enforces SUPERADMIN access while keeping publ
       return `bignet_token=${encodeURIComponent(signed)}; bignet_csrf=${encodeURIComponent(csrf)}`;
     };
     const authHeaders = (cookie: string, mutating = false): Record<string, string> => {
-      const csrf = cookie.match(/(?:^|;\\s*)bignet_csrf=([^;]+)/)?.[1] || '';
+      const csrf = cookie.match(/(?:^|;\s*)bignet_csrf=([^;]+)/)?.[1] || '';
       return {
         Cookie: cookie,
         ...(mutating ? { Origin: baseUrl, 'X-CSRF-Token': decodeURIComponent(csrf) } : {}),
