@@ -134,11 +134,6 @@ export function hashRecoveryCode(code: string): string {
   return hashOpaqueSecret(code.trim().toUpperCase().replace(/[^A-Z0-9]/g, ''));
 }
 
-const PASSWORD_SCRYPT_N = 32_768;
-const PASSWORD_SCRYPT_R = 8;
-const PASSWORD_SCRYPT_P = 1;
-const PASSWORD_SCRYPT_MAXMEM = 64 * 1024 * 1024;
-
 const VERSIONED_SCRYPT_PREFIX = 'scrypt-v1:';
 const PASSWORD_SCRYPT_N = 32_768;
 const PASSWORD_SCRYPT_R = 8;
