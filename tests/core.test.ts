@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import http from 'node:http';
 import test from 'node:test';
 import express from 'express';
-import { signToken } from '../src/server/auth.ts';
+import { hashOpaqueSecret, signToken } from '../src/server/auth.ts';
 import { getDb } from '../src/server/db.ts';
 import { registerApiRoutes } from '../src/server/routes.ts';
 import { runMigrations } from '../src/server/db/migrations.ts';
@@ -425,8 +426,33 @@ test('System settings API strictly enforces SUPERADMIN access while keeping publ
     const karyawan = getUserByRole('KARYAWAN');
     assert.ok(superadmin && admin && karyawan);
 
-    const makeToken = (u: { id: number; role: Role }) =>
-      signToken({ userId: u.id, role: u.role, exp: Date.now() + 60_000 });
+    const makeToken = (u: { id: number; role: Role }) => {
+      const now = Date.now();
+      const jti = crypto.randomUUID();
+      const csrf = crypto.randomBytes(32).toString('base64url');
+      const account = db.prepare('SELECT COALESCE(token_version, 1) AS token_version FROM pengguna WHERE id = ?')
+        .get(u.id) as { token_version: number };
+      const absoluteExpiresAt = now + 60 * 60 * 1000;
+      db.prepare(`
+        INSERT INTO auth_sessions (
+          jti, user_id, created_at, last_seen_at, idle_expires_at,
+          absolute_expires_at, revoked_at, ip_address, user_agent, csrf_hash
+        ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
+      `).run(
+        jti, u.id, new Date(now).toISOString(), new Date(now).toISOString(),
+        now + 30 * 60 * 1000, absoluteExpiresAt, '127.0.0.1', 'Core security test',
+        hashOpaqueSecret(csrf)
+      );
+      const signed = signToken({ userId: u.id, role: u.role, jti, tv: account.token_version, exp: absoluteExpiresAt });
+      return `bignet_token=${encodeURIComponent(signed)}; bignet_csrf=${encodeURIComponent(csrf)}`;
+    };
+    const authHeaders = (cookie: string, mutating = false): Record<string, string> => {
+      const csrf = cookie.match(/(?:^|;\\s*)bignet_csrf=([^;]+)/)?.[1] || '';
+      return {
+        Cookie: cookie,
+        ...(mutating ? { Origin: baseUrl, 'X-CSRF-Token': decodeURIComponent(csrf) } : {}),
+      };
+    };
 
     // Server time endpoint returns valid finite epochMs
     const timeRes = await fetch(`${baseUrl}/api/v1/time`);
@@ -455,14 +481,14 @@ test('System settings API strictly enforces SUPERADMIN access while keeping publ
 
     // ADMIN and KARYAWAN get 403 on GET & PUT /api/v1/settings
     const adminGetRes = await fetch(`${baseUrl}/api/v1/settings`, {
-      headers: { Authorization: `Bearer ${makeToken(admin)}` },
+      headers: authHeaders(makeToken(admin)),
     });
     assert.equal(adminGetRes.status, 403);
 
     const adminPutRes = await fetch(`${baseUrl}/api/v1/settings`, {
       method: 'PUT',
       headers: {
-        Authorization: `Bearer ${makeToken(admin)}`,
+        ...authHeaders(makeToken(admin), true),
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ nama_aplikasi: 'Unauthorized Change' }),
@@ -472,7 +498,7 @@ test('System settings API strictly enforces SUPERADMIN access while keeping publ
     const empPutRes = await fetch(`${baseUrl}/api/v1/settings`, {
       method: 'PUT',
       headers: {
-        Authorization: `Bearer ${makeToken(karyawan)}`,
+        ...authHeaders(makeToken(karyawan), true),
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ nama_aplikasi: 'Unauthorized Change' }),
@@ -481,7 +507,7 @@ test('System settings API strictly enforces SUPERADMIN access while keeping publ
 
     // SUPERADMIN gets 200 on GET /api/v1/settings
     const superGetRes = await fetch(`${baseUrl}/api/v1/settings`, {
-      headers: { Authorization: `Bearer ${makeToken(superadmin)}` },
+      headers: authHeaders(makeToken(superadmin)),
     });
     assert.equal(superGetRes.status, 200);
     const superData = (await superGetRes.json()) as { settings: { nama_aplikasi: string } };
@@ -490,7 +516,7 @@ test('System settings API strictly enforces SUPERADMIN access while keeping publ
     // SUPERADMIN is a standalone owner identity, not an employee with attendance.
     assert.equal(superadmin.karyawan_id, null);
     const ownerProfile = await fetch(`${baseUrl}/api/v1/auth/me`, {
-      headers: { Authorization: `Bearer ${makeToken(superadmin)}` },
+      headers: authHeaders(makeToken(superadmin)),
     });
     assert.equal(ownerProfile.status, 200);
     const ownerData = (await ownerProfile.json()) as { user: { karyawan_id: number | null; role: Role } };
@@ -498,7 +524,7 @@ test('System settings API strictly enforces SUPERADMIN access while keeping publ
     assert.equal(ownerData.user.karyawan_id, null);
 
     const ownerAttendance = await fetch(`${baseUrl}/api/v1/attendance/today`, {
-      headers: { Authorization: `Bearer ${makeToken(superadmin)}` },
+      headers: authHeaders(makeToken(superadmin)),
     });
     assert.equal(ownerAttendance.status, 403);
 
@@ -507,7 +533,7 @@ test('System settings API strictly enforces SUPERADMIN access while keeping publ
     const createOwner = await fetch(`${baseUrl}/api/v1/superadmin/accounts`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${makeToken(superadmin)}`,
+        ...authHeaders(makeToken(superadmin), true),
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -534,7 +560,7 @@ test('System settings API strictly enforces SUPERADMIN access while keeping publ
     // Beranda Instagram-style Feed accessible to ALL roles (KARYAWAN, ADMIN, SUPERADMIN)
     for (const roleUser of [karyawan, admin, superadmin]) {
       const feedRes = await fetch(`${baseUrl}/api/v1/feed/today`, {
-        headers: { Authorization: `Bearer ${makeToken(roleUser)}` },
+        headers: authHeaders(makeToken(roleUser)),
       });
       assert.equal(feedRes.status, 200);
       const feedData = (await feedRes.json()) as {
@@ -554,7 +580,7 @@ test('System settings API strictly enforces SUPERADMIN access while keeping publ
       const photoPost = feedData.posts.find((p) => p.hasFoto);
       assert.ok(photoPost);
       const photoRes = await fetch(`${baseUrl}/api/v1/photos/${photoPost.id}`, {
-        headers: { Authorization: `Bearer ${makeToken(roleUser)}` },
+        headers: authHeaders(makeToken(roleUser)),
       });
       assert.equal(photoRes.status, 200);
     }
@@ -590,7 +616,7 @@ test('System settings API strictly enforces SUPERADMIN access while keeping publ
       const earlyRes = await fetch(`${baseUrl}/api/v1/attendance/session`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${fajarToken}`,
+          ...authHeaders(fajarToken, true),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -606,7 +632,7 @@ test('System settings API strictly enforces SUPERADMIN access while keeping publ
       const expiredRes = await fetch(`${baseUrl}/api/v1/attendance/session`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${fajarToken}`,
+          ...authHeaders(fajarToken, true),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -623,7 +649,7 @@ test('System settings API strictly enforces SUPERADMIN access while keeping publ
       const uploadRes = await fetch(`${baseUrl}/api/v1/attendance/session`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${fajarToken}`,
+          ...authHeaders(fajarToken, true),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
