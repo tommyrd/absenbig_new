@@ -5,6 +5,7 @@ import type { AuthUser, Role } from '../shared/types.ts';
 import {
   buildAuthCookie,
   buildCsrfCookie,
+  decryptMfaSecret,
   encryptMfaSecret,
   generateTotpSecret,
   hashOpaqueSecret,
@@ -158,7 +159,6 @@ export function verifyMfaOrRecoveryCode(
 ): { valid: boolean; recoveryCodeUsed: boolean } {
   // Decryption is kept at the route boundary so callers cannot accidentally
   // persist or return the shared secret.
-  const { decryptMfaSecret } = requireAuthCrypto();
   try {
     if (verifyTotpCode(decryptMfaSecret(encryptedSecret), code)) {
       return { valid: true, recoveryCodeUsed: false };
@@ -182,8 +182,3 @@ export function verifyMfaOrRecoveryCode(
   return { valid: Number(updated.changes) === 1, recoveryCodeUsed: Number(updated.changes) === 1 };
 }
 
-// Keep the crypto import isolated to this module's MFA verification boundary.
-function requireAuthCrypto() {
-  return authCrypto;
-}
-import * as authCrypto from './auth.ts';
