@@ -471,7 +471,7 @@ test('4. Superadmin can create Admin & Karyawan accounts (explicit password enfo
       nama_lengkap: 'Calon Ditolak',
       username: 'ditolak1',
       email: 'ditolak1@bignet.co.id',
-      password: 'Password123',
+      password: 'Password123456!',
       role_diminta: 'ADMIN',
       kantor_id: 1,
       bidang_id: 3,
@@ -489,7 +489,7 @@ test('4. Superadmin can create Admin & Karyawan accounts (explicit password enfo
   assert.equal(rejectRes.status, 200);
   const rejectedLogin = await apiJson('/api/v1/auth/login', {
     method: 'POST',
-    body: { identifier: 'ditolak1', password: 'Password123' },
+    body: { identifier: 'ditolak1', password: 'Password123456!' },
   });
   assert.equal(rejectedLogin.status, 403);
 
