@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { Request } from 'express';
 import type { AuthUser } from '../../shared/types.ts';
 import { getWibIsoString } from '../time.ts';
+import { getClientIp } from '../security.ts';
 
 export interface AuditParams {
   actor: AuthUser | { id: number; nama_lengkap: string; role: string };
@@ -20,10 +21,7 @@ export interface AuditParams {
 
 export function writeAuditLog(db: DatabaseSync, params: AuditParams): number {
   const actorName = 'nama_lengkap' in params.actor ? params.actor.nama_lengkap : 'System';
-  const ip =
-    params.req?.headers['x-forwarded-for']?.toString().split(',')[0]?.trim() ||
-    params.req?.socket?.remoteAddress ||
-    '127.0.0.1';
+  const ip = params.req ? getClientIp(params.req) : '127.0.0.1';
   const ua = params.req?.headers['user-agent']?.toString() || 'Server';
 
   const stmt = db.prepare(`
