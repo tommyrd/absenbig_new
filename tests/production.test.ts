@@ -52,6 +52,7 @@ let baseUrl = '';
 const superPassword = 'SuperAdmin#Prod2026!';
 let superToken = '';
 let adminToken = '';
+let adminMfaSecret = '';
 let karyawanToken = '';
 let adminUserId = 0;
 let karyawanUserId = 0;
@@ -399,6 +400,7 @@ test('4. Superadmin can create Admin & Karyawan accounts (explicit password enfo
     body: { challengeId: adminLogin.data.challengeId },
   });
   assert.equal(adminMfaSetup.status, 200);
+  adminMfaSecret = adminMfaSetup.data.secret;
   const adminMfaConfirm = await apiJson<{ token: string; user: { role: string }; recoveryCodes: string[] }>(
     '/api/v1/auth/mfa/setup/confirm',
     {
@@ -816,11 +818,18 @@ test('5. Authorization boundaries, query-token restriction, logout jti & token_v
     token: superToken,
     body: { aktif: true },
   });
-  const adminRelogin = await apiJson<{ token: string }>('/api/v1/auth/login', {
+  const adminRelogin = await apiJson<{ challengeId: string; mfaSetupRequired: boolean }>('/api/v1/auth/login', {
     method: 'POST',
     body: { identifier: 'admin_prod', password: 'AdminPassword!1' },
   });
-  adminToken = adminRelogin.data.token;
+  assert.equal(adminRelogin.status, 200);
+  assert.equal(adminRelogin.data.mfaSetupRequired, false);
+  const adminReloginVerified = await apiJson<{ token: string }>('/api/v1/auth/mfa/verify', {
+    method: 'POST',
+    body: { challengeId: adminRelogin.data.challengeId, code: generateTotpCode(adminMfaSecret) },
+  });
+  assert.equal(adminReloginVerified.status, 200);
+  adminToken = adminReloginVerified.data.token;
 });
 
 test('6. SVG logo/favicon XSS sanitization, attendance camera-only, jam_mulai gate, geofence, and photo headers', async () => {
