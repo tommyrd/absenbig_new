@@ -1,61 +1,130 @@
-# Dokumentasi Keamanan Production — Absensi BIGNET
+# Standar Keamanan Production — Absensi BIGNET
+
+Dokumen ini menjelaskan kontrol yang benar-benar tersedia pada branch hardening keamanan. Review ini merupakan pemeriksaan source code dan pengujian otomatis; bukan pengganti penetration test independen atau pemeriksaan konfigurasi VPS setelah deployment.
 
 ---
 
-## 1. Autentikasi & Manajemen Sesi
+## 1. Autentikasi, Password, dan MFA
 
-1. **Hashing Kata Sandi (`src/server/auth.ts`):**
-   - Menggunakan `crypto.scryptSync(password, salt, 64)` dengan salt acak 16-byte per akun (`salt:hash`).
-   - Verifikasi menggunakan `crypto.timingSafeEqual` untuk mencegah *timing attack*.
-   - Kata sandi tidak pernah disimpan maupun dikembalikan ke frontend dalam bentuk plaintext.
-2. **Token Sesi & Cookie:**
-   - Token ditandatangani HMAC-SHA256 menggunakan `AUTH_SECRET` dari `.env` (disarankan acak minimal 32 karakter; fallback file `.auth_secret` di `DATA_DIR` memiliki permission `0o600`).
-   - Setiap token memiliki `jti` (UUID v4), `tv` (`token_version`), dan `exp` (7 hari).
-   - Cookie `bignet_token` dikirim dengan atribut `HttpOnly`, `SameSite=Lax`, dan otomatis menyertakan `Secure` ketika koneksi melalui HTTPS / reverse proxy `X-Forwarded-Proto: https`.
-3. **Revokasi Token Instan:**
-   - **Logout (`POST /api/v1/auth/logout`):** Memasukkan `jti` ke tabel `revoked_tokens`, sehingga token langsung ditolak pada request berikutnya walaupun belum expired.
-   - **Ganti Kata Sandi / Reset Kata Sandi / Ubah Role / Nonaktif Akun:** Menaikkan `pengguna.token_version` (+1), sehingga seluruh sesi lama pengguna tersebut di perangkat lain otomatis gugur.
-4. **Perlindungan Brute Force (`src/server/security.ts`):**
-   - `loginIpLimiter`: Maksimal 40 percobaan per 15 menit per IP.
-   - `loginFailLimiter`: Maksimal 8 percobaan gagal per 15 menit per kombinasi `IP:username` -> mengembalikan HTTP `429` + header `Retry-After`, dan direset saat login sukses.
-   - Rate limiter juga diterapkan pada pendaftaran akun (`registerLimiter`), perubahan kata sandi (`passwordLimiter`), dan pengiriman sesi absensi (`attendanceLimiter`).
+### Password
+- Password baru minimal **15 karakter** dan maksimal **128 karakter** pada endpoint pendaftaran, pembuatan akun, reset password, dan ubah password.
+- Password disimpan dengan format hash scrypt berversi: `$scrypt$N$r$p$salt$hash`, salt acak 16-byte dan perbandingan hash menggunakan `crypto.timingSafeEqual`.
+- Format hash lama `salt:hash` tetap dapat diverifikasi agar akun lama tidak terkunci setelah migrasi. Hash baru menggunakan parameter scrypt eksplisit `N=32768, r=8, p=1`.
+- Password tidak pernah dikembalikan ke frontend.
+- Password lama di bawah panjang minimum tetap dapat digunakan untuk login. Pengguna diminta menggantinya dengan password minimal 15 karakter saat melakukan perubahan password berikutnya.
+- Jangan menggunakan password demo `bignet123` di production. Demo login harus tetap nonaktif.
 
----
+### MFA untuk Admin dan Superadmin
+- Login Admin/Superadmin selalu membutuhkan faktor kedua TOTP.
+- Saat login pertama setelah MFA belum aktif, pengguna harus menambahkan secret ke aplikasi Authenticator dan mengonfirmasi kode 6 digit.
+- Saat login berikutnya, pengguna harus memasukkan kode TOTP atau recovery code satu kali pakai.
+- Secret TOTP disimpan terenkripsi AES-256-GCM; kunci enkripsi diturunkan dari `AUTH_SECRET` dengan HKDF-SHA256.
+- Sepuluh recovery code dibuat saat enrollment. Database hanya menyimpan hash-nya; kode asli hanya ditampilkan satu kali.
+- Kode TOTP yang sama tidak dapat digunakan ulang pada time-step yang sudah diterima. Challenge MFA berlaku 5 menit dan dibatasi percobaan.
+- Superadmin dapat mereset MFA akun Admin melalui Manajemen Akun. Reset menghapus secret/recovery code lama, membatalkan semua sesi, dan mewajibkan enrollment ulang.
+- MFA Superadmin tidak dapat direset dari panel akun biasa. Simpan recovery codes Superadmin di tempat aman; prosedur pemulihan pemilik harus dilakukan secara terkontrol dengan akses server/database dan dicatat sebagai tindakan operasional.
 
-## 2. Otorisasi & Kontrol Akses (RBAC Backend)
-
-Seluruh pembatasan hak akses diberlakukan pada middleware `requireRole(...)` di backend (`src/server/routes.ts`):
-
-- **`KARYAWAN`:** Hanya dapat melihat jadwal & riwayat dirinya, melakukan check-in kamera miliknya sendiri, mengajukan/edit/batal pengajuan miliknya (ketika PENDING), melihat feed Beranda (`GET /api/v1/feed/today` dan foto sesi aktif tanpa data pengajuan pribadi orang lain), serta memperbarui profil & kata sandinya sendiri.
-- **`ADMIN`:** Mengelola master kantor/bidang, menyetujui/menolak pengajuan karyawan, menetapkan kerja khusus & hari libur, menerapkan kebijakan absensi, melakukan override payroll, dan closing periode bulanan. Tidak dapat mengakses pengaturan branding/sistem maupun ACC pendaftaran akun.
-- **`SUPERADMIN`:** Mengelola seluruh akun pengguna (termasuk ACC/tolak pendaftaran akun baru, reset sandi, aktif/nonaktif akun, membuat akun karyawan/admin/superadmin), mengubah pengaturan aplikasi/branding/logo login, dan memonitor laporan & audit trail.
-- **Anti-Privilege Escalation & Anti-Self-Lockout:**
-  - `POST /api/v1/master/employees` dan akun pendaftaran publik hanya mengizinkan role `KARYAWAN` atau `ADMIN` (tidak bisa membuat `SUPERADMIN`).
-  - Superadmin dicegah menonaktifkan atau menurunkan role akun miliknya sendiri melalui API.
-  - Identitas `karyawan_id` pada aksi karyawan diambil langsung dari `req.authUser.karyawan_id` (token terverifikasi), bukan dari payload body klien.
+Aplikasi Authenticator yang kompatibel dengan TOTP RFC 6238 (misalnya Google Authenticator atau Microsoft Authenticator) dapat digunakan. Parameter: SHA-1, 6 digit, interval 30 detik.
 
 ---
 
-## 3. Keamanan Endpoint API & Query Token
+## 2. Cookie, CSRF, dan Sesi
 
-- **Pembatasan Query Token (`allowsQueryToken`):** `?token=...` pada query string **ditolak** pada seluruh endpoint JSON mutasi/profil, dan hanya diizinkan pada `GET /api/v1/photos/*`, `GET /api/v1/avatars/*`, dan `GET /api/v1/workforce/stream` (kebutuhan `<img src>` & `EventSource` browser).
-- **Security Headers (`server.ts`):**
-  - `app.disable('x-powered-by')`
-  - `X-Content-Type-Options: nosniff`
-  - `Referrer-Policy: strict-origin-when-cross-origin`
-  - `Permissions-Policy: camera=(self), geolocation=(self), microphone=()`
-  - `Strict-Transport-Security` (aktif otomatis pada production HTTPS)
-- **CORS Terkontrol:** Dibatasi ke origin yang terdaftar pada `ALLOWED_ORIGINS` / `APP_URL`.
-- **Safe Error Handling:** Pada `NODE_ENV=production`, stack trace maupun detail error database SQL tidak dikirim dalam respons JSON (`safeErrorDetail`).
+### Cookie-only authentication
+- Token autentikasi hanya diterima melalui cookie `bignet_token`.
+- Cookie akses memakai `HttpOnly`, `SameSite=Lax`, `Path=/`, dan atribut `Secure` saat request HTTPS terdeteksi melalui reverse proxy terpercaya.
+- Token tidak disimpan di `localStorage`, tidak diterima dari header `Authorization: Bearer`, dan tidak diterima melalui query URL.
+- Cookie `bignet_csrf` tidak HttpOnly agar frontend dapat membacanya untuk mengirim header `X-CSRF-Token`. Nilainya di-hash dan diikat ke record sesi di database.
+
+### CSRF dan Origin
+- Semua metode mutasi selain GET/HEAD/OPTIONS wajib memiliki header `Origin` yang cocok persis dengan origin aplikasi atau origin yang dikonfigurasi pada `ALLOWED_ORIGINS` / `APP_URL`.
+- Permintaan mutasi yang sudah terautentikasi juga wajib mengirim pasangan cookie CSRF dan header `X-CSRF-Token` yang cocok dan terikat dengan sesi.
+- CORS hanya mengizinkan origin yang dikonfigurasi, credentials, serta header `Content-Type` dan `X-CSRF-Token`.
+- Frontend dan API production direkomendasikan berjalan pada origin yang sama melalui Nginx.
+
+### Timeout dan inventaris sesi
+Timeout diperiksa backend pada setiap request; heartbeat hanya memperpanjang idle timeout saat halaman terlihat dan ada aktivitas pengguna baru-baru ini.
+
+| Role | Idle timeout | Absolute timeout |
+|---|---:|---:|
+| Karyawan | 60 menit | 12 jam |
+| Admin Operasional | 30 menit | 8 jam |
+| Superadmin | 15 menit | 4 jam |
+
+- Sesi disimpan dalam tabel `auth_sessions`, dengan waktu login, aktivitas terakhir, batas idle/absolute, IP, user-agent, hash CSRF, dan status revokasi.
+- Logout, perubahan password, reset password, reset MFA, perubahan role, atau penonaktifan akun mencabut sesi terkait di server.
+- Pengguna dapat melihat sesi dan mencabut satu sesi atau seluruh sesi perangkat lain dari Pengaturan Profil.
+- Koneksi EventSource workforce memeriksa validitas sesi berkala dan ditutup setelah sesi dicabut, kedaluwarsa, atau akun dinonaktifkan.
+- Cookie browser memiliki Max-Age idle timeout dan diperbarui oleh endpoint heartbeat.
 
 ---
 
-## 4. Keamanan Upload Foto, Avatar & Logo
+## 3. RBAC dan Proteksi Endpoint
 
-1. **Validasi Magic Bytes Gambar Raster (`validateRasterImageBase64`):** Memeriksa signature biner aktual PNG (`89 50 4E 47`), JPEG (`FF D8 FF`), dan WEBP (`RIFF....WEBP`) serta batas ukuran (5 MB untuk foto absensi, 2 MB untuk avatar/logo) guna mencegah unggahan payload palsu/berbahaya.
-2. **Sanitasi Logo SVG (`validateAndSanitizeLogoBase64`):** Hanya berlaku untuk upload logo oleh Superadmin; menolak tegas tag `<script>`, `<foreignObject>`, `<iframe>`, `<object>`, `<embed>`, `<applet>`, atribut event `on*=`, serta skema `javascript:` / `vbscript:` / `data:text/html`.
-3. **Kamera-Only Absensi:** `POST /api/v1/attendance/session` menolak permintaan yang tidak menyertakan `fotoSource: 'BROWSER_CAMERA'`.
-4. **Penyimpanan & Pengiriman Aman:**
-   - File disimpan menggunakan `crypto.randomBytes` di luar folder `public/` atau `dist/`.
-   - Setiap akses media memakai `path.basename(...)` untuk mencegah *path traversal*.
-   - Header respons media menyertakan `X-Content-Type-Options: nosniff` dan `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'`.
+- Seluruh endpoint privat menerapkan pemeriksaan role di backend melalui `requireRole(...)`; pembatasan tampilan frontend bukan batas keamanan.
+- Admin dan Superadmin merupakan akun non-pegawai dan tidak mempunyai absensi pribadi.
+- Pengguna tidak dapat mengganti identitas `karyawan_id` melalui payload untuk mengambil alih data karyawan lain.
+- Reset password dan MFA Admin dilakukan melalui endpoint Superadmin dan dicatat ke audit log.
+- Mengubah role atau menonaktifkan akun menaikkan `token_version`, mencabut sesi database, dan menghapus tantangan MFA tertunda.
+- Token yang dikirim lewat query URL, termasuk ke endpoint foto, avatar, dan EventSource, ditolak.
+
+---
+
+## 4. Rate Limiting dan IP Client
+
+- Login: maksimum 40 percobaan per 15 menit per IP dan maksimum 8 kegagalan per 15 menit untuk kombinasi IP/username.
+- Verifikasi MFA: maksimum 5 percobaan per 5 menit per IP/akun.
+- Setup/konfirmasi MFA: maksimum 5 percobaan per 15 menit per IP.
+- Registrasi, perubahan password, dan absensi memiliki limiter tersendiri.
+- IP dibaca melalui `req.ip` Express, bukan dengan mengambil header `X-Forwarded-For` mentah di kode aplikasi. Nginx harus menimpa header forwarded IP dan port Node tidak boleh terbuka langsung ke internet.
+- **Batasan yang diketahui:** limiter saat ini tersimpan dalam memori proses. Counter kembali kosong setelah proses restart dan tidak dibagikan lintas beberapa instance. Deploy yang didukung saat ini adalah satu proses Node/SQLite. Untuk skala multi-instance, pindahkan limiter ke Redis atau storage terpusat sebelum menambah instance.
+
+---
+
+## 5. Security Headers dan Server
+
+`server.ts` menerapkan:
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: SAMEORIGIN`
+- `Referrer-Policy: strict-origin-when-cross-origin`
+- `Permissions-Policy: camera=(self), geolocation=(self), microphone=()`
+- `Cross-Origin-Opener-Policy: same-origin`
+- `X-Permitted-Cross-Domain-Policies: none`
+- `Content-Security-Policy-Report-Only` sebagai tahap observasi sebelum CSP enforcement.
+- HSTS pada production HTTPS.
+
+Default bind production adalah `127.0.0.1` agar akses publik hanya melalui Nginx. Port Node (3000) jangan dibuka pada firewall publik. Pastikan `HOST=127.0.0.1`, `APP_URL`, `ALLOWED_ORIGINS`, sertifikat TLS, dan trusted proxy sesuai konfigurasi hosting.
+
+---
+
+## 6. Data Absensi, Media, dan Batas Kepercayaan Browser
+
+- Backend memvalidasi format koordinat, akurasi GPS, jarak geofence, jam sesi dari server, urutan sesi, serta bukti foto raster berdasarkan magic bytes.
+- Browser mengirim koordinat dan sumber foto sebagai data klien. Karena itu, web-only GPS dan kamera browser **tidak dapat membuktikan secara kriptografis** bahwa lokasi atau kamera tidak dimanipulasi pada perangkat yang dikuasai pengguna.
+- Sistem dapat mendeteksi anomali dan menyimpan bukti/audit, tetapi tidak boleh mengklaim anti-fake-GPS mutlak tanpa device attestation dari aplikasi native yang sesuai.
+- Foto, avatar, dan aset disimpan di luar folder static web. Nama file acak, pemeriksaan path, magic bytes, batas ukuran, dan header `nosniff` digunakan untuk mengurangi risiko upload/path traversal.
+- Respons API memakai `Cache-Control: no-store` agar data sensitif tidak disimpan di cache browser/proxy.
+
+---
+
+## 7. Database, Audit, dan Backup
+
+- Migrasi 015 menambahkan tabel `auth_sessions`, `auth_challenges`, `mfa_recovery_codes` serta kolom MFA pengguna.
+- Audit log memiliki trigger append-only untuk menolak UPDATE/DELETE melalui koneksi aplikasi. Akses langsung ke file SQLite oleh administrator OS tetap dapat melewati batas ini; lindungi akses file dan simpan salinan audit penting di luar host.
+- Backup harus disimpan di luar web root, dibatasi permission-nya, dienkripsi sebelum dikirim ke penyimpanan eksternal, dan diuji restore secara berkala.
+- File `.env`, `DATA_DIR`, database, `.auth_secret`, foto, dan backup tidak boleh dikomit ke Git.
+- `AUTH_SECRET` wajib berupa secret acak minimal 32 karakter dan harus stabil. Mengubahnya akan membatalkan sesi dan membuat secret MFA terenkripsi lama tidak dapat dibaca. Simpan secret tersebut dengan backup aman terpisah dari repository.
+
+---
+
+## 8. Pengujian Keamanan Otomatis dan Batas Audit
+
+GitHub Actions menjalankan tes, TypeScript check, dan production build. Test suite keamanan mencakup:
+- cookie-only authentication dan penolakan Bearer/query token;
+- pemeriksaan Origin/CSRF;
+- login dan enrollment/verifikasi TOTP;
+- penolakan replay TOTP dan penggunaan recovery code satu kali;
+- masa berlaku sesi, pencabutan sesi, serta reset MFA;
+- password hash berversi dan kompatibilitas hash lama.
+
+Pengujian otomatis dan static review bukan penetration test. Sebelum go-live, lakukan pemeriksaan konfigurasi TLS/Nginx/firewall, uji akses dari jaringan eksternal, scan dependency, SAST, dan penetration test terkontrol pada staging.
