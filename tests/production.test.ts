@@ -269,7 +269,7 @@ test('2. Health check and initial Superadmin authentication work with HttpOnly c
   superToken = mfaLogin.data.token;
 
   // Cookie-only authentication: Bearer headers and URL query tokens are not accepted.
-  const accessToken = decodeURIComponent(superToken.match(/(?:^|;\\s*)bignet_token=([^;]+)/)?.[1] || '');
+  const accessToken = decodeURIComponent(superToken.split(';').map((part) => part.trim()).find((part) => part.startsWith('bignet_token='))?.slice('bignet_token='.length) || '');
   const bearerOnly = await fetch(`${baseUrl}/api/v1/auth/me`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
@@ -2686,4 +2686,73 @@ test('8. Backup and Restore verify SHA-256 checksums, integrity, and preserve DB
       skipSafetySnapshot: true,
     });
   }, /Checksum tidak cocok/i);
+});
+
+
+test('9. Session inventory, Superadmin MFA reset, idle expiration and stale-cookie re-login', async () => {
+  const ownerSecurity = await apiJson<{
+    mfaEnabled: boolean;
+    mfaRequired: boolean;
+    idleTimeoutMinutes: number;
+    absoluteTimeoutHours: number;
+    currentSessionId: string;
+    sessions: Array<{ sessionId: string; current: boolean; idleExpiresAt: number; absoluteExpiresAt: number }>;
+  }>('/api/v1/auth/security', { token: superToken });
+  assert.equal(ownerSecurity.status, 200);
+  assert.equal(ownerSecurity.data.mfaEnabled, true);
+  assert.equal(ownerSecurity.data.mfaRequired, true);
+  assert.equal(ownerSecurity.data.idleTimeoutMinutes, 15);
+  assert.equal(ownerSecurity.data.absoluteTimeoutHours, 4);
+  assert.ok(ownerSecurity.data.sessions.some((session) => session.current));
+  assert.ok(ownerSecurity.data.currentSessionId);
+
+  // Superadmin may reset only an Admin account; all of that account's sessions
+  // and outstanding login/setup challenges must be revoked.
+  const adminMfaBefore = getDb()
+    .prepare('SELECT mfa_enabled FROM pengguna WHERE id = ?')
+    .get(adminUserId) as { mfa_enabled: number };
+  assert.equal(adminMfaBefore.mfa_enabled, 1);
+  const mfaReset = await apiJson<{ ok: boolean; message: string }>(
+    `/api/v1/superadmin/accounts/${adminUserId}/mfa/reset`,
+    { method: 'POST', token: superToken, body: {} }
+  );
+  assert.equal(mfaReset.status, 200);
+  assert.equal(
+    (getDb().prepare('SELECT mfa_enabled FROM pengguna WHERE id = ?').get(adminUserId) as { mfa_enabled: number }).mfa_enabled,
+    0
+  );
+  assert.equal(
+    (getDb().prepare('SELECT COUNT(*) AS c FROM mfa_recovery_codes WHERE user_id = ?').get(adminUserId) as { c: number }).c,
+    0
+  );
+  assert.equal(
+    (getDb().prepare('SELECT COUNT(*) AS c FROM auth_sessions WHERE user_id = ? AND revoked_at IS NULL').get(adminUserId) as { c: number }).c,
+    0
+  );
+  assert.equal((await apiJson('/api/v1/auth/me', { token: adminToken })).status, 401);
+
+  // An expired idle session must be denied, but its stale cookie must not block
+  // a fresh password login and the required MFA challenge.
+  const ownerSession = getDb().prepare(`
+    SELECT jti FROM auth_sessions WHERE user_id = (
+      SELECT id FROM pengguna WHERE username = 'owner_prod'
+    ) AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1
+  `).get() as { jti: string };
+  getDb().prepare('UPDATE auth_sessions SET idle_expires_at = ? WHERE jti = ?')
+    .run(Date.now() - 1, ownerSession.jti);
+  assert.equal((await apiJson('/api/v1/auth/me', { token: superToken })).status, 401);
+
+  const staleCookieLogin = await fetch(`${baseUrl}/api/v1/auth/login`, {
+    method: 'POST',
+    headers: {
+      Cookie: superToken,
+      Origin: baseUrl,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ identifier: 'owner_prod', password: superPassword }),
+  });
+  assert.equal(staleCookieLogin.status, 200);
+  const staleCookieLoginBody = await staleCookieLogin.json() as { mfaRequired?: boolean; challengeId?: string };
+  assert.equal(staleCookieLoginBody.mfaRequired, true);
+  assert.ok(staleCookieLoginBody.challengeId);
 });
