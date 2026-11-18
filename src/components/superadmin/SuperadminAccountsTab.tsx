@@ -1257,6 +1257,7 @@ export function SuperadminAccountsTab({
                   </label>
                   <input
                     type="password"
+                    maxLength={128}
                     required
                     minLength={15}
                     value={accountForm.password}
@@ -1357,6 +1358,7 @@ export function SuperadminAccountsTab({
                 </label>
                 <input
                   type="password"
+                    maxLength={128}
                   required
                   minLength={15}
                   value={newPassword}
