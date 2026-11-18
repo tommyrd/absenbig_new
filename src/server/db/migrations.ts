@@ -399,6 +399,7 @@ const MIGRATIONS: MigrationDef[] = [
         ['mfa_pending_secret_enc', 'ALTER TABLE pengguna ADD COLUMN mfa_pending_secret_enc TEXT'],
         ['mfa_enabled', 'ALTER TABLE pengguna ADD COLUMN mfa_enabled INTEGER NOT NULL DEFAULT 0 CHECK(mfa_enabled IN (0, 1))'],
         ['mfa_enrolled_at', 'ALTER TABLE pengguna ADD COLUMN mfa_enrolled_at TEXT'],
+        ['mfa_last_totp_counter', 'ALTER TABLE pengguna ADD COLUMN mfa_last_totp_counter INTEGER NOT NULL DEFAULT -1'],
       ] as const) {
         if (!hasColumn(db, 'pengguna', column)) db.exec(ddl);
       }
