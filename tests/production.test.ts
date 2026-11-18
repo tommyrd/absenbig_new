@@ -527,11 +527,9 @@ test('5. Authorization boundaries, query-token restriction, logout jti & token_v
   const savedField = getDb().prepare(
     `SELECT kode, nama, deskripsi FROM bidang_kerja WHERE id = ?`
   ).get(createField.data.id) as { kode: string; nama: string; deskripsi: string };
-  assert.deepEqual(savedField, {
-    kode: 'QA_OPS',
-    nama: 'Operasional QA',
-    deskripsi: 'Diperbarui oleh Admin operasional',
-  });
+  assert.equal(savedField.kode, 'QA_OPS');
+  assert.equal(savedField.nama, 'Operasional QA');
+  assert.equal(savedField.deskripsi, 'Diperbarui oleh Admin operasional');
 
   const assignField = await apiJson(`/api/v1/master/employees/${karyawanId}`, {
     method: 'PUT',
