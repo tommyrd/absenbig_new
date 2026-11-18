@@ -277,7 +277,7 @@ function csrfGuard(req: AuthenticatedRequest, res: Response, next: NextFunction)
   }
 
   // Cookie-authenticated mutations require a same-session double-submit token.
-  if (extractToken(req)) {
+  if (req.authUser && req.authSession) {
     const csrfCookie = extractCsrfCookie(req);
     const csrfHeader = req.get('x-csrf-token') || '';
     if (!req.authSession || !csrfCookie || !csrfHeader ||
