@@ -132,6 +132,7 @@ export interface ManagedAccount {
   no_hp: string;
   jabatan: string;
   role: Role;
+  mfa_enabled?: number;
   kantor_id: number | null;
   kantor_nama: string | null;
   bidang_id: number | null;
