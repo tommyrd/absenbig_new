@@ -229,10 +229,11 @@ function getActiveCheckinOverride(
   const row = db
     .prepare(
       `SELECT o.id, o.urutan_sesi, o.nama_sesi, o.alasan, o.berlaku_sampai,
-              o.created_at, o.admin_id, k.nama_lengkap as admin_nama
+              o.created_at, o.admin_id,
+              COALESCE(NULLIF(u.nama_tampilan, ''), k.nama_lengkap, 'Admin Operasional') as admin_nama
        FROM override_akses_absensi o
        JOIN pengguna u ON u.id = o.admin_id
-       JOIN karyawan k ON k.id = u.karyawan_id
+       LEFT JOIN karyawan k ON k.id = u.karyawan_id
        WHERE o.karyawan_id = ? AND o.tanggal = ? AND o.urutan_sesi = ?
          AND o.status = 'AKTIF' AND o.used_at IS NULL AND o.berlaku_sampai > ?
        ORDER BY o.id DESC LIMIT 1`
