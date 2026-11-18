@@ -4685,6 +4685,10 @@ export function registerApiRoutes(app: Express) {
              WHERE id = ?`
           ).run(cleanUser, cleanEmail, cleanName, cleanHp, nextFoto, body.removePhoto || Boolean(savedFoto) ? 1 : 0,
             body.removePhoto || savedFoto ? getWibIsoString() : null, nextAktif, nextAktif === 0 ? 1 : 0, targetUserId);
+          if (nextAktif === 0) {
+            db.prepare('UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL')
+              .run(getWibIsoString(), targetUserId);
+          }
           writeAuditLog(db, {
             actor: req.authUser!,
             req,
@@ -4832,6 +4836,24 @@ export function registerApiRoutes(app: Express) {
           }
         }
 
+        if (nextRole !== existing.role || nextAktif === 0) {
+          db.prepare('UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL')
+            .run(getWibIsoString(), targetUserId);
+          db.prepare('DELETE FROM auth_challenges WHERE user_id = ?').run(targetUserId);
+        }
+        if (nextRole !== existing.role) {
+          // MFA is role-scoped. A role transition requires a fresh enrollment
+          // before the next Admin login and prevents hidden factors persisting
+          // when an Admin account is converted back into a Karyawan account.
+          db.prepare(`
+            UPDATE pengguna
+            SET mfa_enabled = 0, mfa_secret_enc = NULL, mfa_pending_secret_enc = NULL,
+                mfa_enrolled_at = NULL, mfa_last_totp_counter = -1
+            WHERE id = ?
+          `).run(targetUserId);
+          db.prepare('DELETE FROM mfa_recovery_codes WHERE user_id = ?').run(targetUserId);
+        }
+
         writeAuditLog(db, {
           actor: req.authUser!,
           req,
@@ -4883,8 +4905,12 @@ export function registerApiRoutes(app: Express) {
         res.status(404).json({ error: 'Akun pengguna tidak ditemukan.' });
         return;
       }
-      if (target.role === 'SUPERADMIN') {
-        res.status(403).json({ error: 'Reset MFA Superadmin tidak dapat dilakukan melalui panel ini. Gunakan recovery code atau prosedur pemulihan pemilik.' });
+      if (target.role !== 'ADMIN') {
+        res.status(403).json({ error: 'Reset MFA melalui panel ini hanya tersedia untuk akun Admin Operasional. Pemulihan MFA Superadmin menggunakan prosedur khusus pemilik.' });
+        return;
+      }
+      if (target.mfa_enabled !== 1) {
+        res.status(409).json({ error: 'MFA akun ini belum aktif sehingga tidak perlu direset.' });
         return;
       }
       db.exec('BEGIN IMMEDIATE');
