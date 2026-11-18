@@ -221,7 +221,7 @@ test('1. Migrations are idempotent and production baseline enforces zero demo ac
   assert.ok(productionOfficeModes.length > 0);
   assert.ok(productionOfficeModes.every((office) => office.geofence_mode === 'TOLAK_LUAR_RADIUS'));
 
-  assert.ok(users[0].password_hash.startsWith('$scrypt
+  assert.equal(users[0].password_hash.split(String.fromCharCode(36))[1], 'scrypt');
   assert.ok(!users[0].password_hash.includes(superPassword));
 
   const settings = db.prepare('SELECT izin_demo_login FROM pengaturan_aplikasi WHERE id = 1').get() as {
