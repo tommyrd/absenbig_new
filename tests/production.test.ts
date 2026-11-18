@@ -1475,14 +1475,6 @@ test('8. Backup and Restore verify SHA-256 checksums, integrity, and preserve DB
     });
   }, /Checksum tidak cocok/i);
 });
-  assert.ok(!users[0].password_hash.includes(superPassword));
-
-  const settings = db.prepare('SELECT izin_demo_login FROM pengaturan_aplikasi WHERE id = 1').get() as {
-    izin_demo_login: number;
-  };
-  assert.equal(settings.izin_demo_login, 0);
-});
-
 test('2. Health check and initial Superadmin authentication work with HttpOnly cookies', async () => {
   resetLimiters();
   const health = await apiJson<{ status: string; timezone: string }>('/api/v1/health');
