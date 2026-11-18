@@ -120,6 +120,9 @@ export function AttendanceFeedView({
   useEffect(() => {
     const url = buildApiUrl('/api/v1/workforce/stream');
     const es = new EventSource(url, { withCredentials: true });
+    es.addEventListener('session-expired', () => {
+      es.close();
+    });
     es.addEventListener('connected', () => setLiveConnected(true));
     es.addEventListener('workforce', () => {
       loadFeed();
