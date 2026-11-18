@@ -446,7 +446,7 @@ test('System settings API strictly enforces SUPERADMIN access while keeping publ
     assert.equal(pubRes.status, 200);
     const faviconRes = await fetch(`${baseUrl}/api/v1/assets/favicon`);
     assert.equal(faviconRes.status, 200);
-    assert.equal(faviconRes.headers.get('content-type'), 'image/svg+xml');
+    assert.equal(faviconRes.headers.get('content-type')?.split(';', 1)[0], 'image/svg+xml');
     assert.equal(faviconRes.headers.get('x-content-type-options'), 'nosniff');
 
     // Unauthenticated /api/v1/settings returns 401
