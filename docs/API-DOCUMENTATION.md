@@ -1,6 +1,6 @@
 # Dokumentasi REST & SSE API — Absensi BIGNET (`/api/v1`)
 
-Seluruh endpoint berada di bawah prefix `/api/v1`. Autentikasi menggunakan header `Authorization: Bearer <token>` atau cookie `HttpOnly` `bignet_token`. Query parameter `?token=` **hanya** diterima pada `GET /photos/:sessionId`, `GET /avatars/*`, dan `GET /workforce/stream`.
+Seluruh endpoint berada di bawah prefix `/api/v1`. Autentikasi privat menggunakan cookie `HttpOnly` `bignet_token` saja. Header `Authorization: Bearer`, `localStorage`, dan parameter `?token=` tidak diterima. Semua mutasi browser memerlukan `Origin` same-origin/allowlist; request terautentikasi juga memerlukan cookie `bignet_csrf` dan header `X-CSRF-Token`. Frontend dan API production harus disajikan pada origin yang sama.
 
 ---
 
@@ -27,9 +27,12 @@ Seluruh endpoint berada di bawah prefix `/api/v1`. Autentikasi menggunakan heade
 
 | Method | Endpoint | Akses | Keterangan |
 |---|---|---|---|
-| `POST` | `/api/v1/auth/login` | Publik (Rate-limited) | Login via `identifier` (username/email) + `password`. Mengembalikan `{ token, user }` & cookie `HttpOnly`. Mengunci sementara (`429`) setelah 8 kali gagal per IP:username. |
-| `POST` | `/api/v1/auth/logout` | Semua / Opsional | Merevoke `jti` token ke tabel `revoked_tokens`, menghapus cookie, mencatat audit `AUTH/LOGOUT`. |
-| `GET` | `/api/v1/auth/me` | `KARYAWAN`, `ADMIN`, `SUPERADMIN` | Mengembalikan data profil pengguna aktif dari token terverifikasi. |
+| `POST` | `/api/v1/auth/login` | Publik (Rate-limited) | Login via `identifier` + `password`. Karyawan menerima `{ user }` dan cookie sesi; Admin/Superadmin menerima challenge MFA (setup awal atau verifikasi TOTP) dan belum dianggap login sampai tahap MFA selesai. Token tidak dikembalikan ke JavaScript. |
+| `POST` | `/api/v1/auth/logout` | Cookie sesi (opsional) | Mencabut sesi aktif dari database, menghapus cookie auth/CSRF, dan mencatat audit `AUTH/LOGOUT`. |
+| `GET` | `/api/v1/auth/me` | `KARYAWAN`, `ADMIN`, `SUPERADMIN` | Mengembalikan profil dari cookie sesi database yang masih aktif. |
+| `POST` | `/api/v1/auth/mfa/setup` | Challenge enrollment Admin/Superadmin | Menghasilkan secret TOTP untuk enrollment awal; respons `no-store`. |
+| `POST` | `/api/v1/auth/mfa/setup/confirm` | Challenge enrollment Admin/Superadmin | Memverifikasi TOTP pertama, mengaktifkan MFA, membuat sesi, dan mengembalikan 10 recovery codes satu kali. |
+| `POST` | `/api/v1/auth/mfa/verify` | Challenge login Admin/Superadmin | Memverifikasi TOTP atau recovery code satu kali sebelum membuat sesi. TOTP time-step yang sama tidak dapat dipakai ulang. |
 | `GET` | `/api/v1/auth/register-options` | Publik | Daftar kantor aktif & bidang kerja untuk form pendaftaran KARYAWAN; pendaftaran ADMIN tidak membutuhkan pilihan penempatan. |
 | `POST` | `/api/v1/auth/register` | Publik (Rate-limited) | Pengajuan `KARYAWAN` atau `ADMIN` berstatus `PENDING` hingga di-ACC Superadmin. KARYAWAN wajib mengirim kantor/bidang/jabatan; ADMIN tidak mengirim penempatan atau jabatan pegawai dan akan dibuat mandiri tanpa NIK saat ACC. Foto avatar divalidasi magic bytes raster. |
 
@@ -40,7 +43,11 @@ Seluruh endpoint berada di bawah prefix `/api/v1`. Autentikasi menggunakan heade
 | Method | Endpoint | Akses | Keterangan |
 |---|---|---|---|
 | `PUT` | `/api/v1/profile` | Semua Role Terautentikasi | Memperbarui `nama_lengkap`, `email`, dan `no_hp` sendiri + audit `PROFIL_AKUN`. |
-| `PUT` | `/api/v1/profile/password` | Semua Role Terautentikasi (Rate-limited) | Mengganti sandi sendiri, menaikkan `token_version` (merevoke sesi lama), dan mengembalikan token baru. |
+| `PUT` | `/api/v1/profile/password` | Semua Role Terautentikasi (Rate-limited) | Mengganti sandi sendiri (minimal 15 karakter), mencabut seluruh sesi lama, lalu menerbitkan sesi baru dalam cookie. |
+| `POST` | `/api/v1/auth/session/heartbeat` | Semua Role Terautentikasi | Memperpanjang idle timeout dan cookie hanya saat frontend mendeteksi interaksi pengguna. |
+| `GET` | `/api/v1/auth/security` | Semua Role Terautentikasi | Menampilkan status MFA, timeout sesi, dan daftar sesi aktif milik pengguna (perangkat, IP, waktu). |
+| `POST` | `/api/v1/auth/sessions/revoke-others` | Semua Role Terautentikasi | Mencabut semua sesi perangkat lain milik pengguna yang sedang login. |
+| `DELETE` | `/api/v1/auth/sessions/:jti` | Semua Role Terautentikasi | Mencabut satu sesi milik pengguna sendiri. |
 | `PUT` | `/api/v1/profile/photo` | `KARYAWAN`, `ADMIN`, `SUPERADMIN` | Mengunggah/mengganti foto profil raster (`PNG/JPG/WEBP <= 2MB`) atau menghapus ke avatar default. Untuk ADMIN/SUPERADMIN, foto disimpan pada record `pengguna`; pegawai disimpan pada record `karyawan`. |
 | `GET` | `/api/v1/avatars/karyawan/:karyawanId` | Semua Role Terautentikasi | Mengambil foto profil karyawan (atau SVG inisial default). |
 | `GET` | `/api/v1/avatars/pengguna/:userId` | Semua Role Terautentikasi | Mengambil foto profil akun mandiri (ADMIN/SUPERADMIN) atau SVG inisial default. |
@@ -85,7 +92,7 @@ Seluruh endpoint berada di bawah prefix `/api/v1`. Autentikasi menggunakan heade
 | `POST` / `PUT` / `DELETE` | `/api/v1/master/offices`, `/offices/:id` | `ADMIN` | Tambah/ubah kantor. `DELETE` hanya bila tidak ada pegawai, pendaftaran, hari libur, atau periode payroll yang merujuk; 7 baris kalender mingguan bawaan ikut dihapus dalam transaksi. |
 | `GET` / `POST` / `PUT` / `DELETE` | `/api/v1/master/bidang`, `/bidang/:id` | `GET`: Semua / `POST`, `PUT`, `DELETE`: `ADMIN` | Melihat, menambah, mengubah, dan menghapus bidang kerja. `DELETE` ditolak bila masih dirujuk pegawai, kebijakan absensi, atau pendaftaran akun; semua penghapusan dicatat di Audit Trail. |
 | `GET` | `/api/v1/master/employees` | `ADMIN`, `SUPERADMIN` | Daftar karyawan aktif & nonaktif. |
-| `POST` | `/api/v1/master/employees` | `SUPERADMIN` | Membuat karyawan + akun pengguna (password >= 6 karakter wajib eksplisit). |
+| `POST` | `/api/v1/master/employees` | `SUPERADMIN` | Membuat karyawan + akun pengguna (password minimal 15 karakter wajib eksplisit). |
 | `PUT` | `/api/v1/master/employees/:id` | `ADMIN` | Memperbarui data operasional karyawan, termasuk kantor dan `bidang_id`; backend memvalidasi kedua referensi sebelum menyimpan. |
 | `GET` | `/api/v1/policies` | `ADMIN`, `SUPERADMIN` | Daftar kebijakan absensi & konfigurasi sesi. |
 | `POST` / `PUT` | `/api/v1/policies`, `/policies/:id` | `ADMIN` | Membuat/mengubah kebijakan & jadwal sesi (2, 3, atau 4 sesi). |
@@ -116,3 +123,4 @@ Seluruh endpoint berada di bawah prefix `/api/v1`. Autentikasi menggunakan heade
 | `POST` | `/api/v1/superadmin/registrations/:id/reject` | `SUPERADMIN` | Menolak pendaftaran akun baru beserta alasan keputusan. |
 | `GET` / `POST` / `PUT` | `/api/v1/superadmin/accounts`, `/:userId` | `SUPERADMIN` | Menampilkan dan mengelola seluruh akun. KARYAWAN terhubung ke profil pegawai; ADMIN (Admin Operasional) dan SUPERADMIN (Owner/CEO) merupakan akun non-pegawai dengan `karyawan_id = NULL`, tanpa NIK, penempatan, atau absensi pribadi. Perubahan role ADMIN menjadi KARYAWAN mengaktifkan kembali profil arsip yang cocok atau membuat profil pegawai baru; perubahan KARYAWAN menjadi ADMIN mengarsipkan profil lamanya. Superadmin tidak dapat diubah role-nya melalui endpoint ini. |
 | `PUT` | `/api/v1/superadmin/accounts/:userId/reset-password` | `SUPERADMIN` | Reset sandi pegawai maupun akun pemilik dan mencabut seluruh sesi lama (`token_version + 1`). |
+| `POST` | `/api/v1/superadmin/accounts/:userId/mfa/reset` | `SUPERADMIN` | Reset MFA akun Admin, menghapus recovery codes/secret dan mencabut seluruh sesi; login berikutnya wajib enrollment ulang. Tidak dapat digunakan untuk mereset MFA Superadmin. |

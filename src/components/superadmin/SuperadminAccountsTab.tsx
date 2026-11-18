@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   Edit3,
   KeyRound,
+  ShieldAlert,
   Plus,
   UserCheck,
   UserPlus,
@@ -86,6 +87,7 @@ export function SuperadminAccountsTab({
   // Reset password modal state
   const [resetTarget, setResetTarget] = useState<ManagedAccount | null>(null);
   const [newPassword, setNewPassword] = useState('');
+  const [resetMfaTarget, setResetMfaTarget] = useState<ManagedAccount | null>(null);
 
   const [modalErr, setModalErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -300,6 +302,25 @@ export function SuperadminAccountsTab({
     }
   };
 
+  const submitResetMfa = async () => {
+    if (!resetMfaTarget) return;
+    setSaving(true);
+    setModalErr(null);
+    try {
+      const result = await apiFetch<{ message: string }>(
+        `/api/v1/superadmin/accounts/${resetMfaTarget.user_id}/mfa/reset`,
+        { method: 'POST', body: JSON.stringify({}) }
+      );
+      setBannerMsg(result.message || `MFA akun @${resetMfaTarget.username} berhasil direset.`);
+      setResetMfaTarget(null);
+      await loadAll();
+    } catch (err) {
+      setModalErr(err instanceof Error ? err.message : 'Gagal mereset MFA akun.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const submitResetPassword = async (e: FormEvent) => {
     e.preventDefault();
     if (!resetTarget) return;
@@ -477,6 +498,13 @@ export function SuperadminAccountsTab({
           <p className="text-slate-500 dark:text-slate-400">
             {r.role === 'SUPERADMIN' ? 'Akun pemilik sistem' : r.role === 'ADMIN' ? 'Akun pengelola operasional' : r.jabatan}
           </p>
+          {r.role !== 'KARYAWAN' && (
+            <p className={r.mfa_enabled
+              ? 'mt-1 text-[10px] font-semibold text-emerald-700 dark:text-emerald-400'
+              : 'mt-1 text-[10px] font-semibold text-amber-700 dark:text-amber-300'}>
+              MFA {r.mfa_enabled ? 'AKTIF' : 'WAJIB DISETUP'}
+            </p>
+          )}
         </div>
       ),
     },
@@ -544,6 +572,19 @@ export function SuperadminAccountsTab({
             <KeyRound className="w-3.5 h-3.5" />
             Sandi
           </button>
+          {r.role === 'ADMIN' && r.mfa_enabled === 1 && (
+            <button
+              type="button"
+              onClick={() => {
+                setResetMfaTarget(r);
+                setModalErr(null);
+              }}
+              className="inline-flex items-center gap-1 min-h-[38px] px-2.5 py-1.5 rounded-lg border border-amber-200 dark:border-amber-900/70 bg-amber-50 dark:bg-amber-950/30 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-xs font-semibold text-amber-800 dark:text-amber-300"
+            >
+              <ShieldAlert className="w-3.5 h-3.5" />
+              Reset MFA
+            </button>
+          )}
         </div>
       ),
     },
@@ -1212,12 +1253,13 @@ export function SuperadminAccountsTab({
               {!editingAccount ? (
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Kata Sandi Awal (Min. 6 karakter)
+                    Kata Sandi Awal (Min. 15 karakter)
                   </label>
                   <input
                     type="password"
+                    maxLength={128}
                     required
-                    minLength={6}
+                    minLength={15}
                     value={accountForm.password}
                     onChange={(e) => setAccountForm({ ...accountForm, password: e.target.value })}
                     className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg"
@@ -1258,6 +1300,36 @@ export function SuperadminAccountsTab({
         </div>
       )}
 
+      {resetMfaTarget && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-sm w-full border border-slate-200 dark:border-slate-800 overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800">
+              <h2 className="font-display text-base font-bold text-slate-900 dark:text-slate-100">
+                Reset MFA @{resetMfaTarget.username}?
+              </h2>
+              <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+                Semua sesi akun ini akan dicabut. Pada login berikutnya, Admin harus memasang ulang Authenticator dan menyimpan recovery codes baru.
+              </p>
+              {modalErr && (
+                <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+                  {modalErr}
+                </div>
+              )}
+            </div>
+            <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 p-5">
+              <button type="button" onClick={() => setResetMfaTarget(null)}
+                className="min-h-[44px] px-4 text-xs font-semibold border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-lg">
+                Batal
+              </button>
+              <button type="button" disabled={saving} onClick={() => void submitResetMfa()}
+                className="min-h-[44px] px-4 text-xs font-semibold bg-amber-700 hover:bg-amber-800 text-white rounded-lg disabled:opacity-60">
+                {saving ? 'Memproses...' : 'Reset MFA & Cabut Sesi'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal Reset Sandi */}
       {resetTarget && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
@@ -1282,12 +1354,13 @@ export function SuperadminAccountsTab({
               )}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Kata Sandi Baru (Min. 6 karakter)
+                  Kata Sandi Baru (Min. 15 karakter)
                 </label>
                 <input
                   type="password"
+                    maxLength={128}
                   required
-                  minLength={6}
+                  minLength={15}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg"

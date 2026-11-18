@@ -13,7 +13,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { apiFetch, buildApiUrl, getAuthorizedPhotoUrl, getStoredToken } from '../lib/api';
+import { apiFetch, buildApiUrl, getAuthorizedPhotoUrl } from '../lib/api';
 import type {
   AttendanceFeedPost,
   AttendanceFeedRosterItem,
@@ -118,13 +118,11 @@ export function AttendanceFeedView({
 
   // Real-time SSE sync across all roles
   useEffect(() => {
-    const token = getStoredToken();
-    const url = buildApiUrl(
-      token
-        ? `/api/v1/workforce/stream?token=${encodeURIComponent(token)}`
-        : '/api/v1/workforce/stream'
-    );
-    const es = new EventSource(url);
+    const url = buildApiUrl('/api/v1/workforce/stream');
+    const es = new EventSource(url, { withCredentials: true });
+    es.addEventListener('session-expired', () => {
+      es.close();
+    });
     es.addEventListener('connected', () => setLiveConnected(true));
     es.addEventListener('workforce', () => {
       loadFeed();

@@ -4,11 +4,17 @@ import path from 'node:path';
 import type { Express, NextFunction, Request, Response } from 'express';
 import {
   buildAuthCookie,
+  buildCsrfCookie,
+  decryptMfaSecret,
+  extractCsrfCookie,
   extractToken,
+  hashOpaqueSecret,
+  getTotpCounterForCode,
   hashPassword,
-  requireRole,
   signToken,
+  requireRole,
   verifyPassword,
+  verifyTotpCode,
   verifyToken,
   type AuthenticatedRequest,
 } from './auth.ts';
@@ -19,6 +25,8 @@ import {
   getClientIp,
   loginFailLimiter,
   loginIpLimiter,
+  mfaLoginLimiter,
+  mfaSetupLimiter,
   passwordLimiter,
   registerLimiter,
   safeErrorDetail,
@@ -27,6 +35,17 @@ import {
   validateRasterImageBase64,
 } from './security.ts';
 import { writeAuditLog } from './services/audit.ts';
+import {
+  SESSION_POLICIES,
+  clearAuthCookies as clearIssuedCookies,
+  createAuthChallenge,
+  createMfaEnrollmentSecret,
+  createRecoveryCodes,
+  findAuthChallenge,
+  issueAuthSession,
+  recordChallengeFailure,
+  verifyMfaOrRecoveryCode,
+} from './session.ts';
 import {
   computeMonthlySummary,
   getWorkforceToday,
@@ -170,26 +189,90 @@ function buildDefaultAvatarSvg(namaLengkap: string, role?: string): string {
 </svg>`;
 }
 
-function attachUser(req: AuthenticatedRequest, _res: Response, next: () => void) {
+function attachUser(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   const token = extractToken(req);
   if (token) {
     const payload = verifyToken(token);
-    if (payload) {
+    if (payload?.jti) {
       const db = getDb();
-      if (payload.jti) {
-        const revoked = db
-          .prepare(`SELECT 1 FROM revoked_tokens WHERE jti = ? LIMIT 1`)
-          .get(payload.jti);
-        if (revoked) {
-          next();
-          return;
+      const now = Date.now();
+      const session = db.prepare(`
+        SELECT jti, user_id, idle_expires_at, absolute_expires_at, revoked_at, csrf_hash
+        FROM auth_sessions WHERE jti = ? LIMIT 1
+      `).get(payload.jti) as {
+        jti: string; user_id: number; idle_expires_at: number; absolute_expires_at: number;
+        revoked_at: string | null; csrf_hash: string;
+      } | undefined;
+
+      if (session && session.user_id === payload.userId && !session.revoked_at &&
+          now < session.idle_expires_at && now < session.absolute_expires_at) {
+        const user = loadAuthUserById(payload.userId);
+        if (user && (payload.tv ?? 1) === user.tokenVersion && payload.role === user.role) {
+          req.authUser = stripInternalAuthFields(user);
+          req.authTokenPayload = payload;
+          req.authSession = {
+            jti: payload.jti,
+            csrfHash: session.csrf_hash,
+            idleExpiresAt: session.idle_expires_at,
+            absoluteExpiresAt: session.absolute_expires_at,
+          };
+        } else {
+          db.prepare(`UPDATE auth_sessions SET revoked_at = ? WHERE jti = ? AND revoked_at IS NULL`)
+            .run(getWibIsoString(), payload.jti);
         }
+      } else if (session && !session.revoked_at) {
+        db.prepare(`UPDATE auth_sessions SET revoked_at = ? WHERE jti = ?`)
+          .run(getWibIsoString(), payload.jti);
       }
-      const user = loadAuthUserById(payload.userId);
-      if (user && (payload.tv ?? 1) === user.tokenVersion) {
-        req.authUser = stripInternalAuthFields(user);
-        req.authTokenPayload = payload;
-      }
+    }
+  }
+  next();
+}
+
+function isTrustedBrowserOrigin(req: Request, origin: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(origin);
+  } catch {
+    return false;
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.origin !== origin) return false;
+
+  const configured = [
+    ...(process.env.ALLOWED_ORIGINS || '').split(',').map((item) => item.trim()).filter(Boolean),
+    ...(process.env.APP_URL ? [process.env.APP_URL] : []),
+  ];
+  const expectedProtocol = req.protocol || (req.secure ? 'https' : 'http');
+  const sameOrigin = `${expectedProtocol}://${req.get('host')}`;
+  if (origin === sameOrigin) return true;
+
+  return configured.some((item) => {
+    try { return new URL(item).origin === parsed.origin; } catch { return false; }
+  });
+}
+
+function csrfGuard(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method.toUpperCase())) {
+    next();
+    return;
+  }
+
+  const origin = req.get('origin');
+  if (!origin || !isTrustedBrowserOrigin(req, origin)) {
+    res.status(403).json({ error: 'Permintaan ditolak karena Origin tidak dikenal. Muat ulang aplikasi dari domain resmi.' });
+    return;
+  }
+
+  // Cookie-authenticated mutations require a same-session double-submit token.
+  if (req.authUser && req.authSession) {
+    const csrfCookie = extractCsrfCookie(req);
+    const csrfHeader = req.get('x-csrf-token') || '';
+    if (!req.authSession || !csrfCookie || !csrfHeader ||
+        csrfCookie.length !== csrfHeader.length ||
+        !crypto.timingSafeEqual(Buffer.from(csrfCookie), Buffer.from(csrfHeader)) ||
+        hashOpaqueSecret(csrfCookie) !== req.authSession.csrfHash) {
+      res.status(403).json({ error: 'Token CSRF tidak valid atau kedaluwarsa. Muat ulang halaman dan coba kembali.' });
+      return;
     }
   }
   next();
@@ -244,7 +327,12 @@ function getActiveCheckinOverride(
 
 export function registerApiRoutes(app: Express) {
   const db = getDb();
+  app.use('/api/v1', (_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('Cache-Control', 'no-store');
+    next();
+  });
   app.use('/api/v1', attachUser);
+  app.use('/api/v1', csrfGuard);
 
   // 0. Healthcheck (unauthenticated for load balancers / PM2 / Nginx probes)
   app.get('/api/v1/health', (_req: Request, res: Response) => {
@@ -288,7 +376,7 @@ export function registerApiRoutes(app: Express) {
     }
 
     const { identifier, password } = req.body as { identifier?: string; password?: string };
-    if (!identifier || !password) {
+    if (!identifier || !password || identifier.length > 254 || password.length > 128) {
       res.status(400).json({ error: 'Username/email dan kata sandi wajib diisi.' });
       return;
     }
@@ -367,15 +455,24 @@ export function registerApiRoutes(app: Express) {
 
     loginFailLimiter.reset(failKey);
     const user = stripInternalAuthFields(userWithMeta);
-    const token = signToken({
-      userId: user.id,
-      role: user.role,
-      tv: userWithMeta.tokenVersion,
-      exp: Date.now() + 1000 * 60 * 60 * 24 * 7,
-    });
 
-    res.setHeader('Set-Cookie', buildAuthCookie(token, req, 60 * 60 * 24 * 7));
+    if (user.role === 'ADMIN' || user.role === 'SUPERADMIN') {
+      const mfaState = db.prepare(`
+        SELECT COALESCE(mfa_enabled, 0) AS mfa_enabled
+        FROM pengguna WHERE id = ?
+      `).get(user.id) as { mfa_enabled: number };
+      const purpose = mfaState.mfa_enabled === 1 ? 'MFA_LOGIN' : 'MFA_ENROLLMENT';
+      const challengeId = createAuthChallenge(db, user.id, purpose);
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({
+        mfaRequired: true,
+        mfaSetupRequired: purpose === 'MFA_ENROLLMENT',
+        challengeId,
+      });
+      return;
+    }
 
+    issueAuthSession(db, userWithMeta, req, res);
     writeAuditLog(db, {
       actor: user,
       req,
@@ -384,18 +481,21 @@ export function registerApiRoutes(app: Express) {
       targetEntity: 'pengguna',
       targetId: user.id,
       karyawanId: user.karyawan_id,
-      alasan: `Login berhasil via web (${user.role})`,
+      alasan: `Login berhasil via web (${user.role}); sesi database dibuat`,
     });
 
-    res.json({ token, user });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ user });
   });
 
   app.post('/api/v1/auth/logout', (req: AuthenticatedRequest, res: Response) => {
     if (req.authTokenPayload?.jti) {
-      db.prepare(
-        `INSERT OR IGNORE INTO revoked_tokens (jti, expires_at, revoked_at) VALUES (?, ?, ?)`
-      ).run(req.authTokenPayload.jti, req.authTokenPayload.exp, getWibIsoString());
-      db.prepare(`DELETE FROM revoked_tokens WHERE expires_at < ?`).run(Date.now());
+      db.prepare(`
+        INSERT OR IGNORE INTO revoked_tokens (jti, expires_at, revoked_at) VALUES (?, ?, ?)
+      `).run(req.authTokenPayload.jti, req.authTokenPayload.exp, getWibIsoString());
+      db.prepare('UPDATE auth_sessions SET revoked_at = ? WHERE jti = ? AND revoked_at IS NULL')
+        .run(getWibIsoString(), req.authTokenPayload.jti);
+      db.prepare('DELETE FROM revoked_tokens WHERE expires_at < ?').run(Date.now());
     }
     if (req.authUser) {
       writeAuditLog(db, {
@@ -408,12 +508,345 @@ export function registerApiRoutes(app: Express) {
         karyawanId: req.authUser.karyawan_id,
       });
     }
-    res.setHeader('Set-Cookie', buildAuthCookie('', req, 0));
+    clearIssuedCookies(req, res);
     res.json({ ok: true });
   });
 
   app.get('/api/v1/auth/me', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
     res.json({ user: req.authUser });
+  });
+
+  // Two-factor authentication bootstrap for privileged accounts.
+  app.post('/api/v1/auth/mfa/setup', (req: Request, res: Response) => {
+    const setupLimit = mfaSetupLimiter.consume(getClientIp(req));
+    if (!setupLimit.allowed) {
+      res.setHeader('Retry-After', String(setupLimit.retryAfterSec));
+      res.status(429).json({ error: 'Terlalu banyak permintaan setup MFA. Coba kembali setelah masa tunggu.' });
+      return;
+    }
+    const { challengeId } = req.body as { challengeId?: string };
+    const challenge = findAuthChallenge(db, challengeId || '', 'MFA_ENROLLMENT');
+    if (!challenge || challenge.failed_attempts >= 5) {
+      res.status(401).json({ error: 'Sesi setup MFA tidak valid atau sudah kedaluwarsa. Silakan login ulang.' });
+      return;
+    }
+    const account = db.prepare(`
+      SELECT id, email, role, COALESCE(mfa_enabled, 0) AS mfa_enabled
+      FROM pengguna WHERE id = ? AND aktif = 1
+    `).get(challenge.user_id) as
+      | { id: number; email: string; role: Role; mfa_enabled: number }
+      | undefined;
+    if (!account || (account.role !== 'ADMIN' && account.role !== 'SUPERADMIN') || account.mfa_enabled === 1) {
+      res.status(403).json({ error: 'Akun ini tidak memerlukan setup MFA baru.' });
+      return;
+    }
+
+    const enrollment = createMfaEnrollmentSecret();
+    db.prepare('UPDATE pengguna SET mfa_pending_secret_enc = ? WHERE id = ?')
+      .run(enrollment.encrypted, account.id);
+    const label = encodeURIComponent(`Absensi BIGNET:${account.email}`);
+    const issuer = encodeURIComponent('Absensi BIGNET');
+    const otpauthUri = `otpauth://totp/${label}?secret=${enrollment.secret}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`;
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      secret: enrollment.secret,
+      otpauthUri,
+      issuer: 'Absensi BIGNET',
+      account: account.email,
+      digits: 6,
+      periodSeconds: 30,
+    });
+  });
+
+  app.post('/api/v1/auth/mfa/setup/confirm', (req: Request, res: Response) => {
+    const setupLimit = mfaSetupLimiter.consume(getClientIp(req));
+    if (!setupLimit.allowed) {
+      res.setHeader('Retry-After', String(setupLimit.retryAfterSec));
+      res.status(429).json({ error: 'Terlalu banyak percobaan konfirmasi MFA. Coba kembali setelah masa tunggu.' });
+      return;
+    }
+    const { challengeId, code } = req.body as { challengeId?: string; code?: string };
+    const challenge = findAuthChallenge(db, challengeId || '', 'MFA_ENROLLMENT');
+    if (!challenge || challenge.failed_attempts >= 5) {
+      res.status(401).json({ error: 'Sesi setup MFA tidak valid atau sudah kedaluwarsa. Silakan login ulang.' });
+      return;
+    }
+    const account = db.prepare(`
+      SELECT id, email, role, mfa_pending_secret_enc
+      FROM pengguna WHERE id = ? AND aktif = 1
+    `).get(challenge.user_id) as
+      | { id: number; email: string; role: Role; mfa_pending_secret_enc: string | null }
+      | undefined;
+    if (!account || !account.mfa_pending_secret_enc) {
+      res.status(400).json({ error: 'Secret MFA belum dibuat. Mulai ulang proses setup.' });
+      return;
+    }
+    let verifiedCounter: number | null = null;
+    try {
+      verifiedCounter = getTotpCounterForCode(decryptMfaSecret(account.mfa_pending_secret_enc), code || '');
+    } catch {
+      verifiedCounter = null;
+    }
+    if (verifiedCounter === null) {
+      recordChallengeFailure(db, challenge.challenge_hash);
+      res.status(400).json({ error: 'Kode autentikator salah atau sudah kedaluwarsa. Periksa jam perangkat dan coba lagi.' });
+      return;
+    }
+
+    const encryptedSecret = account.mfa_pending_secret_enc;
+    db.exec('BEGIN IMMEDIATE');
+    let recoveryCodes: string[];
+    let sessionUser: ReturnType<typeof loadAuthUserById>;
+    try {
+      db.prepare(`
+        UPDATE pengguna
+        SET mfa_secret_enc = ?, mfa_pending_secret_enc = NULL, mfa_enabled = 1,
+            mfa_enrolled_at = ?, mfa_last_totp_counter = ?
+        WHERE id = ?
+      `).run(encryptedSecret, getWibIsoString(), verifiedCounter, account.id);
+      db.prepare('DELETE FROM auth_challenges WHERE challenge_hash = ?').run(challenge.challenge_hash);
+      recoveryCodes = createRecoveryCodes(db, account.id);
+      sessionUser = loadAuthUserById(account.id);
+      if (!sessionUser) throw new Error('Akun tidak lagi aktif.');
+      issueAuthSession(db, sessionUser, req, res);
+      writeAuditLog(db, {
+        actor: stripInternalAuthFields(sessionUser),
+        req,
+        modul: 'AUTH_MFA',
+        aksi: 'MFA_ENROLL',
+        targetEntity: 'pengguna',
+        targetId: account.id,
+        alasan: 'MFA TOTP diaktifkan; recovery codes diterbitkan satu kali',
+      });
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      throw err;
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      user: stripInternalAuthFields(sessionUser!),
+      recoveryCodes: recoveryCodes!,
+      recoveryCodesNotice: 'Simpan recovery codes sekarang. Kode hanya ditampilkan satu kali.',
+    });
+  });
+
+  app.post('/api/v1/auth/mfa/verify', (req: Request, res: Response) => {
+    const { challengeId, code } = req.body as { challengeId?: string; code?: string };
+    const challenge = findAuthChallenge(db, challengeId || '', 'MFA_LOGIN');
+    if (!challenge || challenge.failed_attempts >= 5) {
+      res.status(401).json({ error: 'Tantangan MFA tidak valid atau sudah kedaluwarsa. Silakan login ulang.' });
+      return;
+    }
+    const mfaLimit = mfaLoginLimiter.consume(`${getClientIp(req)}:${challenge.user_id}`);
+    if (!mfaLimit.allowed) {
+      res.setHeader('Retry-After', String(mfaLimit.retryAfterSec));
+      res.status(429).json({ error: 'Terlalu banyak kode MFA yang salah. Coba kembali setelah masa tunggu.' });
+      return;
+    }
+    const account = db.prepare(`
+      SELECT id, role, COALESCE(mfa_enabled, 0) AS mfa_enabled, mfa_secret_enc,
+             COALESCE(mfa_last_totp_counter, -1) AS mfa_last_totp_counter
+      FROM pengguna WHERE id = ? AND aktif = 1
+    `).get(challenge.user_id) as
+      | { id: number; role: Role; mfa_enabled: number; mfa_secret_enc: string | null; mfa_last_totp_counter: number }
+      | undefined;
+    if (!account || account.mfa_enabled !== 1 || !account.mfa_secret_enc) {
+      res.status(401).json({ error: 'MFA akun tidak aktif. Silakan login ulang atau hubungi Superadmin.' });
+      return;
+    }
+    const verification = verifyMfaOrRecoveryCode(db, account.id, account.mfa_secret_enc, code || '', account.mfa_last_totp_counter);
+    if (!verification.valid) {
+      recordChallengeFailure(db, challenge.challenge_hash);
+      res.status(401).json({ error: 'Kode autentikator atau recovery code tidak valid.' });
+      return;
+    }
+
+    const userWithMeta = loadAuthUserById(account.id);
+    if (!userWithMeta) {
+      res.status(403).json({ error: 'Akun sudah tidak aktif.' });
+      return;
+    }
+    db.prepare('DELETE FROM auth_challenges WHERE challenge_hash = ?').run(challenge.challenge_hash);
+    mfaLoginLimiter.reset(`${getClientIp(req)}:${challenge.user_id}`);
+    issueAuthSession(db, userWithMeta, req, res);
+    const user = stripInternalAuthFields(userWithMeta);
+    writeAuditLog(db, {
+      actor: user,
+      req,
+      modul: 'AUTH',
+      aksi: 'LOGIN_MFA',
+      targetEntity: 'pengguna',
+      targetId: user.id,
+      karyawanId: user.karyawan_id,
+      alasan: verification.recoveryCodeUsed ? 'Login berhasil menggunakan recovery code MFA satu kali' : 'Login berhasil dengan verifikasi TOTP MFA',
+    });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ user, recoveryCodeUsed: verification.recoveryCodeUsed });
+  });
+
+  app.post('/api/v1/auth/session/heartbeat', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const session = req.authSession;
+    const payload = req.authTokenPayload;
+    if (!session || !payload) {
+      res.status(401).json({ error: 'Sesi login tidak valid atau telah berakhir.' });
+      return;
+    }
+    const now = Date.now();
+    const policy = SESSION_POLICIES[req.authUser!.role];
+    const idleExpiresAt = Math.min(now + policy.idleMs, session.absoluteExpiresAt);
+    const updated = db.prepare(`
+      UPDATE auth_sessions SET last_seen_at = ?, idle_expires_at = ?
+      WHERE jti = ? AND user_id = ? AND revoked_at IS NULL
+        AND idle_expires_at > ? AND absolute_expires_at > ?
+    `).run(
+      getWibIsoString(new Date(now)),
+      idleExpiresAt,
+      session.jti,
+      req.authUser!.id,
+      now,
+      now
+    );
+    if (Number(updated.changes) !== 1) {
+      res.status(401).json({ error: 'Sesi login telah berakhir. Silakan masuk kembali.' });
+      return;
+    }
+    const csrfToken = extractCsrfCookie(req);
+    if (!csrfToken || hashOpaqueSecret(csrfToken) !== session.csrfHash) {
+      res.status(403).json({ error: 'Token CSRF tidak valid.' });
+      return;
+    }
+    const maxAge = Math.max(1, Math.ceil((idleExpiresAt - now) / 1000));
+    res.append('Set-Cookie', buildAuthCookie(
+      // Preserve the same session ID while refreshing only the idle timeout.
+      signToken({ userId: req.authUser!.id, role: req.authUser!.role, jti: session.jti, tv: payload.tv, exp: session.absoluteExpiresAt }),
+      req,
+      maxAge
+    ));
+    res.append('Set-Cookie', buildCsrfCookie(csrfToken, req, maxAge));
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ok: true, idleExpiresAt, absoluteExpiresAt: session.absoluteExpiresAt });
+  });
+
+  app.get('/api/v1/auth/security', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const user = req.authUser!;
+    const mfa = db.prepare('SELECT COALESCE(mfa_enabled, 0) AS mfa_enabled FROM pengguna WHERE id = ?')
+      .get(user.id) as { mfa_enabled: number };
+    const now = Date.now();
+    const sessions = db.prepare(`
+      SELECT jti, created_at, last_seen_at, idle_expires_at, absolute_expires_at,
+             ip_address, user_agent
+      FROM auth_sessions
+      WHERE user_id = ? AND revoked_at IS NULL AND idle_expires_at > ? AND absolute_expires_at > ?
+      ORDER BY last_seen_at DESC
+    `).all(user.id, now, now) as {
+      jti: string; created_at: string; last_seen_at: string; idle_expires_at: number;
+      absolute_expires_at: number; ip_address: string | null; user_agent: string | null;
+    }[];
+    const policy = SESSION_POLICIES[user.role];
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      mfaEnabled: mfa.mfa_enabled === 1,
+      mfaRequired: user.role === 'ADMIN' || user.role === 'SUPERADMIN',
+      idleTimeoutMinutes: Math.round(policy.idleMs / 60_000),
+      absoluteTimeoutHours: policy.absoluteMs / 3_600_000,
+      currentSessionId: req.authSession?.jti || null,
+      sessions: sessions.map((session) => ({
+        sessionId: session.jti,
+        created_at: session.created_at,
+        last_seen_at: session.last_seen_at,
+        idleExpiresAt: session.idle_expires_at,
+        absoluteExpiresAt: session.absolute_expires_at,
+        ip_address: session.ip_address,
+        user_agent: session.user_agent,
+        current: session.jti === req.authSession?.jti,
+      })),
+    });
+  });
+
+  app.post('/api/v1/auth/sessions/revoke-others', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const currentJti = req.authSession?.jti;
+    if (!currentJti) {
+      res.status(401).json({ error: 'Sesi aktif tidak ditemukan.' });
+      return;
+    }
+    const result = db.prepare(`
+      UPDATE auth_sessions SET revoked_at = ?
+      WHERE user_id = ? AND jti <> ? AND revoked_at IS NULL
+    `).run(getWibIsoString(), req.authUser!.id, currentJti);
+    writeAuditLog(db, {
+      actor: req.authUser!,
+      req,
+      modul: 'AUTH_SESSION',
+      aksi: 'REVOKE_OTHER_SESSIONS',
+      targetEntity: 'pengguna',
+      targetId: req.authUser!.id,
+      alasan: `${Number(result.changes)} sesi pada perangkat lain dicabut oleh pemilik akun`,
+    });
+    res.json({ ok: true, revokedCount: Number(result.changes) });
+  });
+
+  app.delete('/api/v1/auth/sessions/:jti', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const targetJti = String(req.params.jti || '');
+    if (!/^[0-9a-f-]{36}$/i.test(targetJti)) {
+      res.status(400).json({ error: 'ID sesi tidak valid.' });
+      return;
+    }
+    const result = db.prepare(`
+      UPDATE auth_sessions SET revoked_at = ?
+      WHERE jti = ? AND user_id = ? AND revoked_at IS NULL
+    `).run(getWibIsoString(), targetJti, req.authUser!.id);
+    if (Number(result.changes) !== 1) {
+      res.status(404).json({ error: 'Sesi tidak ditemukan atau sudah dicabut.' });
+      return;
+    }
+    writeAuditLog(db, {
+      actor: req.authUser!,
+      req,
+      modul: 'AUTH_SESSION',
+      aksi: 'REVOKE_SESSION',
+      targetEntity: 'auth_sessions',
+      targetId: targetJti,
+      alasan: 'Sesi perangkat dicabut melalui pengaturan keamanan akun',
+    });
+    if (targetJti === req.authSession?.jti) clearIssuedCookies(req, res);
+    res.json({ ok: true, currentSessionRevoked: targetJti === req.authSession?.jti });
+  });
+
+  app.post('/api/v1/auth/mfa/disable', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const user = req.authUser!;
+    if (user.role === 'ADMIN' || user.role === 'SUPERADMIN') {
+      res.status(403).json({ error: 'MFA wajib untuk Admin dan Superadmin dan hanya dapat direset melalui prosedur pemulihan Superadmin.' });
+      return;
+    }
+    const { currentPassword, code } = req.body as { currentPassword?: string; code?: string };
+    const account = db.prepare('SELECT password_hash, mfa_secret_enc FROM pengguna WHERE id = ?')
+      .get(user.id) as { password_hash: string; mfa_secret_enc: string | null } | undefined;
+    if (!account || !verifyPassword(currentPassword || '', account.password_hash) ||
+        !account.mfa_secret_enc || !verifyTotpCode(decryptMfaSecret(account.mfa_secret_enc), code || '')) {
+      res.status(400).json({ error: 'Kata sandi atau kode MFA tidak valid.' });
+      return;
+    }
+    db.prepare(`
+      UPDATE pengguna
+      SET mfa_enabled = 0, mfa_secret_enc = NULL, mfa_pending_secret_enc = NULL, mfa_enrolled_at = NULL,
+          token_version = COALESCE(token_version, 1) + 1
+      WHERE id = ?
+    `).run(user.id);
+    db.prepare('DELETE FROM mfa_recovery_codes WHERE user_id = ?').run(user.id);
+    db.prepare('UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL')
+      .run(getWibIsoString(), user.id);
+    writeAuditLog(db, {
+      actor: user,
+      req,
+      modul: 'AUTH_MFA',
+      aksi: 'MFA_DISABLE',
+      targetEntity: 'pengguna',
+      targetId: user.id,
+      alasan: 'MFA opsional dinonaktifkan oleh pemilik akun Karyawan',
+    });
+    clearIssuedCookies(req, res);
+    res.json({ ok: true });
   });
 
   app.get('/api/v1/auth/register-options', (_req: Request, res: Response) => {
@@ -482,8 +915,8 @@ export function registerApiRoutes(app: Express) {
       res.status(400).json({ error: 'Format email tidak valid.' });
       return;
     }
-    if (!password || password.length < 6) {
-      res.status(400).json({ error: 'Kata sandi minimal 6 karakter.' });
+    if (!password || password.length < 15 || password.length > 128) {
+      res.status(400).json({ error: 'Kata sandi harus 15–128 karakter.' });
       return;
     }
 
@@ -612,13 +1045,46 @@ export function registerApiRoutes(app: Express) {
   });
 
   app.get('/api/v1/workforce/stream', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const sessionId = req.authSession?.jti;
+    if (!sessionId) {
+      res.status(401).end();
+      return;
+    }
     res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders?.();
     res.write(`event: connected\ndata: ${JSON.stringify({ waktu: getWibIsoString() })}\n\n`);
     sseClients.add(res);
+
+    // Long-lived EventSource connections must not outlive their authenticated session.
+    const sessionTimer = setInterval(() => {
+      const current = db.prepare(`
+        SELECT s.idle_expires_at, s.absolute_expires_at, s.revoked_at,
+               u.aktif, COALESCE(u.token_version, 1) AS token_version
+        FROM auth_sessions s
+        JOIN pengguna u ON u.id = s.user_id
+        WHERE s.jti = ? AND s.user_id = ?
+        LIMIT 1
+      `).get(sessionId, req.authUser!.id) as
+        | { idle_expires_at: number; absolute_expires_at: number; revoked_at: string | null; aktif: number; token_version: number }
+        | undefined;
+      const now = Date.now();
+      if (!current || current.revoked_at || current.aktif !== 1 ||
+          current.token_version !== (req.authTokenPayload?.tv ?? 1) ||
+          now >= current.idle_expires_at || now >= current.absolute_expires_at) {
+        clearInterval(sessionTimer);
+        sseClients.delete(res);
+        res.write('event: session-expired\\ndata: {}\\n\\n');
+        res.end();
+        return;
+      }
+      res.write(': keep-alive\\n\\n');
+    }, 15_000);
+    sessionTimer.unref?.();
+
     req.on('close', () => {
+      clearInterval(sessionTimer);
       sseClients.delete(res);
     });
   });
@@ -1237,10 +1703,7 @@ export function registerApiRoutes(app: Express) {
 
     const actType =
       expectedNext === 1 ? 'CHECK_IN' : tipeAktivitas === 'STANDBY' ? 'STANDBY' : 'AKTIVITAS';
-    const ip =
-      req.headers['x-forwarded-for']?.toString().split(',')[0]?.trim() ||
-      req.socket?.remoteAddress ||
-      '127.0.0.1';
+    const ip = getClientIp(req);
     const ua = req.headers['user-agent']?.toString() || 'Browser';
 
     let createdSessionId = 0;
@@ -1383,7 +1846,7 @@ export function registerApiRoutes(app: Express) {
     res.setHeader('Content-Type', mime);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
-    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.setHeader('Cache-Control', 'private, no-store');
     fs.createReadStream(fullPath).pipe(res);
   });
 
@@ -2111,9 +2574,9 @@ export function registerApiRoutes(app: Express) {
       password?: string;
       role?: Role;
     };
-    if (!nik || !nama_lengkap || !email || !username || !password || password.length < 6) {
+    if (!nik || !nama_lengkap || !email || !username || !password || password.length < 15 || password.length > 128) {
       res.status(400).json({
-        error: 'NIK, nama lengkap, email, username, dan kata sandi (minimal 6 karakter) wajib diisi.',
+        error: 'NIK, nama lengkap, email, username, dan kata sandi (15–128 karakter) wajib diisi.',
       });
       return;
     }
@@ -3355,46 +3818,50 @@ export function registerApiRoutes(app: Express) {
         res.status(400).json({ error: 'Kata sandi saat ini dan kata sandi baru wajib diisi.' });
         return;
       }
-      if (newPassword.length < 6) {
-        res.status(400).json({ error: 'Kata sandi baru minimal 6 karakter.' });
+      if (newPassword.length < 15 || newPassword.length > 128) {
+        res.status(400).json({ error: 'Kata sandi baru harus 15–128 karakter.' });
         return;
       }
 
-      const row = db
-        .prepare(`SELECT password_hash FROM pengguna WHERE id = ?`)
+      const row = db.prepare('SELECT password_hash FROM pengguna WHERE id = ?')
         .get(user.id) as { password_hash: string } | undefined;
-
       if (!row || !verifyPassword(currentPassword, row.password_hash)) {
         res.status(400).json({ error: 'Kata sandi saat ini tidak cocok.' });
         return;
       }
 
-      db.prepare(`UPDATE pengguna SET password_hash = ?, token_version = COALESCE(token_version, 1) + 1 WHERE id = ?`).run(
-        hashPassword(newPassword),
-        user.id
-      );
+      let updatedUser: ReturnType<typeof loadAuthUserById>;
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        db.prepare(`
+          UPDATE pengguna
+          SET password_hash = ?, token_version = COALESCE(token_version, 1) + 1
+          WHERE id = ?
+        `).run(hashPassword(newPassword), user.id);
+        db.prepare('UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL')
+          .run(getWibIsoString(), user.id);
+        updatedUser = loadAuthUserById(user.id);
+        if (!updatedUser) throw new Error('Akun tidak lagi aktif.');
+        writeAuditLog(db, {
+          actor: user,
+          req,
+          modul: 'PROFIL_AKUN',
+          aksi: 'CHANGE_PASSWORD',
+          targetEntity: 'pengguna',
+          targetId: user.id,
+          karyawanId: user.karyawan_id,
+          alasan: 'Kata sandi diubah; seluruh sesi lama dicabut dan sesi perangkat ini diterbitkan ulang',
+        });
+        db.exec('COMMIT');
+      } catch (err) {
+        db.exec('ROLLBACK');
+        res.status(400).json({ error: 'Gagal memperbarui kata sandi.' });
+        return;
+      }
 
-      // Re-issue a fresh token for the caller so their active session continues seamlessly while old tokens are invalidated
-      const nextToken = signToken({
-        userId: user.id,
-        role: user.role,
-        tv: (req.authTokenPayload?.tv ?? 1) + 1,
-        exp: Date.now() + 1000 * 60 * 60 * 24 * 7,
-      });
-      res.setHeader('Set-Cookie', buildAuthCookie(nextToken, req, 60 * 60 * 24 * 7));
-
-      writeAuditLog(db, {
-        actor: user,
-        req,
-        modul: 'PROFIL_AKUN',
-        aksi: 'CHANGE_PASSWORD',
-        targetEntity: 'pengguna',
-        targetId: user.id,
-        karyawanId: user.karyawan_id,
-        alasan: 'Pengguna mengganti kata sandi secara mandiri (seluruh sesi lama direvoke)',
-      });
-
-      res.json({ ok: true, token: nextToken });
+      issueAuthSession(db, updatedUser!, req, res);
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ ok: true, message: 'Kata sandi berhasil diperbarui. Sesi perangkat lain telah dicabut.' });
     }
   );
 
@@ -3910,7 +4377,7 @@ export function registerApiRoutes(app: Express) {
                 COALESCE(k.no_hp, u.no_hp, '') as no_hp,
                 COALESCE(k.jabatan,
                          CASE WHEN u.role = 'ADMIN' THEN 'Admin Operasional' ELSE 'Akun Pengelola Sistem' END) as jabatan,
-                u.role, k.kantor_id, kt.nama as kantor_nama,
+                u.role, COALESCE(u.mfa_enabled, 0) as mfa_enabled, k.kantor_id, kt.nama as kantor_nama,
                 k.bidang_id, b.nama as bidang_nama, k.tanggal_masuk,
                 u.aktif as user_aktif, k.aktif as karyawan_aktif,
                 CASE WHEN COALESCE(k.foto_profil_path, u.foto_profil_path) IS NOT NULL THEN 1 ELSE 0 END as has_foto_profil,
@@ -3967,9 +4434,9 @@ export function registerApiRoutes(app: Express) {
       const finalNik =
         finalRole === 'KARYAWAN' ? (nik || '').trim().toUpperCase() || generateNextNik() : null;
 
-      if (cleanName.length < 2 || !cleanUser || !cleanEmail.includes('@') || !password || password.length < 6) {
+      if (cleanName.length < 2 || !cleanUser || !cleanEmail.includes('@') || !password || password.length < 15 || password.length > 128) {
         res.status(400).json({
-          error: 'Nama lengkap, username, email, dan kata sandi (min. 6 karakter) wajib diisi.',
+          error: 'Nama lengkap, username, email, dan kata sandi (15–128 karakter) wajib diisi.',
         });
         return;
       }
@@ -4218,6 +4685,10 @@ export function registerApiRoutes(app: Express) {
              WHERE id = ?`
           ).run(cleanUser, cleanEmail, cleanName, cleanHp, nextFoto, body.removePhoto || Boolean(savedFoto) ? 1 : 0,
             body.removePhoto || savedFoto ? getWibIsoString() : null, nextAktif, nextAktif === 0 ? 1 : 0, targetUserId);
+          if (nextAktif === 0) {
+            db.prepare('UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL')
+              .run(getWibIsoString(), targetUserId);
+          }
           writeAuditLog(db, {
             actor: req.authUser!,
             req,
@@ -4365,6 +4836,24 @@ export function registerApiRoutes(app: Express) {
           }
         }
 
+        if (nextRole !== existing.role || nextAktif === 0) {
+          db.prepare('UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL')
+            .run(getWibIsoString(), targetUserId);
+          db.prepare('DELETE FROM auth_challenges WHERE user_id = ?').run(targetUserId);
+        }
+        if (nextRole !== existing.role) {
+          // MFA is role-scoped. A role transition requires a fresh enrollment
+          // before the next Admin login and prevents hidden factors persisting
+          // when an Admin account is converted back into a Karyawan account.
+          db.prepare(`
+            UPDATE pengguna
+            SET mfa_enabled = 0, mfa_secret_enc = NULL, mfa_pending_secret_enc = NULL,
+                mfa_enrolled_at = NULL, mfa_last_totp_counter = -1
+            WHERE id = ?
+          `).run(targetUserId);
+          db.prepare('DELETE FROM mfa_recovery_codes WHERE user_id = ?').run(targetUserId);
+        }
+
         writeAuditLog(db, {
           actor: req.authUser!,
           req,
@@ -4403,14 +4892,66 @@ export function registerApiRoutes(app: Express) {
     }
   );
 
+  app.post(
+    '/api/v1/superadmin/accounts/:userId/mfa/reset',
+    requireRole('SUPERADMIN'),
+    (req: AuthenticatedRequest, res: Response) => {
+      const targetUserId = Number(req.params.userId);
+      const target = db.prepare('SELECT id, username, role, mfa_enabled FROM pengguna WHERE id = ?')
+        .get(targetUserId) as
+        | { id: number; username: string; role: Role; mfa_enabled: number }
+        | undefined;
+      if (!target) {
+        res.status(404).json({ error: 'Akun pengguna tidak ditemukan.' });
+        return;
+      }
+      if (target.role !== 'ADMIN') {
+        res.status(403).json({ error: 'Reset MFA melalui panel ini hanya tersedia untuk akun Admin Operasional. Pemulihan MFA Superadmin menggunakan prosedur khusus pemilik.' });
+        return;
+      }
+      if (target.mfa_enabled !== 1) {
+        res.status(409).json({ error: 'MFA akun ini belum aktif sehingga tidak perlu direset.' });
+        return;
+      }
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        db.prepare(`
+          UPDATE pengguna
+          SET mfa_enabled = 0, mfa_secret_enc = NULL, mfa_pending_secret_enc = NULL,
+              mfa_enrolled_at = NULL, token_version = COALESCE(token_version, 1) + 1
+          WHERE id = ?
+        `).run(targetUserId);
+        db.prepare('DELETE FROM mfa_recovery_codes WHERE user_id = ?').run(targetUserId);
+        db.prepare('DELETE FROM auth_challenges WHERE user_id = ?').run(targetUserId);
+        db.prepare('UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL')
+          .run(getWibIsoString(), targetUserId);
+        writeAuditLog(db, {
+          actor: req.authUser!,
+          req,
+          modul: 'AUTH_MFA',
+          aksi: 'MFA_RESET_BY_SUPERADMIN',
+          targetEntity: 'pengguna',
+          targetId: targetUserId,
+          alasan: `MFA akun @${target.username} direset oleh Superadmin; login berikutnya wajib enrollment ulang`,
+        });
+        db.exec('COMMIT');
+      } catch (err) {
+        db.exec('ROLLBACK');
+        res.status(400).json({ error: 'Gagal mereset MFA akun.' });
+        return;
+      }
+      res.json({ ok: true, message: 'MFA direset. Pengguna harus melakukan setup ulang setelah login.' });
+    }
+  );
+
   app.put(
     '/api/v1/superadmin/accounts/:userId/reset-password',
     requireRole('SUPERADMIN'),
     (req: AuthenticatedRequest, res: Response) => {
       const targetUserId = Number(req.params.userId);
       const { newPassword } = req.body as { newPassword?: string };
-      if (!newPassword || newPassword.length < 6) {
-        res.status(400).json({ error: 'Kata sandi baru minimal 6 karakter.' });
+      if (!newPassword || newPassword.length < 15 || newPassword.length > 128) {
+        res.status(400).json({ error: 'Kata sandi baru minimal 15 karakter.' });
         return;
       }
 
@@ -4422,11 +4963,14 @@ export function registerApiRoutes(app: Express) {
         return;
       }
 
-      db.prepare(
-        `UPDATE pengguna SET password_hash = ?, token_version = COALESCE(token_version, 1) + 1 WHERE id = ?`
-      ).run(hashPassword(newPassword), targetUserId);
-
-      writeAuditLog(db, {
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        db.prepare(
+          `UPDATE pengguna SET password_hash = ?, token_version = COALESCE(token_version, 1) + 1 WHERE id = ?`
+        ).run(hashPassword(newPassword), targetUserId);
+        db.prepare('UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL')
+          .run(getWibIsoString(), targetUserId);
+        writeAuditLog(db, {
         actor: req.authUser!,
         req,
         modul: 'MANAJEMEN_AKUN',
@@ -4435,7 +4979,13 @@ export function registerApiRoutes(app: Express) {
         targetId: targetUserId,
         karyawanId: target.karyawan_id,
         alasan: `Reset kata sandi akun @${target.username} oleh Superadmin (seluruh sesi lama direvoke)`,
-      });
+        });
+        db.exec('COMMIT');
+      } catch {
+        db.exec('ROLLBACK');
+        res.status(400).json({ error: 'Gagal mereset kata sandi akun.' });
+        return;
+      }
 
       res.json({ ok: true });
     }

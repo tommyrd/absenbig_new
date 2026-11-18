@@ -72,7 +72,7 @@ ALLOW_DEMO_LOGIN=false
 BOOTSTRAP_SUPERADMIN_USERNAME="superadmin"
 BOOTSTRAP_SUPERADMIN_EMAIL="owner@bignet.co.id"
 BOOTSTRAP_SUPERADMIN_NAME="Superadmin PT BIGNET"
-BOOTSTRAP_SUPERADMIN_PASSWORD="<kata_sandi_kuat_minimal_12_karakter>"
+BOOTSTRAP_SUPERADMIN_PASSWORD="<kata_sandi_kuat_minimal_15_karakter>"
 ```
 
 Amankan izin akses file `.env`:
@@ -178,3 +178,12 @@ npm run db:migrate
 pm2 reload absensi-bignet --env production   # atau: sudo systemctl restart absensi-bignet
 curl -fsS https://absensi.bignet.co.id/api/v1/health
 ```
+
+
+## 9. Hardening Akun dan Sesi
+
+- Password bootstrap Superadmin dan password baru minimal 15 karakter.
+- Pada login pertama, Admin dan Superadmin wajib mendaftarkan TOTP Authenticator dan menyimpan recovery codes yang hanya ditampilkan satu kali.
+- Token sesi berada pada cookie HttpOnly; frontend dan API harus satu origin. Jangan mengaktifkan kembali Bearer token di localStorage atau token pada query URL.
+- Pastikan reverse proxy menimpa `X-Forwarded-For` dengan alamat remote client dan port Node hanya listen pada `127.0.0.1`.
+- Kebijakan idle/absolute timeout, CSRF, dan reset MFA dijelaskan pada [SECURITY.md](./SECURITY.md).

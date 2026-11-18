@@ -63,6 +63,12 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [authStep, setAuthStep] = useState<'credentials' | 'mfa-verify' | 'mfa-setup' | 'mfa-recovery'>('credentials');
+  const [mfaChallengeId, setMfaChallengeId] = useState<string | null>(null);
+  const [mfaSetupSecret, setMfaSetupSecret] = useState<string | null>(null);
+  const [mfaCode, setMfaCode] = useState('');
+  const [mfaRecoveryCodes, setMfaRecoveryCodes] = useState<string[]>([]);
+  const [mfaPendingUser, setMfaPendingUser] = useState<AuthUser | null>(null);
 
   // Registration options & states
   const [offices, setOffices] = useState<Pick<Kantor, 'id' | 'kode' | 'nama'>[]>([]);
@@ -151,18 +157,80 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
     settings?.logo_updated_at || '1'
   )}`;
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
+  const beginLogin = async (loginIdentifier: string, loginPassword: string) => {
     setError(null);
     setLoading(true);
     try {
-      const res = await loginApi(identifier, password);
-      onSuccess(res.user);
+      const res = await loginApi(loginIdentifier, loginPassword);
+      if (res.user) {
+        onSuccess(res.user);
+        return;
+      }
+      if (!res.challengeId) throw new Error('Respons autentikasi tidak lengkap.');
+      setMfaChallengeId(res.challengeId);
+      if (res.mfaSetupRequired) {
+        const setup = await apiFetch<{ secret: string }>('/api/v1/auth/mfa/setup', {
+          method: 'POST',
+          body: JSON.stringify({ challengeId: res.challengeId }),
+        });
+        setMfaSetupSecret(setup.secret);
+        setAuthStep('mfa-setup');
+      } else {
+        setAuthStep('mfa-verify');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal masuk ke sistem.');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    await beginLogin(identifier, password);
+  };
+
+  const handleMfaSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!mfaChallengeId) {
+      setError('Sesi verifikasi MFA tidak tersedia. Silakan login ulang.');
+      setAuthStep('credentials');
+      return;
+    }
+    setError(null);
+    setLoading(true);
+    try {
+      if (authStep === 'mfa-setup') {
+        const result = await apiFetch<{ user: AuthUser; recoveryCodes: string[] }>('/api/v1/auth/mfa/setup/confirm', {
+          method: 'POST',
+          body: JSON.stringify({ challengeId: mfaChallengeId, code: mfaCode }),
+        });
+        setMfaPendingUser(result.user);
+        setMfaRecoveryCodes(result.recoveryCodes);
+        setMfaCode('');
+        setAuthStep('mfa-recovery');
+      } else {
+        const result = await apiFetch<{ user: AuthUser }>('/api/v1/auth/mfa/verify', {
+          method: 'POST',
+          body: JSON.stringify({ challengeId: mfaChallengeId, code: mfaCode }),
+        });
+        onSuccess(result.user);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Verifikasi MFA gagal.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resetAuthChallenge = () => {
+    setAuthStep('credentials');
+    setMfaChallengeId(null);
+    setMfaSetupSecret(null);
+    setMfaCode('');
+    setMfaRecoveryCodes([]);
+    setMfaPendingUser(null);
+    setError(null);
   };
 
   const handleRegisterSubmit = async (e: FormEvent) => {
@@ -219,16 +287,7 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
   const quickLogin = async (username: string) => {
     setIdentifier(username);
     setPassword('bignet123');
-    setError(null);
-    setLoading(true);
-    try {
-      const res = await loginApi(username, 'bignet123');
-      onSuccess(res.user);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gagal masuk ke sistem.');
-    } finally {
-      setLoading(false);
-    }
+    await beginLogin(username, 'bignet123');
   };
 
   return (
@@ -327,7 +386,8 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
               </div>
 
               {mode === 'login' ? (
-                <div className="space-y-4">
+                <>
+                <div className="space-y-4" hidden={authStep !== 'credentials'}>
                   {error && (
                     <div className="rounded-xl border border-red-200 bg-red-50 p-3.5 text-xs font-medium leading-relaxed text-red-800 dark:border-red-900 dark:bg-red-950/50 dark:text-red-300">
                       {error}
@@ -359,6 +419,7 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
                         <input
                           id="login-password"
                           type={showPass ? 'text' : 'password'}
+                          maxLength={128}
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
                           required
@@ -438,6 +499,108 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
                     </div>
                   )}
                 </div>
+                {authStep !== 'credentials' && (
+                  <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-950 sm:p-5">
+                    {authStep === 'mfa-recovery' ? (
+                      <>
+                        <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400">
+                          <CheckCircle2 className="h-5 w-5" />
+                          <h3 className="font-display text-sm font-bold">MFA Berhasil Diaktifkan</h3>
+                        </div>
+                        <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+                          Simpan sepuluh recovery code berikut di tempat aman. Setiap kode hanya dapat dipakai satu kali dan tidak akan ditampilkan lagi.
+                        </p>
+                        <div className="grid grid-cols-2 gap-2 rounded-lg bg-slate-100 p-3 font-mono text-xs text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                          {mfaRecoveryCodes.map((code) => <span key={code}>{code}</span>)}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => navigator.clipboard?.writeText(mfaRecoveryCodes.join('\n'))}
+                          className="min-h-10 w-full rounded-lg border border-slate-300 px-3 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:text-slate-200"
+                        >
+                          Salin Recovery Codes
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!mfaPendingUser}
+                          onClick={() => mfaPendingUser && onSuccess(mfaPendingUser)}
+                          className="min-h-11 w-full rounded-xl bg-navy-900 px-4 text-sm font-semibold text-white dark:bg-blue-700"
+                        >
+                          Saya Sudah Menyimpan, Lanjutkan
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2 text-navy-900 dark:text-blue-300">
+                          <ShieldCheck className="h-5 w-5" />
+                          <h3 className="font-display text-sm font-bold">
+                            {authStep === 'mfa-setup' ? 'Aktifkan Verifikasi Dua Langkah' : 'Verifikasi Dua Langkah'}
+                          </h3>
+                        </div>
+                        {authStep === 'mfa-setup' ? (
+                          <>
+                            <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+                              Buka Google Authenticator atau Microsoft Authenticator, tambahkan akun secara manual, lalu masukkan kunci setup berikut.
+                            </p>
+                            <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 font-mono text-sm font-bold tracking-wider text-blue-950 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
+                              {mfaSetupSecret}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => mfaSetupSecret && navigator.clipboard?.writeText(mfaSetupSecret)}
+                              className="min-h-9 rounded-lg border border-slate-300 px-3 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:text-slate-200"
+                            >
+                              Salin Kunci Setup
+                            </button>
+                            <p className="text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
+                              Setelah akun ditambahkan, masukkan kode 6 digit dari aplikasi autentikator untuk menyelesaikan aktivasi.
+                            </p>
+                          </>
+                        ) : (
+                          <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+                            Masukkan kode 6 digit dari aplikasi autentikator. Kamu juga dapat menggunakan salah satu recovery code jika kehilangan akses perangkat.
+                          </p>
+                        )}
+                        {error && (
+                          <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800 dark:border-red-900 dark:bg-red-950/50 dark:text-red-300">
+                            {error}
+                          </div>
+                        )}
+                        <form onSubmit={handleMfaSubmit} className="space-y-3">
+                          <div>
+                            <label htmlFor="login-mfa-code" className={labelClass}>Kode Autentikator / Recovery Code</label>
+                            <input
+                              id="login-mfa-code"
+                              type="text"
+                              inputMode="numeric"
+                              autoComplete="one-time-code"
+                              required
+                              value={mfaCode}
+                              onChange={(e) => setMfaCode(e.target.value.toUpperCase())}
+                              placeholder={authStep === 'mfa-setup' ? '6 digit kode aplikasi' : 'Kode 6 digit atau recovery code'}
+                              className={inputClass}
+                            />
+                          </div>
+                          <button
+                            type="submit"
+                            disabled={loading || !mfaCode.trim()}
+                            className="min-h-11 w-full rounded-xl bg-navy-900 px-4 text-sm font-semibold text-white disabled:opacity-60 dark:bg-blue-700"
+                          >
+                            {loading ? 'Memverifikasi...' : authStep === 'mfa-setup' ? 'Aktifkan MFA' : 'Verifikasi & Masuk'}
+                          </button>
+                        </form>
+                        <button
+                          type="button"
+                          onClick={resetAuthChallenge}
+                          className="min-h-10 w-full rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                        >
+                          Kembali ke Login
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+                </>
               ) : (
                 <div className="space-y-4">
                   {regSuccess ? (
@@ -658,12 +821,13 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
                           <input
                             id="register-password"
                             type="password"
+                    maxLength={128}
                             required
-                            minLength={6}
+                            minLength={15}
                             value={regPassword}
                             onChange={(e) => setRegPassword(e.target.value)}
                             autoComplete="new-password"
-                            placeholder="Minimal 6 karakter"
+                            placeholder="Minimal 15 karakter"
                             className={inputClass}
                           />
                         </div>
@@ -672,8 +836,9 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
                           <input
                             id="register-confirm-password"
                             type="password"
+                    maxLength={128}
                             required
-                            minLength={6}
+                            minLength={15}
                             value={regConfirmPassword}
                             onChange={(e) => setRegConfirmPassword(e.target.value)}
                             autoComplete="new-password"

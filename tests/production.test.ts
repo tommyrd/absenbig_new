@@ -23,7 +23,7 @@ process.env.TZ = 'Asia/Jakarta';
 const { closeDb, getDb } = await import('../src/server/db.ts');
 const { getAppliedMigrations, runMigrations } = await import('../src/server/db/migrations.ts');
 const { seedProductionBaseline } = await import('../src/server/db/seed.ts');
-const { signToken, verifyPassword } = await import('../src/server/auth.ts');
+const { signToken, verifyPassword, encryptMfaSecret, generateTotpSecret, generateTotpCode } = await import('../src/server/auth.ts');
 const { registerApiRoutes } = await import('../src/server/routes.ts');
 const {
   attendanceLimiter,
@@ -52,6 +52,9 @@ let baseUrl = '';
 const superPassword = 'SuperAdmin#Prod2026!';
 let superToken = '';
 let adminToken = '';
+let adminMfaSecret = '';
+let adminMfaRecoveryCode = '';
+let superadminUsedTotpCode = '';
 let karyawanToken = '';
 let adminUserId = 0;
 let karyawanUserId = 0;
@@ -67,16 +70,34 @@ function resetLimiters() {
   attendanceLimiter.clear();
 }
 
+function cookieHeaderFromResponse(headers: Headers): string {
+  const setCookies = typeof headers.getSetCookie === 'function'
+    ? headers.getSetCookie()
+    : [headers.get('set-cookie') || ''];
+  return setCookies.map((value) => value.split(';')[0]).filter(Boolean).join('; ');
+}
+
+function csrfFromCookieHeader(cookieHeader: string): string {
+  const match = cookieHeader.match(/(?:^|;\s*)bignet_csrf=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : '';
+}
+
 async function apiJson<T = Record<string, unknown>>(
   pathname: string,
   options: { method?: string; token?: string; body?: unknown } = {}
 ): Promise<{ status: number; headers: Headers; data: T }> {
   const headers: Record<string, string> = {};
-  if (options.token) headers.Authorization = `Bearer ${options.token}`;
+  if (options.token) {
+    headers.Cookie = options.token;
+    const csrf = csrfFromCookieHeader(options.token);
+    if (csrf) headers['X-CSRF-Token'] = csrf;
+  }
   if (options.body !== undefined) headers['Content-Type'] = 'application/json';
+  const method = (options.method || 'GET').toUpperCase();
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) headers.Origin = baseUrl;
 
   const res = await fetch(`${baseUrl}${pathname}`, {
-    method: options.method || 'GET',
+    method,
     headers,
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
   });
@@ -87,6 +108,12 @@ async function apiJson<T = Record<string, unknown>>(
     data = text ? JSON.parse(text) : null;
   } catch {
     data = { raw: text };
+  }
+  // A synthetic test-only handle keeps the existing test cases readable.
+  // The production API never returns an access token to JavaScript.
+  const cookieHeader = cookieHeaderFromResponse(res.headers);
+  if (cookieHeader && data && typeof data === 'object') {
+    (data as Record<string, unknown>).token = cookieHeader;
   }
   return { status: res.status, headers: res.headers, data: data as T };
 }
@@ -124,10 +151,10 @@ after(async () => {
 test('1. Migrations are idempotent and production baseline enforces zero demo accounts', () => {
   const db = getDb();
   const applied = getAppliedMigrations(db);
-  assert.equal(applied.length, 14);
+  assert.equal(applied.length, 15);
   assert.deepEqual(
     applied.map((m) => m.version),
-    ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014']
+    ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014', '015']
   );
 
   const attendanceColumns = db
@@ -154,6 +181,11 @@ test('1. Migrations are idempotent and production baseline enforces zero demo ac
   const userColumns = db.prepare('PRAGMA table_info(pengguna)').all() as { name: string }[];
   assert.ok(userColumns.some((column) => column.name === 'foto_profil_path'));
   assert.ok(userColumns.some((column) => column.name === 'foto_profil_updated_at'));
+  assert.ok(userColumns.some((column) => column.name === 'mfa_secret_enc'));
+  assert.ok(userColumns.some((column) => column.name === 'mfa_enabled'));
+  assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='auth_sessions'").get());
+  assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='auth_challenges'").get());
+  assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='mfa_recovery_codes'").get());
   assert.ok(employeeColumns.some((column) => column.name === 'is_system_archive'));
   const roleLinkTriggers = db.prepare(
     `SELECT name FROM sqlite_master WHERE type = 'trigger' AND name IN (
@@ -189,7 +221,7 @@ test('1. Migrations are idempotent and production baseline enforces zero demo ac
   assert.ok(productionOfficeModes.length > 0);
   assert.ok(productionOfficeModes.every((office) => office.geofence_mode === 'TOLAK_LUAR_RADIUS'));
 
-  assert.ok(users[0].password_hash.includes(':'), 'Password must be salted scrypt hash');
+  assert.ok(users[0].password_hash.startsWith('scrypt-v1:'));
   assert.ok(!users[0].password_hash.includes(superPassword));
 
   const settings = db.prepare('SELECT izin_demo_login FROM pengaturan_aplikasi WHERE id = 1').get() as {
@@ -211,17 +243,61 @@ test('2. Health check and initial Superadmin authentication work with HttpOnly c
   });
   assert.equal(wrongLogin.status, 401);
 
-  const okLogin = await apiJson<{ token: string; user: { role: string } }>('/api/v1/auth/login', {
+  const ownerIdForMfa = (getDb().prepare(`SELECT id FROM pengguna WHERE username = 'owner_prod'`).get() as { id: number }).id;
+  const ownerMfaSecret = generateTotpSecret();
+  getDb().prepare(`
+    UPDATE pengguna SET mfa_secret_enc = ?, mfa_enabled = 1, mfa_enrolled_at = ?
+    WHERE id = ?
+  `).run(encryptMfaSecret(ownerMfaSecret), new Date().toISOString(), ownerIdForMfa);
+
+  const okLogin = await apiJson<{ challengeId: string; mfaRequired: boolean; mfaSetupRequired: boolean }>('/api/v1/auth/login', {
     method: 'POST',
     body: { identifier: 'owner_prod', password: superPassword },
   });
   assert.equal(okLogin.status, 200);
-  assert.ok(okLogin.data.token.length > 20);
-  assert.equal(okLogin.data.user.role, 'SUPERADMIN');
-  const setCookie = okLogin.headers.get('set-cookie') || '';
+  assert.equal(okLogin.data.mfaRequired, true);
+  assert.equal(okLogin.data.mfaSetupRequired, false);
+  superadminUsedTotpCode = generateTotpCode(ownerMfaSecret);
+  const mfaLogin = await apiJson<{ token: string; user: { role: string } }>('/api/v1/auth/mfa/verify', {
+    method: 'POST',
+    body: { challengeId: okLogin.data.challengeId, code: superadminUsedTotpCode },
+  });
+  assert.equal(mfaLogin.status, 200);
+  assert.equal(mfaLogin.data.user.role, 'SUPERADMIN');
+  assert.ok(mfaLogin.data.token.includes('bignet_token='));
+  const setCookie = mfaLogin.headers.get('set-cookie') || '';
   assert.match(setCookie, /HttpOnly/i);
   assert.match(setCookie, /SameSite=Lax/i);
-  superToken = okLogin.data.token;
+  assert.match(setCookie, /bignet_csrf=/i);
+  superToken = mfaLogin.data.token;
+
+  // Cookie-only authentication: Bearer headers and URL query tokens are not accepted.
+  const accessToken = decodeURIComponent(superToken.split(';').map((part) => part.trim()).find((part) => part.startsWith('bignet_token='))?.slice('bignet_token='.length) || '');
+  const bearerOnly = await fetch(`${baseUrl}/api/v1/auth/me`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  assert.equal(bearerOnly.status, 401);
+
+  // State-changing requests require the CSRF cookie/header pair.
+  const csrfMissing = await fetch(`${baseUrl}/api/v1/auth/logout`, {
+    method: 'POST',
+    headers: { Cookie: superToken, Origin: baseUrl, 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  assert.equal(csrfMissing.status, 403);
+
+  // A TOTP time-step may only be consumed once, even across a new login challenge.
+  const replayCode = superadminUsedTotpCode;
+  const replayChallenge = await apiJson<{ challengeId: string }>('/api/v1/auth/login', {
+    method: 'POST',
+    body: { identifier: 'owner_prod', password: superPassword },
+  });
+  assert.equal(replayChallenge.status, 200);
+  const replayAttempt = await apiJson('/api/v1/auth/mfa/verify', {
+    method: 'POST',
+    body: { challengeId: replayChallenge.data.challengeId, code: replayCode },
+  });
+  assert.equal(replayAttempt.status, 401);
 
   // The standalone owner account can upload, display, and reset its own profile photo without an employee profile.
   const owner = getDb()
@@ -237,7 +313,7 @@ test('2. Health check and initial Superadmin authentication work with HttpOnly c
   assert.equal(ownerPhoto.data.user.has_foto_profil, true);
 
   const avatarFetch = await fetch(`${baseUrl}/api/v1/avatars/pengguna/${owner.id}`, {
-    headers: { Authorization: `Bearer ${superToken}` },
+    headers: { Cookie: superToken },
   });
   assert.equal(avatarFetch.status, 200);
   assert.equal(avatarFetch.headers.get('content-type'), 'image/png');
@@ -316,12 +392,30 @@ test('4. Superadmin can create Admin & Karyawan accounts (explicit password enfo
   assert.equal(standaloneAdmin.karyawan_id, null);
   assert.equal(standaloneAdmin.nama_tampilan, 'Admin Operasional Test');
 
-  const adminLogin = await apiJson<{ token: string }>('/api/v1/auth/login', {
+  const adminLogin = await apiJson<{ challengeId: string; mfaRequired: boolean; mfaSetupRequired: boolean }>('/api/v1/auth/login', {
     method: 'POST',
     body: { identifier: 'admin_prod', password: 'AdminPassword!1' },
   });
   assert.equal(adminLogin.status, 200);
-  adminToken = adminLogin.data.token;
+  assert.equal(adminLogin.data.mfaSetupRequired, true);
+  const adminMfaSetup = await apiJson<{ secret: string }>('/api/v1/auth/mfa/setup', {
+    method: 'POST',
+    body: { challengeId: adminLogin.data.challengeId },
+  });
+  assert.equal(adminMfaSetup.status, 200);
+  adminMfaSecret = adminMfaSetup.data.secret;
+  const adminMfaConfirm = await apiJson<{ token: string; user: { role: string }; recoveryCodes: string[] }>(
+    '/api/v1/auth/mfa/setup/confirm',
+    {
+      method: 'POST',
+      body: { challengeId: adminLogin.data.challengeId, code: generateTotpCode(adminMfaSetup.data.secret) },
+    }
+  );
+  assert.equal(adminMfaConfirm.status, 200);
+  assert.equal(adminMfaConfirm.data.user.role, 'ADMIN');
+  assert.equal(adminMfaConfirm.data.recoveryCodes.length, 10);
+  adminMfaRecoveryCode = adminMfaConfirm.data.recoveryCodes[0];
+  adminToken = adminMfaConfirm.data.token;
 
   // Admin profile and avatar are stored on the standalone pengguna record.
   const adminPhoto = await apiJson<{ user: { karyawan_id: number | null; has_foto_profil: boolean } }>(
@@ -332,7 +426,7 @@ test('4. Superadmin can create Admin & Karyawan accounts (explicit password enfo
   assert.equal(adminPhoto.data.user.karyawan_id, null);
   assert.equal(adminPhoto.data.user.has_foto_profil, true);
   const adminAvatar = await fetch(`${baseUrl}/api/v1/avatars/pengguna/${adminUserId}`, {
-    headers: { Authorization: `Bearer ${adminToken}` },
+    headers: { Cookie: adminToken },
   });
   assert.equal(adminAvatar.status, 200);
   assert.equal(adminAvatar.headers.get('content-type'), 'image/png');
@@ -344,7 +438,7 @@ test('4. Superadmin can create Admin & Karyawan accounts (explicit password enfo
       nama_lengkap: 'Spoof User',
       username: 'spoofuser',
       email: 'spoof@bignet.co.id',
-      password: 'Password123',
+      password: 'Password123456!',
       role_diminta: 'KARYAWAN',
       kantor_id: 1,
       bidang_id: 1,
@@ -411,7 +505,7 @@ test('4. Superadmin can create Admin & Karyawan accounts (explicit password enfo
       nama_lengkap: 'Calon Ditolak',
       username: 'ditolak1',
       email: 'ditolak1@bignet.co.id',
-      password: 'Password123',
+      password: 'Password123456!',
       role_diminta: 'ADMIN',
       kantor_id: 1,
       bidang_id: 3,
@@ -429,7 +523,7 @@ test('4. Superadmin can create Admin & Karyawan accounts (explicit password enfo
   assert.equal(rejectRes.status, 200);
   const rejectedLogin = await apiJson('/api/v1/auth/login', {
     method: 'POST',
-    body: { identifier: 'ditolak1', password: 'Password123' },
+    body: { identifier: 'ditolak1', password: 'Password123456!' },
   });
   assert.equal(rejectedLogin.status, 403);
 
@@ -465,13 +559,12 @@ test('4. Superadmin can create Admin & Karyawan accounts (explicit password enfo
 });
 
 test('5. Authorization boundaries, query-token restriction, logout jti & token_version revocation', async () => {
-  // Query token rejected on JSON API endpoints, accepted only on media/SSE endpoints
+  // Query token is rejected on both JSON API and media endpoints
   const qMe = await apiJson(`/api/v1/auth/me?token=${encodeURIComponent(karyawanToken)}`);
   assert.equal(qMe.status, 401);
 
   const qAvatar = await fetch(`${baseUrl}/api/v1/avatars/karyawan/${karyawanId}?token=${encodeURIComponent(karyawanToken)}`);
-  assert.equal(qAvatar.status, 200);
-  assert.equal(qAvatar.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(qAvatar.status, 401);
 
   // Role isolation checks
   assert.equal((await apiJson('/api/v1/settings', { token: karyawanToken })).status, 403);
@@ -728,11 +821,18 @@ test('5. Authorization boundaries, query-token restriction, logout jti & token_v
     token: superToken,
     body: { aktif: true },
   });
-  const adminRelogin = await apiJson<{ token: string }>('/api/v1/auth/login', {
+  const adminRelogin = await apiJson<{ challengeId: string; mfaSetupRequired: boolean }>('/api/v1/auth/login', {
     method: 'POST',
     body: { identifier: 'admin_prod', password: 'AdminPassword!1' },
   });
-  adminToken = adminRelogin.data.token;
+  assert.equal(adminRelogin.status, 200);
+  assert.equal(adminRelogin.data.mfaSetupRequired, false);
+  const adminReloginVerified = await apiJson<{ token: string }>('/api/v1/auth/mfa/verify', {
+    method: 'POST',
+    body: { challengeId: adminRelogin.data.challengeId, code: adminMfaRecoveryCode },
+  });
+  assert.equal(adminReloginVerified.status, 200);
+  adminToken = adminReloginVerified.data.token;
 });
 
 test('6. SVG logo/favicon XSS sanitization, attendance camera-only, jam_mulai gate, geofence, and photo headers', async () => {
@@ -1217,7 +1317,7 @@ test('6. SVG logo/favicon XSS sanitization, attendance camera-only, jam_mulai ga
   assert.ok(feed.data.posts.some((p) => p.id === savedAttendanceSessionId && p.hasFoto));
 
   const photoRes = await fetch(`${baseUrl}/api/v1/photos/${savedAttendanceSessionId}`, {
-    headers: { Authorization: `Bearer ${karyawanToken}` },
+    headers: { Cookie: karyawanToken },
   });
   assert.equal(photoRes.status, 200);
   assert.equal(photoRes.headers.get('content-type'), 'image/png');
@@ -1314,7 +1414,75 @@ test('7. Payroll override preserves original proof, monthly closing enforces pos
   assert.ok(auditRes.data.items.some((a) => a.aksi === 'POST_CLOSING_OVERRIDE'));
 });
 
-test('8. Backup and Restore verify SHA-256 checksums, integrity, and preserve DB + photo links after disaster', async () => {
+test('8. Session inventory, Superadmin MFA reset, idle expiration and stale-cookie re-login', async () => {
+  const ownerSecurity = await apiJson<{
+    mfaEnabled: boolean;
+    mfaRequired: boolean;
+    idleTimeoutMinutes: number;
+    absoluteTimeoutHours: number;
+    currentSessionId: string;
+    sessions: Array<{ sessionId: string; current: boolean; idleExpiresAt: number; absoluteExpiresAt: number }>;
+  }>('/api/v1/auth/security', { token: superToken });
+  assert.equal(ownerSecurity.status, 200);
+  assert.equal(ownerSecurity.data.mfaEnabled, true);
+  assert.equal(ownerSecurity.data.mfaRequired, true);
+  assert.equal(ownerSecurity.data.idleTimeoutMinutes, 15);
+  assert.equal(ownerSecurity.data.absoluteTimeoutHours, 4);
+  assert.ok(ownerSecurity.data.sessions.some((session) => session.current));
+  assert.ok(ownerSecurity.data.currentSessionId);
+
+  // Superadmin may reset only an Admin account; all of that account's sessions
+  // and outstanding login/setup challenges must be revoked.
+  const adminMfaBefore = getDb()
+    .prepare('SELECT mfa_enabled FROM pengguna WHERE id = ?')
+    .get(adminUserId) as { mfa_enabled: number };
+  assert.equal(adminMfaBefore.mfa_enabled, 1);
+  const mfaReset = await apiJson<{ ok: boolean; message: string }>(
+    `/api/v1/superadmin/accounts/${adminUserId}/mfa/reset`,
+    { method: 'POST', token: superToken, body: {} }
+  );
+  assert.equal(mfaReset.status, 200);
+  assert.equal(
+    (getDb().prepare('SELECT mfa_enabled FROM pengguna WHERE id = ?').get(adminUserId) as { mfa_enabled: number }).mfa_enabled,
+    0
+  );
+  assert.equal(
+    (getDb().prepare('SELECT COUNT(*) AS c FROM mfa_recovery_codes WHERE user_id = ?').get(adminUserId) as { c: number }).c,
+    0
+  );
+  assert.equal(
+    (getDb().prepare('SELECT COUNT(*) AS c FROM auth_sessions WHERE user_id = ? AND revoked_at IS NULL').get(adminUserId) as { c: number }).c,
+    0
+  );
+  assert.equal((await apiJson('/api/v1/auth/me', { token: adminToken })).status, 401);
+
+  // An expired idle session must be denied, but its stale cookie must not block
+  // a fresh password login and the required MFA challenge.
+  const ownerSession = getDb().prepare(`
+    SELECT jti FROM auth_sessions WHERE user_id = (
+      SELECT id FROM pengguna WHERE username = 'owner_prod'
+    ) AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1
+  `).get() as { jti: string };
+  getDb().prepare('UPDATE auth_sessions SET idle_expires_at = ? WHERE jti = ?')
+    .run(Date.now() - 1, ownerSession.jti);
+  assert.equal((await apiJson('/api/v1/auth/me', { token: superToken })).status, 401);
+
+  const staleCookieLogin = await fetch(`${baseUrl}/api/v1/auth/login`, {
+    method: 'POST',
+    headers: {
+      Cookie: superToken,
+      Origin: baseUrl,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ identifier: 'owner_prod', password: superPassword }),
+  });
+  assert.equal(staleCookieLogin.status, 200);
+  const staleCookieLoginBody = await staleCookieLogin.json() as { mfaRequired?: boolean; challengeId?: string };
+  assert.equal(staleCookieLoginBody.mfaRequired, true);
+  assert.ok(staleCookieLoginBody.challengeId);
+});
+
+test('9. Backup and Restore verify SHA-256 checksums, integrity, and preserve DB + photo links after disaster', async () => {
   const backupRes = runBackup({
     dataDir: tempDataDir,
     dbPath: tempDbPath,
@@ -1374,3 +1542,4 @@ test('8. Backup and Restore verify SHA-256 checksums, integrity, and preserve DB
     });
   }, /Checksum tidak cocok/i);
 });
+
