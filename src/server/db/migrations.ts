@@ -445,9 +445,6 @@ const MIGRATIONS: MigrationDef[] = [
           ON mfa_recovery_codes(user_id, used_at);
       `);
 
-      // Existing stateless tokens are intentionally invalid after this migration:
-      // only sessions recorded in auth_sessions will be accepted from now on.
-      db.prepare(`DELETE FROM revoked_tokens WHERE expires_at < ?`).run(Date.now());
     },
   },
 ];
