@@ -91,6 +91,7 @@ function decodeBase32(input: string): Buffer {
     if (bits >= 8) {
       out.push((value >>> (bits - 8)) & 255);
       bits -= 8;
+      value &= (1 << bits) - 1;
     }
   }
   return Buffer.from(out);
@@ -111,15 +112,22 @@ export function generateTotpCode(secret: string, nowMs = Date.now()): string {
   return String(binary % 1_000_000).padStart(6, '0');
 }
 
-export function verifyTotpCode(secret: string, code: string, nowMs = Date.now()): boolean {
+export function getTotpCounterForCode(secret: string, code: string, nowMs = Date.now()): number | null {
   const normalized = code.replace(/\s+/g, '');
-  if (!/^\d{6}$/.test(normalized)) return false;
+  if (!/^\d{6}$/.test(normalized)) return null;
   const supplied = Buffer.from(normalized);
+  const currentCounter = Math.floor(nowMs / 30_000);
   for (const drift of [-1, 0, 1]) {
-    const expected = Buffer.from(generateTotpCode(secret, nowMs + drift * 30_000));
-    if (supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected)) return true;
+    const counter = currentCounter + drift;
+    if (counter < 0) continue;
+    const expected = Buffer.from(generateTotpCode(secret, counter * 30_000));
+    if (supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected)) return counter;
   }
-  return false;
+  return null;
+}
+
+export function verifyTotpCode(secret: string, code: string, nowMs = Date.now()): boolean {
+  return getTotpCounterForCode(secret, code, nowMs) !== null;
 }
 
 export function hashRecoveryCode(code: string): string {
