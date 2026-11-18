@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import {
   Camera,
   CheckCircle2,
@@ -45,7 +45,75 @@ export function ProfileSettingsPanel({
   const [confirmPassword, setConfirmPassword] = useState('');
   const [savingPass, setSavingPass] = useState(false);
   const [passMsg, setPassMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+  const [securityInfo, setSecurityInfo] = useState<{
+    mfaEnabled: boolean;
+    mfaRequired: boolean;
+    idleTimeoutMinutes: number;
+    absoluteTimeoutHours: number;
+    currentSessionId: string | null;
+    sessions: Array<{
+      sessionId: string;
+      created_at: string;
+      last_seen_at: string;
+      idleExpiresAt: number;
+      absoluteExpiresAt: number;
+      ip_address: string | null;
+      user_agent: string | null;
+      current: boolean;
+    }>;
+  } | null>(null);
+  const [loadingSecurity, setLoadingSecurity] = useState(true);
+  const [securityMsg, setSecurityMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+  const [revokingSession, setRevokingSession] = useState<string | null>(null);
   const isStandaloneAccount = user.karyawan_id === null;
+
+  const loadSecurityInfo = async () => {
+    setLoadingSecurity(true);
+    try {
+      const result = await apiFetch<typeof securityInfo>('/api/v1/auth/security');
+      setSecurityInfo(result);
+    } catch (err) {
+      setSecurityMsg({ type: 'err', text: err instanceof Error ? err.message : 'Gagal memuat keamanan sesi.' });
+    } finally {
+      setLoadingSecurity(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadSecurityInfo();
+  }, [user.id]);
+
+  const handleRevokeSession = async (sessionId: string, current: boolean) => {
+    setRevokingSession(sessionId);
+    setSecurityMsg(null);
+    try {
+      await apiFetch('/api/v1/auth/sessions/' + encodeURIComponent(sessionId), { method: 'DELETE' });
+      if (current) {
+        onLogout();
+        return;
+      }
+      setSecurityMsg({ type: 'ok', text: 'Sesi perangkat berhasil dicabut.' });
+      await loadSecurityInfo();
+    } catch (err) {
+      setSecurityMsg({ type: 'err', text: err instanceof Error ? err.message : 'Gagal mencabut sesi.' });
+    } finally {
+      setRevokingSession(null);
+    }
+  };
+
+  const handleRevokeOtherSessions = async () => {
+    setRevokingSession('others');
+    setSecurityMsg(null);
+    try {
+      const result = await apiFetch<{ revokedCount: number }>('/api/v1/auth/sessions/revoke-others', { method: 'POST' });
+      setSecurityMsg({ type: 'ok', text: result.revokedCount + ' sesi perangkat lain berhasil dicabut.' });
+      await loadSecurityInfo();
+    } catch (err) {
+      setSecurityMsg({ type: 'err', text: err instanceof Error ? err.message : 'Gagal mencabut sesi perangkat lain.' });
+    } finally {
+      setRevokingSession(null);
+    }
+  };
 
   const handleUploadPhoto = (file: File | undefined) => {
     if (!file) return;
@@ -408,10 +476,10 @@ export function ProfileSettingsPanel({
               <input
                 type="password"
                 required
-                minLength={6}
+                minLength={15}
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Min. 6 karakter"
+                placeholder="Min. 15 karakter"
                 className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded-lg text-slate-900 dark:text-slate-100"
               />
             </div>
@@ -442,6 +510,97 @@ export function ProfileSettingsPanel({
           </div>
         </form>
       </div>
+
+      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 sm:p-5 space-y-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="font-display text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+              <KeyRound className="w-4 h-4 text-blue-700 dark:text-blue-400" />
+              Keamanan Sesi & Perangkat
+            </h2>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              Sesi otomatis berakhir setelah tidak aktif atau mencapai batas maksimum.
+            </p>
+          </div>
+          {securityInfo && (
+            <div className="flex flex-wrap gap-2 text-[11px]">
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                Idle {securityInfo.idleTimeoutMinutes} menit
+              </span>
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                Maks. {securityInfo.absoluteTimeoutHours} jam
+              </span>
+              <span className={securityInfo.mfaEnabled
+                ? 'rounded-full bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
+                : 'rounded-full bg-amber-50 px-2.5 py-1 font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-300'}>
+                MFA {securityInfo.mfaEnabled ? 'Aktif' : securityInfo.mfaRequired ? 'Wajib' : 'Belum aktif'}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {securityMsg && (
+          <div className={securityMsg.type === 'ok'
+            ? 'rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300'
+            : 'rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300'}>
+            {securityMsg.text}
+          </div>
+        )}
+
+        {loadingSecurity ? (
+          <p className="text-xs text-slate-500 dark:text-slate-400">Memuat daftar sesi...</p>
+        ) : (
+          <>
+            <div className="space-y-2">
+              {securityInfo?.sessions.map((session) => (
+                <div key={session.sessionId} className="flex flex-col gap-3 rounded-xl border border-slate-200 p-3 dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-semibold text-slate-900 dark:text-slate-100">
+                        {session.current ? 'Perangkat ini' : 'Perangkat lain'}
+                      </span>
+                      {session.current && <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-800 dark:bg-blue-950/40 dark:text-blue-300">Sesi aktif</span>}
+                    </div>
+                    <p className="break-words text-[11px] text-slate-600 dark:text-slate-300">{session.user_agent || 'Browser tidak terdeteksi'}</p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      IP {session.ip_address || 'Tidak tersedia'} · Login {new Date(session.created_at).toLocaleString('id-ID')}
+                    </p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Aktivitas terakhir {new Date(session.last_seen_at).toLocaleString('id-ID')}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={revokingSession !== null}
+                    onClick={() => void handleRevokeSession(session.sessionId, session.current)}
+                    className="min-h-10 shrink-0 rounded-lg border border-red-200 px-3 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/40"
+                  >
+                    {revokingSession === session.sessionId ? 'Memproses...' : session.current ? 'Keluar dari perangkat ini' : 'Cabut sesi'}
+                  </button>
+                </div>
+              ))}
+              {!securityInfo?.sessions.length && (
+                <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                  Tidak ada sesi aktif lain yang tercatat.
+                </p>
+              )}
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Admin dan Superadmin wajib mengaktifkan MFA melalui aplikasi Authenticator saat login.
+              </p>
+              <button
+                type="button"
+                disabled={revokingSession !== null || (securityInfo?.sessions.length || 0) <= 1}
+                onClick={() => void handleRevokeOtherSessions()}
+                className="min-h-10 rounded-lg border border-slate-300 px-3 text-xs font-semibold text-slate-700 disabled:opacity-40 dark:border-slate-700 dark:text-slate-200"
+              >
+                {revokingSession === 'others' ? 'Memproses...' : 'Cabut semua sesi lain'}
+              </button>
+            </div>
+          </>
+        )}
+      </section>
 
       {extraContent}
     </div>
