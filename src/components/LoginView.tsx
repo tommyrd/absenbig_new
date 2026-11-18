@@ -419,6 +419,7 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
                         <input
                           id="login-password"
                           type={showPass ? 'text' : 'password'}
+                          maxLength={128}
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
                           required
@@ -820,6 +821,7 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
                           <input
                             id="register-password"
                             type="password"
+                    maxLength={128}
                             required
                             minLength={15}
                             value={regPassword}
@@ -834,6 +836,7 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
                           <input
                             id="register-confirm-password"
                             type="password"
+                    maxLength={128}
                             required
                             minLength={15}
                             value={regConfirmPassword}
