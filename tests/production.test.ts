@@ -267,6 +267,34 @@ test('2. Health check and initial Superadmin authentication work with HttpOnly c
   assert.match(setCookie, /bignet_csrf=/i);
   superToken = mfaLogin.data.token;
 
+  // Cookie-only authentication: Bearer headers and URL query tokens are not accepted.
+  const accessToken = decodeURIComponent(superToken.match(/(?:^|;\\s*)bignet_token=([^;]+)/)?.[1] || '');
+  const bearerOnly = await fetch(`${baseUrl}/api/v1/auth/me`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  assert.equal(bearerOnly.status, 401);
+
+  // State-changing requests require the CSRF cookie/header pair.
+  const csrfMissing = await fetch(`${baseUrl}/api/v1/auth/logout`, {
+    method: 'POST',
+    headers: { Cookie: superToken, Origin: baseUrl, 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  assert.equal(csrfMissing.status, 403);
+
+  // A TOTP time-step may only be consumed once, even across a new login challenge.
+  const replayCode = generateTotpCode(ownerMfaSecret);
+  const replayChallenge = await apiJson<{ challengeId: string }>('/api/v1/auth/login', {
+    method: 'POST',
+    body: { identifier: 'owner_prod', password: superPassword },
+  });
+  assert.equal(replayChallenge.status, 200);
+  const replayAttempt = await apiJson('/api/v1/auth/mfa/verify', {
+    method: 'POST',
+    body: { challengeId: replayChallenge.data.challengeId, code: replayCode },
+  });
+  assert.equal(replayAttempt.status, 401);
+
   // The standalone owner account can upload, display, and reset its own profile photo without an employee profile.
   const owner = getDb()
     .prepare(`SELECT id, karyawan_id FROM pengguna WHERE username = 'owner_prod'`)
