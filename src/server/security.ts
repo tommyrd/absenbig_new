@@ -10,10 +10,9 @@ export function safeErrorDetail(err: unknown): string | undefined {
 }
 
 export function getClientIp(req: Request): string {
-  const xff = req.headers['x-forwarded-for'];
-  if (typeof xff === 'string' && xff.trim()) {
-    return xff.split(',')[0].trim();
-  }
+  // Express req.ip honors the explicitly configured trusted-proxy chain.
+  // Never trust X-Forwarded-For directly: clients can spoof it when the app
+  // is reachable without the trusted reverse proxy.
   return req.ip || req.socket?.remoteAddress || '127.0.0.1';
 }
 
@@ -88,6 +87,8 @@ export const loginFailLimiter = new RateLimiter(15 * 60 * 1000, 8);
 export const registerLimiter = new RateLimiter(15 * 60 * 1000, 8);
 export const passwordLimiter = new RateLimiter(15 * 60 * 1000, 12);
 export const attendanceLimiter = new RateLimiter(5 * 60 * 1000, 30);
+export const mfaLoginLimiter = new RateLimiter(5 * 60 * 1000, 5);
+export const mfaSetupLimiter = new RateLimiter(15 * 60 * 1000, 5);
 
 function matchesMagicBytes(buf: Buffer, ext: 'png' | 'jpg' | 'webp'): boolean {
   if (ext === 'png') {
