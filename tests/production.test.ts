@@ -75,7 +75,7 @@ function cookieHeaderFromResponse(headers: Headers): string {
 }
 
 function csrfFromCookieHeader(cookieHeader: string): string {
-  const match = cookieHeader.match(/(?:^|;\\s*)bignet_csrf=([^;]+)/);
+  const match = cookieHeader.match(/(?:^|;\s*)bignet_csrf=([^;]+)/);
   return match ? decodeURIComponent(match[1]) : '';
 }
 
