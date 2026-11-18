@@ -28,8 +28,8 @@ function parseAllowedOrigins(): Set<string> {
 async function startServer() {
   const app = express();
   const port = Number(process.env.PORT) || 3000;
-  const host = process.env.HOST || '0.0.0.0';
   const isProd = process.env.NODE_ENV === 'production';
+  const host = process.env.HOST || (isProd ? '127.0.0.1' : '0.0.0.0');
   const allowedOrigins = parseAllowedOrigins();
   const geoapifyConfigured = Boolean(process.env.GEOAPIFY_API_KEY?.trim());
   if (geoapifyConfigured) {
@@ -44,8 +44,15 @@ async function startServer() {
   // Security headers & CORS
   app.use((req: Request, res: Response, next: NextFunction) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('Permissions-Policy', 'camera=(self), geolocation=(self), microphone=()');
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+    res.setHeader(
+      'Content-Security-Policy-Report-Only',
+      "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' https:"
+    );
     if (isProd && isHttpsRequest(req)) {
       res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     }
