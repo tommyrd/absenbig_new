@@ -4314,7 +4314,7 @@ export function registerApiRoutes(app: Express) {
                 COALESCE(k.no_hp, u.no_hp, '') as no_hp,
                 COALESCE(k.jabatan,
                          CASE WHEN u.role = 'ADMIN' THEN 'Admin Operasional' ELSE 'Akun Pengelola Sistem' END) as jabatan,
-                u.role, k.kantor_id, kt.nama as kantor_nama,
+                u.role, COALESCE(u.mfa_enabled, 0) as mfa_enabled, k.kantor_id, kt.nama as kantor_nama,
                 k.bidang_id, b.nama as bidang_nama, k.tanggal_masuk,
                 u.aktif as user_aktif, k.aktif as karyawan_aktif,
                 CASE WHEN COALESCE(k.foto_profil_path, u.foto_profil_path) IS NOT NULL THEN 1 ELSE 0 END as has_foto_profil,
