@@ -877,8 +877,8 @@ export function registerApiRoutes(app: Express) {
       res.status(400).json({ error: 'Format email tidak valid.' });
       return;
     }
-    if (!password || password.length < 6) {
-      res.status(400).json({ error: 'Kata sandi minimal 6 karakter.' });
+    if (!password || password.length < 15) {
+      res.status(400).json({ error: 'Kata sandi minimal 15 karakter.' });
       return;
     }
 
@@ -2506,9 +2506,9 @@ export function registerApiRoutes(app: Express) {
       password?: string;
       role?: Role;
     };
-    if (!nik || !nama_lengkap || !email || !username || !password || password.length < 6) {
+    if (!nik || !nama_lengkap || !email || !username || !password || password.length < 15) {
       res.status(400).json({
-        error: 'NIK, nama lengkap, email, username, dan kata sandi (minimal 6 karakter) wajib diisi.',
+        error: 'NIK, nama lengkap, email, username, dan kata sandi (minimal 15 karakter) wajib diisi.',
       });
       return;
     }
@@ -4366,9 +4366,9 @@ export function registerApiRoutes(app: Express) {
       const finalNik =
         finalRole === 'KARYAWAN' ? (nik || '').trim().toUpperCase() || generateNextNik() : null;
 
-      if (cleanName.length < 2 || !cleanUser || !cleanEmail.includes('@') || !password || password.length < 6) {
+      if (cleanName.length < 2 || !cleanUser || !cleanEmail.includes('@') || !password || password.length < 15) {
         res.status(400).json({
-          error: 'Nama lengkap, username, email, dan kata sandi (min. 6 karakter) wajib diisi.',
+          error: 'Nama lengkap, username, email, dan kata sandi (min. 15 karakter) wajib diisi.',
         });
         return;
       }
@@ -4802,14 +4802,62 @@ export function registerApiRoutes(app: Express) {
     }
   );
 
+  app.post(
+    '/api/v1/superadmin/accounts/:userId/mfa/reset',
+    requireRole('SUPERADMIN'),
+    (req: AuthenticatedRequest, res: Response) => {
+      const targetUserId = Number(req.params.userId);
+      const target = db.prepare('SELECT id, username, role, mfa_enabled FROM pengguna WHERE id = ?')
+        .get(targetUserId) as
+        | { id: number; username: string; role: Role; mfa_enabled: number }
+        | undefined;
+      if (!target) {
+        res.status(404).json({ error: 'Akun pengguna tidak ditemukan.' });
+        return;
+      }
+      if (target.role === 'SUPERADMIN') {
+        res.status(403).json({ error: 'Reset MFA Superadmin tidak dapat dilakukan melalui panel ini. Gunakan recovery code atau prosedur pemulihan pemilik.' });
+        return;
+      }
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        db.prepare(`
+          UPDATE pengguna
+          SET mfa_enabled = 0, mfa_secret_enc = NULL, mfa_pending_secret_enc = NULL,
+              mfa_enrolled_at = NULL, token_version = COALESCE(token_version, 1) + 1
+          WHERE id = ?
+        `).run(targetUserId);
+        db.prepare('DELETE FROM mfa_recovery_codes WHERE user_id = ?').run(targetUserId);
+        db.prepare('DELETE FROM auth_challenges WHERE user_id = ?').run(targetUserId);
+        db.prepare('UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL')
+          .run(getWibIsoString(), targetUserId);
+        writeAuditLog(db, {
+          actor: req.authUser!,
+          req,
+          modul: 'AUTH_MFA',
+          aksi: 'MFA_RESET_BY_SUPERADMIN',
+          targetEntity: 'pengguna',
+          targetId: targetUserId,
+          alasan: `MFA akun @${target.username} direset oleh Superadmin; login berikutnya wajib enrollment ulang`,
+        });
+        db.exec('COMMIT');
+      } catch (err) {
+        db.exec('ROLLBACK');
+        res.status(400).json({ error: 'Gagal mereset MFA akun.' });
+        return;
+      }
+      res.json({ ok: true, message: 'MFA direset. Pengguna harus melakukan setup ulang setelah login.' });
+    }
+  );
+
   app.put(
     '/api/v1/superadmin/accounts/:userId/reset-password',
     requireRole('SUPERADMIN'),
     (req: AuthenticatedRequest, res: Response) => {
       const targetUserId = Number(req.params.userId);
       const { newPassword } = req.body as { newPassword?: string };
-      if (!newPassword || newPassword.length < 6) {
-        res.status(400).json({ error: 'Kata sandi baru minimal 6 karakter.' });
+      if (!newPassword || newPassword.length < 15) {
+        res.status(400).json({ error: 'Kata sandi baru minimal 15 karakter.' });
         return;
       }
 
