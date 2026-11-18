@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import {
   Camera,
   CheckCircle2,
@@ -67,7 +67,7 @@ export function ProfileSettingsPanel({
   const [revokingSession, setRevokingSession] = useState<string | null>(null);
   const isStandaloneAccount = user.karyawan_id === null;
 
-  const loadSecurityInfo = async () => {
+  const loadSecurityInfo = useCallback(async () => {
     setLoadingSecurity(true);
     try {
       const result = await apiFetch<typeof securityInfo>('/api/v1/auth/security');
@@ -77,11 +77,11 @@ export function ProfileSettingsPanel({
     } finally {
       setLoadingSecurity(false);
     }
-  };
+  }, [user.id]);
 
   useEffect(() => {
     void loadSecurityInfo();
-  }, [user.id]);
+  }, [loadSecurityInfo]);
 
   const handleRevokeSession = async (sessionId: string, current: boolean) => {
     setRevokingSession(sessionId);
