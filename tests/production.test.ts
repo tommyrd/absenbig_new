@@ -23,7 +23,7 @@ process.env.TZ = 'Asia/Jakarta';
 const { closeDb, getDb } = await import('../src/server/db.ts');
 const { getAppliedMigrations, runMigrations } = await import('../src/server/db/migrations.ts');
 const { seedProductionBaseline } = await import('../src/server/db/seed.ts');
-const { signToken, verifyPassword } = await import('../src/server/auth.ts');
+const { signToken, verifyPassword, encryptMfaSecret, generateTotpSecret, generateTotpCode } = await import('../src/server/auth.ts');
 const { registerApiRoutes } = await import('../src/server/routes.ts');
 const {
   attendanceLimiter,
@@ -67,16 +67,34 @@ function resetLimiters() {
   attendanceLimiter.clear();
 }
 
+function cookieHeaderFromResponse(headers: Headers): string {
+  const setCookies = typeof headers.getSetCookie === 'function'
+    ? headers.getSetCookie()
+    : [headers.get('set-cookie') || ''];
+  return setCookies.map((value) => value.split(';')[0]).filter(Boolean).join('; ');
+}
+
+function csrfFromCookieHeader(cookieHeader: string): string {
+  const match = cookieHeader.match(/(?:^|;\\s*)bignet_csrf=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : '';
+}
+
 async function apiJson<T = Record<string, unknown>>(
   pathname: string,
   options: { method?: string; token?: string; body?: unknown } = {}
 ): Promise<{ status: number; headers: Headers; data: T }> {
   const headers: Record<string, string> = {};
-  if (options.token) headers.Authorization = `Bearer ${options.token}`;
+  if (options.token) {
+    headers.Cookie = options.token;
+    const csrf = csrfFromCookieHeader(options.token);
+    if (csrf) headers['X-CSRF-Token'] = csrf;
+  }
   if (options.body !== undefined) headers['Content-Type'] = 'application/json';
+  const method = (options.method || 'GET').toUpperCase();
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) headers.Origin = baseUrl;
 
   const res = await fetch(`${baseUrl}${pathname}`, {
-    method: options.method || 'GET',
+    method,
     headers,
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
   });
@@ -87,6 +105,12 @@ async function apiJson<T = Record<string, unknown>>(
     data = text ? JSON.parse(text) : null;
   } catch {
     data = { raw: text };
+  }
+  // A synthetic test-only handle keeps the existing test cases readable.
+  // The production API never returns an access token to JavaScript.
+  const cookieHeader = cookieHeaderFromResponse(res.headers);
+  if (cookieHeader && data && typeof data === 'object') {
+    (data as Record<string, unknown>).token = cookieHeader;
   }
   return { status: res.status, headers: res.headers, data: data as T };
 }
@@ -211,17 +235,32 @@ test('2. Health check and initial Superadmin authentication work with HttpOnly c
   });
   assert.equal(wrongLogin.status, 401);
 
-  const okLogin = await apiJson<{ token: string; user: { role: string } }>('/api/v1/auth/login', {
+  const ownerIdForMfa = (getDb().prepare(`SELECT id FROM pengguna WHERE username = 'owner_prod'`).get() as { id: number }).id;
+  const ownerMfaSecret = generateTotpSecret();
+  getDb().prepare(`
+    UPDATE pengguna SET mfa_secret_enc = ?, mfa_enabled = 1, mfa_enrolled_at = ?
+    WHERE id = ?
+  `).run(encryptMfaSecret(ownerMfaSecret), new Date().toISOString(), ownerIdForMfa);
+
+  const okLogin = await apiJson<{ challengeId: string; mfaRequired: boolean; mfaSetupRequired: boolean }>('/api/v1/auth/login', {
     method: 'POST',
     body: { identifier: 'owner_prod', password: superPassword },
   });
   assert.equal(okLogin.status, 200);
-  assert.ok(okLogin.data.token.length > 20);
-  assert.equal(okLogin.data.user.role, 'SUPERADMIN');
-  const setCookie = okLogin.headers.get('set-cookie') || '';
+  assert.equal(okLogin.data.mfaRequired, true);
+  assert.equal(okLogin.data.mfaSetupRequired, false);
+  const mfaLogin = await apiJson<{ token: string; user: { role: string } }>('/api/v1/auth/mfa/verify', {
+    method: 'POST',
+    body: { challengeId: okLogin.data.challengeId, code: generateTotpCode(ownerMfaSecret) },
+  });
+  assert.equal(mfaLogin.status, 200);
+  assert.equal(mfaLogin.data.user.role, 'SUPERADMIN');
+  assert.ok(mfaLogin.data.token.includes('bignet_token='));
+  const setCookie = mfaLogin.headers.get('set-cookie') || '';
   assert.match(setCookie, /HttpOnly/i);
   assert.match(setCookie, /SameSite=Lax/i);
-  superToken = okLogin.data.token;
+  assert.match(setCookie, /bignet_csrf=/i);
+  superToken = mfaLogin.data.token;
 
   // The standalone owner account can upload, display, and reset its own profile photo without an employee profile.
   const owner = getDb()
@@ -237,7 +276,7 @@ test('2. Health check and initial Superadmin authentication work with HttpOnly c
   assert.equal(ownerPhoto.data.user.has_foto_profil, true);
 
   const avatarFetch = await fetch(`${baseUrl}/api/v1/avatars/pengguna/${owner.id}`, {
-    headers: { Authorization: `Bearer ${superToken}` },
+    headers: { Cookie: superToken },
   });
   assert.equal(avatarFetch.status, 200);
   assert.equal(avatarFetch.headers.get('content-type'), 'image/png');
@@ -316,12 +355,28 @@ test('4. Superadmin can create Admin & Karyawan accounts (explicit password enfo
   assert.equal(standaloneAdmin.karyawan_id, null);
   assert.equal(standaloneAdmin.nama_tampilan, 'Admin Operasional Test');
 
-  const adminLogin = await apiJson<{ token: string }>('/api/v1/auth/login', {
+  const adminLogin = await apiJson<{ challengeId: string; mfaRequired: boolean; mfaSetupRequired: boolean }>('/api/v1/auth/login', {
     method: 'POST',
     body: { identifier: 'admin_prod', password: 'AdminPassword!1' },
   });
   assert.equal(adminLogin.status, 200);
-  adminToken = adminLogin.data.token;
+  assert.equal(adminLogin.data.mfaSetupRequired, true);
+  const adminMfaSetup = await apiJson<{ secret: string }>('/api/v1/auth/mfa/setup', {
+    method: 'POST',
+    body: { challengeId: adminLogin.data.challengeId },
+  });
+  assert.equal(adminMfaSetup.status, 200);
+  const adminMfaConfirm = await apiJson<{ token: string; user: { role: string }; recoveryCodes: string[] }>(
+    '/api/v1/auth/mfa/setup/confirm',
+    {
+      method: 'POST',
+      body: { challengeId: adminLogin.data.challengeId, code: generateTotpCode(adminMfaSetup.data.secret) },
+    }
+  );
+  assert.equal(adminMfaConfirm.status, 200);
+  assert.equal(adminMfaConfirm.data.user.role, 'ADMIN');
+  assert.equal(adminMfaConfirm.data.recoveryCodes.length, 10);
+  adminToken = adminMfaConfirm.data.token;
 
   // Admin profile and avatar are stored on the standalone pengguna record.
   const adminPhoto = await apiJson<{ user: { karyawan_id: number | null; has_foto_profil: boolean } }>(
@@ -332,7 +387,7 @@ test('4. Superadmin can create Admin & Karyawan accounts (explicit password enfo
   assert.equal(adminPhoto.data.user.karyawan_id, null);
   assert.equal(adminPhoto.data.user.has_foto_profil, true);
   const adminAvatar = await fetch(`${baseUrl}/api/v1/avatars/pengguna/${adminUserId}`, {
-    headers: { Authorization: `Bearer ${adminToken}` },
+    headers: { Cookie: adminToken },
   });
   assert.equal(adminAvatar.status, 200);
   assert.equal(adminAvatar.headers.get('content-type'), 'image/png');
@@ -344,7 +399,7 @@ test('4. Superadmin can create Admin & Karyawan accounts (explicit password enfo
       nama_lengkap: 'Spoof User',
       username: 'spoofuser',
       email: 'spoof@bignet.co.id',
-      password: 'Password123',
+      password: 'Password123456!',
       role_diminta: 'KARYAWAN',
       kantor_id: 1,
       bidang_id: 1,
@@ -470,7 +525,7 @@ test('5. Authorization boundaries, query-token restriction, logout jti & token_v
   assert.equal(qMe.status, 401);
 
   const qAvatar = await fetch(`${baseUrl}/api/v1/avatars/karyawan/${karyawanId}?token=${encodeURIComponent(karyawanToken)}`);
-  assert.equal(qAvatar.status, 200);
+  assert.equal(qAvatar.status, 401);
   assert.equal(qAvatar.headers.get('x-content-type-options'), 'nosniff');
 
   // Role isolation checks
@@ -1217,7 +1272,7 @@ test('6. SVG logo/favicon XSS sanitization, attendance camera-only, jam_mulai ga
   assert.ok(feed.data.posts.some((p) => p.id === savedAttendanceSessionId && p.hasFoto));
 
   const photoRes = await fetch(`${baseUrl}/api/v1/photos/${savedAttendanceSessionId}`, {
-    headers: { Authorization: `Bearer ${karyawanToken}` },
+    headers: { Cookie: karyawanToken },
   });
   assert.equal(photoRes.status, 200);
   assert.equal(photoRes.headers.get('content-type'), 'image/png');
