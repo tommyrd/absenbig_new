@@ -11,6 +11,7 @@ import {
   hashOpaqueSecret,
   getTotpCounterForCode,
   hashPassword,
+  signToken,
   requireRole,
   verifyPassword,
   verifyTotpCode,
