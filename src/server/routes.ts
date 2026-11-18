@@ -376,7 +376,7 @@ export function registerApiRoutes(app: Express) {
     }
 
     const { identifier, password } = req.body as { identifier?: string; password?: string };
-    if (!identifier || !password) {
+    if (!identifier || !password || identifier.length > 254 || password.length > 128) {
       res.status(400).json({ error: 'Username/email dan kata sandi wajib diisi.' });
       return;
     }
@@ -915,8 +915,8 @@ export function registerApiRoutes(app: Express) {
       res.status(400).json({ error: 'Format email tidak valid.' });
       return;
     }
-    if (!password || password.length < 15) {
-      res.status(400).json({ error: 'Kata sandi minimal 15 karakter.' });
+    if (!password || password.length < 15 || password.length > 128) {
+      res.status(400).json({ error: 'Kata sandi harus 15–128 karakter.' });
       return;
     }
 
@@ -2574,9 +2574,9 @@ export function registerApiRoutes(app: Express) {
       password?: string;
       role?: Role;
     };
-    if (!nik || !nama_lengkap || !email || !username || !password || password.length < 15) {
+    if (!nik || !nama_lengkap || !email || !username || !password || password.length < 15 || password.length > 128) {
       res.status(400).json({
-        error: 'NIK, nama lengkap, email, username, dan kata sandi (minimal 15 karakter) wajib diisi.',
+        error: 'NIK, nama lengkap, email, username, dan kata sandi (15–128 karakter) wajib diisi.',
       });
       return;
     }
@@ -3818,8 +3818,8 @@ export function registerApiRoutes(app: Express) {
         res.status(400).json({ error: 'Kata sandi saat ini dan kata sandi baru wajib diisi.' });
         return;
       }
-      if (newPassword.length < 15) {
-        res.status(400).json({ error: 'Kata sandi baru minimal 15 karakter.' });
+      if (newPassword.length < 15 || newPassword.length > 128) {
+        res.status(400).json({ error: 'Kata sandi baru harus 15–128 karakter.' });
         return;
       }
 
@@ -4434,9 +4434,9 @@ export function registerApiRoutes(app: Express) {
       const finalNik =
         finalRole === 'KARYAWAN' ? (nik || '').trim().toUpperCase() || generateNextNik() : null;
 
-      if (cleanName.length < 2 || !cleanUser || !cleanEmail.includes('@') || !password || password.length < 15) {
+      if (cleanName.length < 2 || !cleanUser || !cleanEmail.includes('@') || !password || password.length < 15 || password.length > 128) {
         res.status(400).json({
-          error: 'Nama lengkap, username, email, dan kata sandi (min. 15 karakter) wajib diisi.',
+          error: 'Nama lengkap, username, email, dan kata sandi (15–128 karakter) wajib diisi.',
         });
         return;
       }
@@ -4950,7 +4950,7 @@ export function registerApiRoutes(app: Express) {
     (req: AuthenticatedRequest, res: Response) => {
       const targetUserId = Number(req.params.userId);
       const { newPassword } = req.body as { newPassword?: string };
-      if (!newPassword || newPassword.length < 15) {
+      if (!newPassword || newPassword.length < 15 || newPassword.length > 128) {
         res.status(400).json({ error: 'Kata sandi baru minimal 15 karakter.' });
         return;
       }
