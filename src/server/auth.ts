@@ -303,8 +303,6 @@ export function requireRole(...roles: Role[]) {
     next();
   };
 }
-)) {
-      const parts = stored.split('
 
 export interface TokenPayload {
   userId: number;
