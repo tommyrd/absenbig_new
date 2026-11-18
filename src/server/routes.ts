@@ -4,11 +4,19 @@ import path from 'node:path';
 import type { Express, NextFunction, Request, Response } from 'express';
 import {
   buildAuthCookie,
+  buildCsrfCookie,
+  clearAuthCookies,
+  decryptMfaSecret,
+  encryptMfaSecret,
+  extractCsrfCookie,
   extractToken,
+  generateTotpSecret,
+  hashOpaqueSecret,
   hashPassword,
+  hashRecoveryCode,
   requireRole,
-  signToken,
   verifyPassword,
+  verifyTotpCode,
   verifyToken,
   type AuthenticatedRequest,
 } from './auth.ts';
@@ -19,6 +27,8 @@ import {
   getClientIp,
   loginFailLimiter,
   loginIpLimiter,
+  mfaLoginLimiter,
+  mfaSetupLimiter,
   passwordLimiter,
   registerLimiter,
   safeErrorDetail,
@@ -27,6 +37,17 @@ import {
   validateRasterImageBase64,
 } from './security.ts';
 import { writeAuditLog } from './services/audit.ts';
+import {
+  SESSION_POLICIES,
+  clearAuthCookies as clearIssuedCookies,
+  createAuthChallenge,
+  createMfaEnrollmentSecret,
+  createRecoveryCodes,
+  findAuthChallenge,
+  issueAuthSession,
+  recordChallengeFailure,
+  verifyMfaOrRecoveryCode,
+} from './session.ts';
 import {
   computeMonthlySummary,
   getWorkforceToday,
@@ -170,26 +191,105 @@ function buildDefaultAvatarSvg(namaLengkap: string, role?: string): string {
 </svg>`;
 }
 
-function attachUser(req: AuthenticatedRequest, _res: Response, next: () => void) {
+function attachUser(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   const token = extractToken(req);
   if (token) {
     const payload = verifyToken(token);
-    if (payload) {
+    if (payload?.jti) {
       const db = getDb();
-      if (payload.jti) {
-        const revoked = db
-          .prepare(`SELECT 1 FROM revoked_tokens WHERE jti = ? LIMIT 1`)
-          .get(payload.jti);
-        if (revoked) {
-          next();
-          return;
+      const now = Date.now();
+      const session = db.prepare(`
+        SELECT jti, user_id, idle_expires_at, absolute_expires_at, revoked_at, csrf_hash
+        FROM auth_sessions WHERE jti = ? LIMIT 1
+      `).get(payload.jti) as {
+        jti: string; user_id: number; idle_expires_at: number; absolute_expires_at: number;
+        revoked_at: string | null; csrf_hash: string;
+      } | undefined;
+
+      if (session && session.user_id === payload.userId && !session.revoked_at &&
+          now < session.idle_expires_at && now < session.absolute_expires_at) {
+        const user = loadAuthUserById(payload.userId);
+        if (user && (payload.tv ?? 1) === user.tokenVersion && payload.role === user.role) {
+          const idleExpiresAt = Math.min(now + SESSION_POLICIES[user.role].idleMs, session.absolute_expires_at);
+          const lastSeenAt = getWibIsoString(new Date(now));
+          db.prepare(`
+            UPDATE auth_sessions SET last_seen_at = ?, idle_expires_at = ?
+            WHERE jti = ? AND revoked_at IS NULL
+          `).run(lastSeenAt, idleExpiresAt, payload.jti);
+
+          req.authUser = stripInternalAuthFields(user);
+          req.authTokenPayload = payload;
+          req.authSession = {
+            jti: payload.jti,
+            csrfHash: session.csrf_hash,
+            idleExpiresAt,
+            absoluteExpiresAt: session.absolute_expires_at,
+          };
+
+          const maxAge = Math.max(1, Math.ceil((idleExpiresAt - now) / 1000));
+          res.append('Set-Cookie', buildAuthCookie(token, req, maxAge));
+          const csrfCookie = extractCsrfCookie(req);
+          if (csrfCookie && hashOpaqueSecret(csrfCookie) === session.csrf_hash) {
+            res.append('Set-Cookie', buildCsrfCookie(csrfCookie, req, maxAge));
+          }
+        } else {
+          db.prepare(`UPDATE auth_sessions SET revoked_at = ? WHERE jti = ? AND revoked_at IS NULL`)
+            .run(getWibIsoString(), payload.jti);
         }
+      } else if (session && !session.revoked_at) {
+        db.prepare(`UPDATE auth_sessions SET revoked_at = ? WHERE jti = ?`)
+          .run(getWibIsoString(), payload.jti);
       }
-      const user = loadAuthUserById(payload.userId);
-      if (user && (payload.tv ?? 1) === user.tokenVersion) {
-        req.authUser = stripInternalAuthFields(user);
-        req.authTokenPayload = payload;
-      }
+    }
+  }
+  next();
+}
+
+function isTrustedBrowserOrigin(req: Request, origin: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(origin);
+  } catch {
+    return false;
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.origin !== origin) return false;
+
+  const configured = [
+    ...(process.env.ALLOWED_ORIGINS || '').split(',').map((item) => item.trim()).filter(Boolean),
+    ...(process.env.APP_URL ? [process.env.APP_URL] : []),
+  ];
+  if (configured.length > 0) {
+    return configured.some((item) => {
+      try { return new URL(item).origin === parsed.origin; } catch { return false; }
+    });
+  }
+
+  const expectedProtocol = req.protocol || (req.secure ? 'https' : 'http');
+  return origin === `${expectedProtocol}://${req.get('host')}`;
+}
+
+function csrfGuard(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method.toUpperCase())) {
+    next();
+    return;
+  }
+
+  const origin = req.get('origin');
+  if (!origin || !isTrustedBrowserOrigin(req, origin)) {
+    res.status(403).json({ error: 'Permintaan ditolak karena Origin tidak dikenal. Muat ulang aplikasi dari domain resmi.' });
+    return;
+  }
+
+  // Cookie-authenticated mutations require a same-session double-submit token.
+  if (extractToken(req)) {
+    const csrfCookie = extractCsrfCookie(req);
+    const csrfHeader = req.get('x-csrf-token') || '';
+    if (!req.authSession || !csrfCookie || !csrfHeader ||
+        csrfCookie.length !== csrfHeader.length ||
+        !crypto.timingSafeEqual(Buffer.from(csrfCookie), Buffer.from(csrfHeader)) ||
+        hashOpaqueSecret(csrfCookie) !== req.authSession.csrfHash) {
+      res.status(403).json({ error: 'Token CSRF tidak valid atau kedaluwarsa. Muat ulang halaman dan coba kembali.' });
+      return;
     }
   }
   next();
@@ -245,6 +345,7 @@ function getActiveCheckinOverride(
 export function registerApiRoutes(app: Express) {
   const db = getDb();
   app.use('/api/v1', attachUser);
+  app.use('/api/v1', csrfGuard);
 
   // 0. Healthcheck (unauthenticated for load balancers / PM2 / Nginx probes)
   app.get('/api/v1/health', (_req: Request, res: Response) => {
