@@ -1309,6 +1309,11 @@ export function SuperadminAccountsTab({
               <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
                 Semua sesi akun ini akan dicabut. Pada login berikutnya, Admin harus memasang ulang Authenticator dan menyimpan recovery codes baru.
               </p>
+              {modalErr && (
+                <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+                  {modalErr}
+                </div>
+              )}
             </div>
             <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 p-5">
               <button type="button" onClick={() => setResetMfaTarget(null)}
