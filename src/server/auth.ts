@@ -15,19 +15,116 @@ function getAuthSecret(): string {
     );
   }
   const dataDir = getDataDir();
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
+  if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
   const secretFile = path.join(dataDir, '.auth_secret');
   if (fs.existsSync(secretFile)) {
-    return fs.readFileSync(secretFile, 'utf8').trim();
+    const existing = fs.readFileSync(secretFile, 'utf8').trim();
+    if (existing.length >= 64) return existing;
+    throw new Error('File .auth_secret tidak valid. Pulihkan secret yang benar sebelum menjalankan aplikasi.');
   }
   const generated = crypto.randomBytes(48).toString('hex');
-  fs.writeFileSync(secretFile, generated, { mode: 0o600 });
+  fs.writeFileSync(secretFile, generated, { mode: 0o600, flag: 'wx' });
   return generated;
 }
 
 const SECRET = getAuthSecret();
+
+function deriveKey(context: string): Buffer {
+  return Buffer.from(crypto.hkdfSync('sha256', Buffer.from(SECRET, 'utf8'), Buffer.from('BIGNET-AUTH-V1'), Buffer.from(context), 32));
+}
+
+export function hashOpaqueSecret(value: string): string {
+  return crypto.createHmac('sha256', deriveKey('opaque-secret-hash')).update(value).digest('hex');
+}
+
+export function encryptMfaSecret(value: string): string {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', deriveKey('mfa-secret-encryption'), iv);
+  const ciphertext = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return [iv.toString('base64url'), tag.toString('base64url'), ciphertext.toString('base64url')].join('.');
+}
+
+export function decryptMfaSecret(value: string): string {
+  const [ivText, tagText, cipherText] = value.split('.');
+  if (!ivText || !tagText || !cipherText) throw new Error('Data MFA terenkripsi tidak valid.');
+  const decipher = crypto.createDecipheriv(
+    'aes-256-gcm',
+    deriveKey('mfa-secret-encryption'),
+    Buffer.from(ivText, 'base64url')
+  );
+  decipher.setAuthTag(Buffer.from(tagText, 'base64url'));
+  return Buffer.concat([
+    decipher.update(Buffer.from(cipherText, 'base64url')),
+    decipher.final(),
+  ]).toString('utf8');
+}
+
+const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+
+function encodeBase32(input: Buffer): string {
+  let bits = 0;
+  let value = 0;
+  let output = '';
+  for (const byte of input) {
+    value = (value << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      output += BASE32_ALPHABET[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+  if (bits > 0) output += BASE32_ALPHABET[(value << (5 - bits)) & 31];
+  return output;
+}
+
+function decodeBase32(input: string): Buffer {
+  const clean = input.toUpperCase().replace(/=+$/g, '').replace(/\s+/g, '');
+  let bits = 0;
+  let value = 0;
+  const out: number[] = [];
+  for (const char of clean) {
+    const index = BASE32_ALPHABET.indexOf(char);
+    if (index < 0) throw new Error('Secret MFA memiliki format Base32 yang tidak valid.');
+    value = (value << 5) | index;
+    bits += 5;
+    if (bits >= 8) {
+      out.push((value >>> (bits - 8)) & 255);
+      bits -= 8;
+    }
+  }
+  return Buffer.from(out);
+}
+
+export function generateTotpSecret(): string {
+  return encodeBase32(crypto.randomBytes(20));
+}
+
+export function generateTotpCode(secret: string, nowMs = Date.now()): string {
+  const key = decodeBase32(secret);
+  const counter = Math.floor(nowMs / 30_000);
+  const msg = Buffer.alloc(8);
+  msg.writeBigUInt64BE(BigInt(counter));
+  const digest = crypto.createHmac('sha1', key).update(msg).digest();
+  const offset = digest[digest.length - 1] & 0x0f;
+  const binary = digest.readUInt32BE(offset) & 0x7fffffff;
+  return String(binary % 1_000_000).padStart(6, '0');
+}
+
+export function verifyTotpCode(secret: string, code: string, nowMs = Date.now()): boolean {
+  const normalized = code.replace(/\s+/g, '');
+  if (!/^\d{6}$/.test(normalized)) return false;
+  const supplied = Buffer.from(normalized);
+  for (const drift of [-1, 0, 1]) {
+    const expected = Buffer.from(generateTotpCode(secret, nowMs + drift * 30_000));
+    if (supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected)) return true;
+  }
+  return false;
+}
+
+export function hashRecoveryCode(code: string): string {
+  return hashOpaqueSecret(code.trim().toUpperCase().replace(/[^A-Z0-9]/g, ''));
+}
 
 export function hashPassword(password: string): string {
   const salt = crypto.randomBytes(16).toString('hex');
@@ -37,11 +134,10 @@ export function hashPassword(password: string): string {
 
 export function verifyPassword(password: string, stored: string): boolean {
   const [salt, key] = stored.split(':');
-  if (!salt || !key) return false;
+  if (!salt || !key || !/^[a-f0-9]{128}$/i.test(key)) return false;
   const derived = crypto.scryptSync(password, salt, 64);
   const keyBuf = Buffer.from(key, 'hex');
-  if (derived.length !== keyBuf.length) return false;
-  return crypto.timingSafeEqual(derived, keyBuf);
+  return derived.length === keyBuf.length && crypto.timingSafeEqual(derived, keyBuf);
 }
 
 export interface TokenPayload {
@@ -70,13 +166,15 @@ export function verifyToken(token: string): TokenPayload | null {
   const expected = crypto.createHmac('sha256', SECRET).update(body).digest('base64url');
   const sigBuf = Buffer.from(sig);
   const expBuf = Buffer.from(expected);
-  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
-    return null;
-  }
+  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) return null;
   try {
     const parsed = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as TokenPayload;
-    if (!parsed.exp || Date.now() > parsed.exp) return null;
-    if (!parsed.userId || !parsed.role) return null;
+    if (
+      !Number.isSafeInteger(parsed.userId) || parsed.userId <= 0 ||
+      !Number.isFinite(parsed.exp) || Date.now() >= parsed.exp ||
+      !parsed.jti || typeof parsed.jti !== 'string' ||
+      !['KARYAWAN', 'ADMIN', 'SUPERADMIN'].includes(parsed.role)
+    ) return null;
     return parsed;
   } catch {
     return null;
@@ -86,10 +184,7 @@ export function verifyToken(token: string): TokenPayload | null {
 export function isHttpsRequest(req: Request): boolean {
   if (req.secure) return true;
   const proto = req.headers['x-forwarded-proto'];
-  if (typeof proto === 'string' && proto.split(',')[0].trim().toLowerCase() === 'https') {
-    return true;
-  }
-  return false;
+  return typeof proto === 'string' && proto.split(',')[0].trim().toLowerCase() === 'https';
 }
 
 export function buildAuthCookie(token: string, req: Request, maxAgeSeconds: number): string {
@@ -98,53 +193,52 @@ export function buildAuthCookie(token: string, req: Request, maxAgeSeconds: numb
     'Path=/',
     'HttpOnly',
     'SameSite=Lax',
-    `Max-Age=${maxAgeSeconds}`,
+    `Max-Age=${Math.max(0, Math.floor(maxAgeSeconds))}`,
   ];
-  if (isHttpsRequest(req)) {
-    parts.push('Secure');
-  }
+  if (isHttpsRequest(req)) parts.push('Secure');
   return parts.join('; ');
 }
 
-function allowsQueryToken(req: Request): boolean {
-  if (req.method !== 'GET') return false;
-  const p = req.path || '';
-  return (
-    p.startsWith('/photos/') ||
-    p.startsWith('/avatars/') ||
-    p === '/workforce/stream'
-  );
+export function buildCsrfCookie(token: string, req: Request, maxAgeSeconds: number): string {
+  const parts = [
+    `bignet_csrf=${encodeURIComponent(token)}`,
+    'Path=/',
+    'SameSite=Lax',
+    `Max-Age=${Math.max(0, Math.floor(maxAgeSeconds))}`,
+  ];
+  if (isHttpsRequest(req)) parts.push('Secure');
+  return parts.join('; ');
+}
+
+function readCookie(req: Request, name: string): string | null {
+  const header = req.headers.cookie;
+  if (!header) return null;
+  for (const pair of header.split(';')) {
+    const idx = pair.indexOf('=');
+    if (idx < 0 || pair.slice(0, idx).trim() !== name) continue;
+    try {
+      return decodeURIComponent(pair.slice(idx + 1).trim());
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+export function extractCsrfCookie(req: Request): string | null {
+  return readCookie(req, 'bignet_csrf');
 }
 
 export function extractToken(req: Request): string | null {
-  const auth = req.headers.authorization;
-  if (auth && auth.startsWith('Bearer ')) {
-    return auth.slice(7).trim();
-  }
-  const cookieHeader = req.headers.cookie;
-  if (cookieHeader) {
-    const pairs = cookieHeader.split(';');
-    for (const pair of pairs) {
-      const idx = pair.indexOf('=');
-      if (idx > -1) {
-        const k = pair.slice(0, idx).trim();
-        const v = pair.slice(idx + 1).trim();
-        if (k === 'bignet_token') {
-          return decodeURIComponent(v);
-        }
-      }
-    }
-  }
-  if (allowsQueryToken(req)) {
-    const queryToken = typeof req.query.token === 'string' ? req.query.token : null;
-    return queryToken;
-  }
-  return null;
+  // Authentication is cookie-only. Tokens in localStorage, Authorization headers,
+  // and URL query parameters are intentionally not accepted.
+  return readCookie(req, 'bignet_token');
 }
 
 export interface AuthenticatedRequest extends Request {
   authUser?: AuthUser;
   authTokenPayload?: TokenPayload;
+  authSession?: { jti: string; csrfHash: string; idleExpiresAt: number; absoluteExpiresAt: number };
 }
 
 export function requireRole(...roles: Role[]) {
