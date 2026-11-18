@@ -1212,12 +1212,12 @@ export function SuperadminAccountsTab({
               {!editingAccount ? (
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Kata Sandi Awal (Min. 6 karakter)
+                    Kata Sandi Awal (Min. 15 karakter)
                   </label>
                   <input
                     type="password"
                     required
-                    minLength={6}
+                    minLength={15}
                     value={accountForm.password}
                     onChange={(e) => setAccountForm({ ...accountForm, password: e.target.value })}
                     className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg"
@@ -1282,12 +1282,12 @@ export function SuperadminAccountsTab({
               )}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Kata Sandi Baru (Min. 6 karakter)
+                  Kata Sandi Baru (Min. 15 karakter)
                 </label>
                 <input
                   type="password"
                   required
-                  minLength={6}
+                  minLength={15}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg"
