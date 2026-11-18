@@ -2,7 +2,7 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
-import { useEffect, useLayoutEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { apiFetch, logoutApi } from './lib/api';
 import { useTheme } from './lib/theme';
 import type { AuthUser, SystemSettings } from './shared/types';
@@ -50,6 +50,38 @@ export default function App() {
       .catch(() => setUser(null))
       .finally(() => setChecking(false));
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    let lastActivityAt = Date.now();
+    const markActivity = () => { lastActivityAt = Date.now(); };
+    const activityEvents: Array<keyof WindowEventMap> = [
+      'pointerdown',
+      'keydown',
+      'touchstart',
+      'scroll',
+    ];
+    for (const eventName of activityEvents) {
+      window.addEventListener(eventName, markActivity, { passive: true });
+    }
+
+    const heartbeatTimer = window.setInterval(() => {
+      if (document.visibilityState !== 'visible' || Date.now() - lastActivityAt > 5 * 60 * 1000) return;
+      apiFetch<{ ok: boolean }>('/api/v1/auth/session/heartbeat', { method: 'POST' })
+        .catch((err: unknown) => {
+          if (err && typeof err === 'object' && 'status' in err && (err as { status?: number }).status === 401) {
+            setUser(null);
+          }
+        });
+    }, 60_000);
+
+    return () => {
+      window.clearInterval(heartbeatTimer);
+      for (const eventName of activityEvents) {
+        window.removeEventListener(eventName, markActivity);
+      }
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     let faviconLink = document.querySelector<HTMLLinkElement>('link[rel~="icon"]');
