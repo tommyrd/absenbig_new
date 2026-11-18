@@ -6,12 +6,10 @@ import {
   buildAuthCookie,
   buildCsrfCookie,
   decryptMfaSecret,
-  encryptMfaSecret,
   extractCsrfCookie,
   extractToken,
   hashOpaqueSecret,
   hashPassword,
-  hashRecoveryCode,
   requireRole,
   verifyPassword,
   verifyTotpCode,
@@ -342,6 +340,10 @@ function getActiveCheckinOverride(
 
 export function registerApiRoutes(app: Express) {
   const db = getDb();
+  app.use('/api/v1', (_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('Cache-Control', 'no-store');
+    next();
+  });
   app.use('/api/v1', attachUser);
   app.use('/api/v1', csrfGuard);
 
@@ -1635,10 +1637,7 @@ export function registerApiRoutes(app: Express) {
 
     const actType =
       expectedNext === 1 ? 'CHECK_IN' : tipeAktivitas === 'STANDBY' ? 'STANDBY' : 'AKTIVITAS';
-    const ip =
-      req.headers['x-forwarded-for']?.toString().split(',')[0]?.trim() ||
-      req.socket?.remoteAddress ||
-      '127.0.0.1';
+    const ip = getClientIp(req);
     const ua = req.headers['user-agent']?.toString() || 'Browser';
 
     let createdSessionId = 0;
@@ -1781,7 +1780,7 @@ export function registerApiRoutes(app: Express) {
     res.setHeader('Content-Type', mime);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
-    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.setHeader('Cache-Control', 'private, no-store');
     fs.createReadStream(fullPath).pipe(res);
   });
 
@@ -4872,11 +4871,14 @@ export function registerApiRoutes(app: Express) {
         return;
       }
 
-      db.prepare(
-        `UPDATE pengguna SET password_hash = ?, token_version = COALESCE(token_version, 1) + 1 WHERE id = ?`
-      ).run(hashPassword(newPassword), targetUserId);
-
-      writeAuditLog(db, {
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        db.prepare(
+          `UPDATE pengguna SET password_hash = ?, token_version = COALESCE(token_version, 1) + 1 WHERE id = ?`
+        ).run(hashPassword(newPassword), targetUserId);
+        db.prepare('UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL')
+          .run(getWibIsoString(), targetUserId);
+        writeAuditLog(db, {
         actor: req.authUser!,
         req,
         modul: 'MANAJEMEN_AKUN',
@@ -4885,7 +4887,13 @@ export function registerApiRoutes(app: Express) {
         targetId: targetUserId,
         karyawanId: target.karyawan_id,
         alasan: `Reset kata sandi akun @${target.username} oleh Superadmin (seluruh sesi lama direvoke)`,
-      });
+        });
+        db.exec('COMMIT');
+      } catch {
+        db.exec('ROLLBACK');
+        res.status(400).json({ error: 'Gagal mereset kata sandi akun.' });
+        return;
+      }
 
       res.json({ ok: true });
     }
