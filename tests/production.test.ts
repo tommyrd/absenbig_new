@@ -224,7 +224,8 @@ test('2. Health check and initial Superadmin authentication work with HttpOnly c
   superToken = okLogin.data.token;
 
   // The standalone owner account can upload, display, and reset its own profile photo without an employee profile.
-  const owner = db.prepare(`SELECT id, karyawan_id FROM pengguna WHERE username = 'owner_prod'`)
+  const owner = getDb()
+    .prepare(`SELECT id, karyawan_id FROM pengguna WHERE username = 'owner_prod'`)
     .get() as { id: number; karyawan_id: number | null };
   assert.equal(owner.karyawan_id, null);
   const ownerPhoto = await apiJson<{ user: { karyawan_id: number | null; has_foto_profil: boolean } }>(
@@ -311,11 +312,9 @@ test('4. Superadmin can create Admin & Karyawan accounts (explicit password enfo
   const standaloneAdmin = getDb()
     .prepare(`SELECT role, karyawan_id, nama_tampilan FROM pengguna WHERE id = ?`)
     .get(adminUserId) as { role: string; karyawan_id: number | null; nama_tampilan: string };
-  assert.deepEqual(standaloneAdmin, {
-    role: 'ADMIN',
-    karyawan_id: null,
-    nama_tampilan: 'Admin Operasional Test',
-  });
+  assert.equal(standaloneAdmin.role, 'ADMIN');
+  assert.equal(standaloneAdmin.karyawan_id, null);
+  assert.equal(standaloneAdmin.nama_tampilan, 'Admin Operasional Test');
 
   const adminLogin = await apiJson<{ token: string }>('/api/v1/auth/login', {
     method: 'POST',
@@ -461,7 +460,8 @@ test('4. Superadmin can create Admin & Karyawan accounts (explicit password enfo
   const approvedAdminDb = getDb()
     .prepare(`SELECT role, karyawan_id FROM pengguna WHERE id = ?`)
     .get(approvedAdmin.data.userId) as { role: string; karyawan_id: number | null };
-  assert.deepEqual(approvedAdminDb, { role: 'ADMIN', karyawan_id: null });
+  assert.equal(approvedAdminDb.role, 'ADMIN');
+  assert.equal(approvedAdminDb.karyawan_id, null);
 });
 
 test('5. Authorization boundaries, query-token restriction, logout jti & token_version revocation', async () => {
