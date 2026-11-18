@@ -8,10 +8,10 @@ import {
   decryptMfaSecret,
   encryptMfaSecret,
   generateTotpSecret,
+  getTotpCounterForCode,
   hashOpaqueSecret,
   hashRecoveryCode,
   signToken,
-  verifyTotpCode,
 } from './auth.ts';
 import { getClientIp } from './security.ts';
 import { getWibIsoString } from './time.ts';
@@ -155,16 +155,22 @@ export function verifyMfaOrRecoveryCode(
   db: DatabaseSync,
   userId: number,
   encryptedSecret: string,
-  code: string
-): { valid: boolean; recoveryCodeUsed: boolean } {
-  // Decryption is kept at the route boundary so callers cannot accidentally
-  // persist or return the shared secret.
+  code: string,
+  lastAcceptedTotpCounter = -1
+): { valid: boolean; recoveryCodeUsed: boolean; totpCounter: number | null } {
   try {
-    if (verifyTotpCode(decryptMfaSecret(encryptedSecret), code)) {
-      return { valid: true, recoveryCodeUsed: false };
+    const counter = getTotpCounterForCode(decryptMfaSecret(encryptedSecret), code);
+    if (counter !== null && counter > lastAcceptedTotpCounter) {
+      const updated = db.prepare(`
+        UPDATE pengguna SET mfa_last_totp_counter = ?
+        WHERE id = ? AND COALESCE(mfa_last_totp_counter, -1) < ?
+      `).run(counter, userId, counter);
+      if (Number(updated.changes) === 1) {
+        return { valid: true, recoveryCodeUsed: false, totpCounter: counter };
+      }
     }
   } catch {
-    return { valid: false, recoveryCodeUsed: false };
+    return { valid: false, recoveryCodeUsed: false, totpCounter: null };
   }
 
   const codeHash = hashRecoveryCode(code);
@@ -173,12 +179,12 @@ export function verifyMfaOrRecoveryCode(
     WHERE user_id = ? AND code_hash = ? AND used_at IS NULL
     LIMIT 1
   `).get(userId, codeHash) as { id: number } | undefined;
-  if (!row) return { valid: false, recoveryCodeUsed: false };
+  if (!row) return { valid: false, recoveryCodeUsed: false, totpCounter: null };
 
   const updated = db.prepare(`
     UPDATE mfa_recovery_codes SET used_at = ?
     WHERE id = ? AND user_id = ? AND used_at IS NULL
   `).run(getWibIsoString(), row.id, userId);
-  return { valid: Number(updated.changes) === 1, recoveryCodeUsed: Number(updated.changes) === 1 };
+  return { valid: Number(updated.changes) === 1, recoveryCodeUsed: Number(updated.changes) === 1, totpCounter: null };
 }
 
