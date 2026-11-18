@@ -24,7 +24,7 @@ SyslogIdentifier=absensi-bignet
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
-ReadWritePaths=/var/www/absensi-bignet/data /var/www/absensi-bignet/backups
+ReadWritePaths=/var/lib/absensi-bignet/data /var/lib/absensi-bignet/backups
 
 [Install]
 WantedBy=multi-user.target
