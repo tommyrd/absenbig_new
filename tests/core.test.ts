@@ -92,6 +92,7 @@ test('Migrations detach legacy Admin and Superadmin accounts from employee maste
       '012_enforce_role_employee_link_invariant',
       '013_standalone_superadmin_profile_photos',
       '014_separate_admin_operational_accounts_from_employee_records',
+      '015_harden_sessions_csrf_and_mfa',
     ]);
 
     const ownerAccount = db.prepare(
