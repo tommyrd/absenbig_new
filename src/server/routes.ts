@@ -501,10 +501,12 @@ export function registerApiRoutes(app: Express) {
 
   app.post('/api/v1/auth/logout', (req: AuthenticatedRequest, res: Response) => {
     if (req.authTokenPayload?.jti) {
-      db.prepare(
-        `INSERT OR IGNORE INTO revoked_tokens (jti, expires_at, revoked_at) VALUES (?, ?, ?)`
-      ).run(req.authTokenPayload.jti, req.authTokenPayload.exp, getWibIsoString());
-      db.prepare(`DELETE FROM revoked_tokens WHERE expires_at < ?`).run(Date.now());
+      db.prepare(`
+        INSERT OR IGNORE INTO revoked_tokens (jti, expires_at, revoked_at) VALUES (?, ?, ?)
+      `).run(req.authTokenPayload.jti, req.authTokenPayload.exp, getWibIsoString());
+      db.prepare('UPDATE auth_sessions SET revoked_at = ? WHERE jti = ? AND revoked_at IS NULL')
+        .run(getWibIsoString(), req.authTokenPayload.jti);
+      db.prepare('DELETE FROM revoked_tokens WHERE expires_at < ?').run(Date.now());
     }
     if (req.authUser) {
       writeAuditLog(db, {
@@ -517,7 +519,7 @@ export function registerApiRoutes(app: Express) {
         karyawanId: req.authUser.karyawan_id,
       });
     }
-    res.setHeader('Set-Cookie', buildAuthCookie('', req, 0));
+    clearIssuedCookies(req, res);
     res.json({ ok: true });
   });
 
@@ -3748,46 +3750,50 @@ export function registerApiRoutes(app: Express) {
         res.status(400).json({ error: 'Kata sandi saat ini dan kata sandi baru wajib diisi.' });
         return;
       }
-      if (newPassword.length < 6) {
-        res.status(400).json({ error: 'Kata sandi baru minimal 6 karakter.' });
+      if (newPassword.length < 15) {
+        res.status(400).json({ error: 'Kata sandi baru minimal 15 karakter.' });
         return;
       }
 
-      const row = db
-        .prepare(`SELECT password_hash FROM pengguna WHERE id = ?`)
+      const row = db.prepare('SELECT password_hash FROM pengguna WHERE id = ?')
         .get(user.id) as { password_hash: string } | undefined;
-
       if (!row || !verifyPassword(currentPassword, row.password_hash)) {
         res.status(400).json({ error: 'Kata sandi saat ini tidak cocok.' });
         return;
       }
 
-      db.prepare(`UPDATE pengguna SET password_hash = ?, token_version = COALESCE(token_version, 1) + 1 WHERE id = ?`).run(
-        hashPassword(newPassword),
-        user.id
-      );
+      let updatedUser: ReturnType<typeof loadAuthUserById>;
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        db.prepare(`
+          UPDATE pengguna
+          SET password_hash = ?, token_version = COALESCE(token_version, 1) + 1
+          WHERE id = ?
+        `).run(hashPassword(newPassword), user.id);
+        db.prepare('UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL')
+          .run(getWibIsoString(), user.id);
+        updatedUser = loadAuthUserById(user.id);
+        if (!updatedUser) throw new Error('Akun tidak lagi aktif.');
+        writeAuditLog(db, {
+          actor: user,
+          req,
+          modul: 'PROFIL_AKUN',
+          aksi: 'CHANGE_PASSWORD',
+          targetEntity: 'pengguna',
+          targetId: user.id,
+          karyawanId: user.karyawan_id,
+          alasan: 'Kata sandi diubah; seluruh sesi lama dicabut dan sesi perangkat ini diterbitkan ulang',
+        });
+        db.exec('COMMIT');
+      } catch (err) {
+        db.exec('ROLLBACK');
+        res.status(400).json({ error: 'Gagal memperbarui kata sandi.' });
+        return;
+      }
 
-      // Re-issue a fresh token for the caller so their active session continues seamlessly while old tokens are invalidated
-      const nextToken = signToken({
-        userId: user.id,
-        role: user.role,
-        tv: (req.authTokenPayload?.tv ?? 1) + 1,
-        exp: Date.now() + 1000 * 60 * 60 * 24 * 7,
-      });
-      res.setHeader('Set-Cookie', buildAuthCookie(nextToken, req, 60 * 60 * 24 * 7));
-
-      writeAuditLog(db, {
-        actor: user,
-        req,
-        modul: 'PROFIL_AKUN',
-        aksi: 'CHANGE_PASSWORD',
-        targetEntity: 'pengguna',
-        targetId: user.id,
-        karyawanId: user.karyawan_id,
-        alasan: 'Pengguna mengganti kata sandi secara mandiri (seluruh sesi lama direvoke)',
-      });
-
-      res.json({ ok: true, token: nextToken });
+      issueAuthSession(db, updatedUser!, req, res);
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ ok: true, message: 'Kata sandi berhasil diperbarui. Sesi perangkat lain telah dicabut.' });
     }
   );
 
