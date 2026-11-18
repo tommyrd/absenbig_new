@@ -139,6 +139,12 @@ const PASSWORD_SCRYPT_R = 8;
 const PASSWORD_SCRYPT_P = 1;
 const PASSWORD_SCRYPT_MAXMEM = 64 * 1024 * 1024;
 
+const VERSIONED_SCRYPT_PREFIX = 'scrypt-v1:';
+const PASSWORD_SCRYPT_N = 32_768;
+const PASSWORD_SCRYPT_R = 8;
+const PASSWORD_SCRYPT_P = 1;
+const PASSWORD_SCRYPT_MAXMEM = 64 * 1024 * 1024;
+
 export function hashPassword(password: string): string {
   const salt = crypto.randomBytes(16);
   const hash = crypto.scryptSync(password, salt, 64, {
@@ -147,14 +153,44 @@ export function hashPassword(password: string): string {
     p: PASSWORD_SCRYPT_P,
     maxmem: PASSWORD_SCRYPT_MAXMEM,
   });
-  // Versioned format lets future releases increase the work factor while
-  // keeping legacy salt:hash passwords verifiable during migration.
-  return `$scrypt${PASSWORD_SCRYPT_N}${PASSWORD_SCRYPT_R}${PASSWORD_SCRYPT_P}${salt.toString('base64url')}${hash.toString('hex')}`;
+  // Versioned, self-describing format; legacy salt:hash values remain supported.
+  return VERSIONED_SCRYPT_PREFIX +
+    [PASSWORD_SCRYPT_N, PASSWORD_SCRYPT_R, PASSWORD_SCRYPT_P, salt.toString('base64url'), hash.toString('hex')].join(':');
 }
 
 export function verifyPassword(password: string, stored: string): boolean {
   try {
-    if (stored.startsWith('$scrypt
+    if (stored.startsWith(VERSIONED_SCRYPT_PREFIX)) {
+      const parts = stored.slice(VERSIONED_SCRYPT_PREFIX.length).split(':');
+      if (parts.length !== 5) return false;
+      const [nText, rText, pText, saltText, key] = parts;
+      const N = Number(nText);
+      const r = Number(rText);
+      const p = Number(pText);
+      if (
+        !Number.isSafeInteger(N) || N < 16_384 || N > 131_072 || (N & (N - 1)) !== 0 ||
+        !Number.isSafeInteger(r) || r < 1 || r > 16 ||
+        !Number.isSafeInteger(p) || p < 1 || p > 4 ||
+        !/^[a-f0-9]{128}$/i.test(key)
+      ) return false;
+      const salt = Buffer.from(saltText, 'base64url');
+      if (salt.length < 16 || salt.length > 64) return false;
+      const maxmem = Math.max(64 * 1024 * 1024, 256 * N * r);
+      const derived = crypto.scryptSync(password, salt, 64, { N, r, p, maxmem });
+      const keyBuf = Buffer.from(key, 'hex');
+      return derived.length === keyBuf.length && crypto.timingSafeEqual(derived, keyBuf);
+    }
+
+    // Compatibility for existing password hashes created before this format.
+    const [salt, key] = stored.split(':');
+    if (!salt || !key || !/^[a-f0-9]{128}$/i.test(key)) return false;
+    const derived = crypto.scryptSync(password, salt, 64);
+    const keyBuf = Buffer.from(key, 'hex');
+    return derived.length === keyBuf.length && crypto.timingSafeEqual(derived, keyBuf);
+  } catch {
+    return false;
+  }
+}
 
 export interface TokenPayload {
   userId: number;
