@@ -2,7 +2,7 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import { apiFetch, logoutApi } from './lib/api';
 import { useTheme } from './lib/theme';
 import type { AuthUser, SystemSettings } from './shared/types';
