@@ -254,14 +254,13 @@ function isTrustedBrowserOrigin(req: Request, origin: string): boolean {
     ...(process.env.ALLOWED_ORIGINS || '').split(',').map((item) => item.trim()).filter(Boolean),
     ...(process.env.APP_URL ? [process.env.APP_URL] : []),
   ];
-  if (configured.length > 0) {
-    return configured.some((item) => {
-      try { return new URL(item).origin === parsed.origin; } catch { return false; }
-    });
-  }
-
   const expectedProtocol = req.protocol || (req.secure ? 'https' : 'http');
-  return origin === `${expectedProtocol}://${req.get('host')}`;
+  const sameOrigin = `${expectedProtocol}://${req.get('host')}`;
+  if (origin === sameOrigin) return true;
+
+  return configured.some((item) => {
+    try { return new URL(item).origin === parsed.origin; } catch { return false; }
+  });
 }
 
 function csrfGuard(req: AuthenticatedRequest, res: Response, next: NextFunction) {
@@ -679,6 +678,7 @@ export function registerApiRoutes(app: Express) {
       return;
     }
     db.prepare('DELETE FROM auth_challenges WHERE challenge_hash = ?').run(challenge.challenge_hash);
+    mfaLoginLimiter.reset(`${getClientIp(req)}:${challenge.user_id}`);
     issueAuthSession(db, userWithMeta, req, res);
     const user = stripInternalAuthFields(userWithMeta);
     writeAuditLog(db, {
