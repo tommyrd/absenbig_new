@@ -134,18 +134,294 @@ export function hashRecoveryCode(code: string): string {
   return hashOpaqueSecret(code.trim().toUpperCase().replace(/[^A-Z0-9]/g, ''));
 }
 
+const PASSWORD_SCRYPT_N = 32_768;
+const PASSWORD_SCRYPT_R = 8;
+const PASSWORD_SCRYPT_P = 1;
+const PASSWORD_SCRYPT_MAXMEM = 64 * 1024 * 1024;
+
 export function hashPassword(password: string): string {
-  const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
-  return `${salt}:${hash}`;
+  const salt = crypto.randomBytes(16);
+  const hash = crypto.scryptSync(password, salt, 64, {
+    N: PASSWORD_SCRYPT_N,
+    r: PASSWORD_SCRYPT_R,
+    p: PASSWORD_SCRYPT_P,
+    maxmem: PASSWORD_SCRYPT_MAXMEM,
+  });
+  // Versioned format lets future releases increase the work factor while
+  // keeping legacy salt:hash passwords verifiable during migration.
+  return `$scrypt${PASSWORD_SCRYPT_N}${PASSWORD_SCRYPT_R}${PASSWORD_SCRYPT_P}${salt.toString('base64url')}${hash.toString('hex')}`;
 }
 
 export function verifyPassword(password: string, stored: string): boolean {
-  const [salt, key] = stored.split(':');
-  if (!salt || !key || !/^[a-f0-9]{128}$/i.test(key)) return false;
-  const derived = crypto.scryptSync(password, salt, 64);
-  const keyBuf = Buffer.from(key, 'hex');
-  return derived.length === keyBuf.length && crypto.timingSafeEqual(derived, keyBuf);
+  try {
+    if (stored.startsWith('$scrypt
+
+export interface TokenPayload {
+  userId: number;
+  role: Role;
+  exp: number;
+  jti?: string;
+  tv?: number;
+}
+
+export function signToken(payload: TokenPayload): string {
+  const enriched: TokenPayload = {
+    ...payload,
+    jti: payload.jti || crypto.randomUUID(),
+    tv: payload.tv ?? 1,
+  };
+  const body = Buffer.from(JSON.stringify(enriched)).toString('base64url');
+  const sig = crypto.createHmac('sha256', SECRET).update(body).digest('base64url');
+  return `${body}.${sig}`;
+}
+
+export function verifyToken(token: string): TokenPayload | null {
+  const parts = token.split('.');
+  if (parts.length !== 2) return null;
+  const [body, sig] = parts;
+  const expected = crypto.createHmac('sha256', SECRET).update(body).digest('base64url');
+  const sigBuf = Buffer.from(sig);
+  const expBuf = Buffer.from(expected);
+  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as TokenPayload;
+    if (
+      !Number.isSafeInteger(parsed.userId) || parsed.userId <= 0 ||
+      !Number.isFinite(parsed.exp) || Date.now() >= parsed.exp ||
+      !parsed.jti || typeof parsed.jti !== 'string' ||
+      !['KARYAWAN', 'ADMIN', 'SUPERADMIN'].includes(parsed.role)
+    ) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function isHttpsRequest(req: Request): boolean {
+  if (req.secure) return true;
+  const proto = req.headers['x-forwarded-proto'];
+  return typeof proto === 'string' && proto.split(',')[0].trim().toLowerCase() === 'https';
+}
+
+export function buildAuthCookie(token: string, req: Request, maxAgeSeconds: number): string {
+  const parts = [
+    `bignet_token=${encodeURIComponent(token)}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    `Max-Age=${Math.max(0, Math.floor(maxAgeSeconds))}`,
+  ];
+  if (isHttpsRequest(req)) parts.push('Secure');
+  return parts.join('; ');
+}
+
+export function buildCsrfCookie(token: string, req: Request, maxAgeSeconds: number): string {
+  const parts = [
+    `bignet_csrf=${encodeURIComponent(token)}`,
+    'Path=/',
+    'SameSite=Lax',
+    `Max-Age=${Math.max(0, Math.floor(maxAgeSeconds))}`,
+  ];
+  if (isHttpsRequest(req)) parts.push('Secure');
+  return parts.join('; ');
+}
+
+function readCookie(req: Request, name: string): string | null {
+  const header = req.headers.cookie;
+  if (!header) return null;
+  for (const pair of header.split(';')) {
+    const idx = pair.indexOf('=');
+    if (idx < 0 || pair.slice(0, idx).trim() !== name) continue;
+    try {
+      return decodeURIComponent(pair.slice(idx + 1).trim());
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+export function extractCsrfCookie(req: Request): string | null {
+  return readCookie(req, 'bignet_csrf');
+}
+
+export function extractToken(req: Request): string | null {
+  // Authentication is cookie-only. Tokens in localStorage, Authorization headers,
+  // and URL query parameters are intentionally not accepted.
+  return readCookie(req, 'bignet_token');
+}
+
+export interface AuthenticatedRequest extends Request {
+  authUser?: AuthUser;
+  authTokenPayload?: TokenPayload;
+  authSession?: { jti: string; csrfHash: string; idleExpiresAt: number; absoluteExpiresAt: number };
+}
+
+export function requireRole(...roles: Role[]) {
+  return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    if (!req.authUser) {
+      res.status(401).json({ error: 'Sesi login tidak valid atau telah berakhir.' });
+      return;
+    }
+    if (roles.length > 0 && !roles.includes(req.authUser.role)) {
+      res.status(403).json({
+        error: `Akses ditolak. Peran ${req.authUser.role} tidak memiliki izin untuk operasi ini.`,
+      });
+      return;
+    }
+    next();
+  };
+}
+)) {
+      const parts = stored.split('
+
+export interface TokenPayload {
+  userId: number;
+  role: Role;
+  exp: number;
+  jti?: string;
+  tv?: number;
+}
+
+export function signToken(payload: TokenPayload): string {
+  const enriched: TokenPayload = {
+    ...payload,
+    jti: payload.jti || crypto.randomUUID(),
+    tv: payload.tv ?? 1,
+  };
+  const body = Buffer.from(JSON.stringify(enriched)).toString('base64url');
+  const sig = crypto.createHmac('sha256', SECRET).update(body).digest('base64url');
+  return `${body}.${sig}`;
+}
+
+export function verifyToken(token: string): TokenPayload | null {
+  const parts = token.split('.');
+  if (parts.length !== 2) return null;
+  const [body, sig] = parts;
+  const expected = crypto.createHmac('sha256', SECRET).update(body).digest('base64url');
+  const sigBuf = Buffer.from(sig);
+  const expBuf = Buffer.from(expected);
+  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as TokenPayload;
+    if (
+      !Number.isSafeInteger(parsed.userId) || parsed.userId <= 0 ||
+      !Number.isFinite(parsed.exp) || Date.now() >= parsed.exp ||
+      !parsed.jti || typeof parsed.jti !== 'string' ||
+      !['KARYAWAN', 'ADMIN', 'SUPERADMIN'].includes(parsed.role)
+    ) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function isHttpsRequest(req: Request): boolean {
+  if (req.secure) return true;
+  const proto = req.headers['x-forwarded-proto'];
+  return typeof proto === 'string' && proto.split(',')[0].trim().toLowerCase() === 'https';
+}
+
+export function buildAuthCookie(token: string, req: Request, maxAgeSeconds: number): string {
+  const parts = [
+    `bignet_token=${encodeURIComponent(token)}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    `Max-Age=${Math.max(0, Math.floor(maxAgeSeconds))}`,
+  ];
+  if (isHttpsRequest(req)) parts.push('Secure');
+  return parts.join('; ');
+}
+
+export function buildCsrfCookie(token: string, req: Request, maxAgeSeconds: number): string {
+  const parts = [
+    `bignet_csrf=${encodeURIComponent(token)}`,
+    'Path=/',
+    'SameSite=Lax',
+    `Max-Age=${Math.max(0, Math.floor(maxAgeSeconds))}`,
+  ];
+  if (isHttpsRequest(req)) parts.push('Secure');
+  return parts.join('; ');
+}
+
+function readCookie(req: Request, name: string): string | null {
+  const header = req.headers.cookie;
+  if (!header) return null;
+  for (const pair of header.split(';')) {
+    const idx = pair.indexOf('=');
+    if (idx < 0 || pair.slice(0, idx).trim() !== name) continue;
+    try {
+      return decodeURIComponent(pair.slice(idx + 1).trim());
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+export function extractCsrfCookie(req: Request): string | null {
+  return readCookie(req, 'bignet_csrf');
+}
+
+export function extractToken(req: Request): string | null {
+  // Authentication is cookie-only. Tokens in localStorage, Authorization headers,
+  // and URL query parameters are intentionally not accepted.
+  return readCookie(req, 'bignet_token');
+}
+
+export interface AuthenticatedRequest extends Request {
+  authUser?: AuthUser;
+  authTokenPayload?: TokenPayload;
+  authSession?: { jti: string; csrfHash: string; idleExpiresAt: number; absoluteExpiresAt: number };
+}
+
+export function requireRole(...roles: Role[]) {
+  return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    if (!req.authUser) {
+      res.status(401).json({ error: 'Sesi login tidak valid atau telah berakhir.' });
+      return;
+    }
+    if (roles.length > 0 && !roles.includes(req.authUser.role)) {
+      res.status(403).json({
+        error: `Akses ditolak. Peran ${req.authUser.role} tidak memiliki izin untuk operasi ini.`,
+      });
+      return;
+    }
+    next();
+  };
+}
+);
+      if (parts.length !== 7) return false;
+      const [, scheme, nText, rText, pText, saltText, key] = parts;
+      const N = Number(nText);
+      const r = Number(rText);
+      const p = Number(pText);
+      if (
+        scheme !== 'scrypt' ||
+        !Number.isSafeInteger(N) || N < 16_384 || N > 131_072 || (N & (N - 1)) !== 0 ||
+        !Number.isSafeInteger(r) || r < 1 || r > 16 ||
+        !Number.isSafeInteger(p) || p < 1 || p > 4 ||
+        !/^[a-f0-9]{128}$/i.test(key)
+      ) return false;
+      const salt = Buffer.from(saltText, 'base64url');
+      if (salt.length < 16 || salt.length > 64) return false;
+      const maxmem = Math.max(64 * 1024 * 1024, 256 * N * r);
+      const derived = crypto.scryptSync(password, salt, 64, { N, r, p, maxmem });
+      const keyBuf = Buffer.from(key, 'hex');
+      return derived.length === keyBuf.length && crypto.timingSafeEqual(derived, keyBuf);
+    }
+
+    // Backward compatibility for existing accounts created before the
+    // versioned scrypt format was introduced.
+    const [salt, key] = stored.split(':');
+    if (!salt || !key || !/^[a-f0-9]{128}$/i.test(key)) return false;
+    const derived = crypto.scryptSync(password, salt, 64);
+    const keyBuf = Buffer.from(key, 'hex');
+    return derived.length === keyBuf.length && crypto.timingSafeEqual(derived, keyBuf);
+  } catch {
+    return false;
+  }
 }
 
 export interface TokenPayload {
