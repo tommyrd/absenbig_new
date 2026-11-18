@@ -108,7 +108,7 @@ export function seedProductionBaseline(
   const configuredPassword =
     options.superadminPassword || process.env.BOOTSTRAP_SUPERADMIN_PASSWORD || '';
   const generatedPassword =
-    configuredPassword.length >= 15
+    configuredPassword.length >= 15 && configuredPassword.length <= 128
       ? undefined
       : crypto.randomBytes(18).toString('base64url');
   const rawPassword = configuredPassword.length >= 8 ? configuredPassword : generatedPassword!;
