@@ -45,7 +45,7 @@ export function ProfileSettingsPanel({
   const [confirmPassword, setConfirmPassword] = useState('');
   const [savingPass, setSavingPass] = useState(false);
   const [passMsg, setPassMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
-  const isStandaloneSuperadmin = user.role === 'SUPERADMIN' && user.karyawan_id === null;
+  const isStandaloneAccount = user.karyawan_id === null;
 
   const handleUploadPhoto = (file: File | undefined) => {
     if (!file) return;
@@ -173,9 +173,11 @@ export function ProfileSettingsPanel({
               <h1 className="font-display text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100 truncate">
                 {user.nama_lengkap}
               </h1>
-              {isStandaloneSuperadmin ? (
+              {isStandaloneAccount ? (
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Akun Pemilik Sistem · <strong className="text-amber-700 dark:text-amber-300">SUPERADMIN</strong>
+                  {user.role === 'ADMIN'
+                    ? <>Admin Operasional · <strong className="text-amber-700 dark:text-amber-300">Non-Pegawai</strong></>
+                    : <>Akun Pemilik Sistem · <strong className="text-amber-700 dark:text-amber-300">SUPERADMIN</strong></>}
                 </p>
               ) : (
                 <>

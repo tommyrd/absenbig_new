@@ -22,7 +22,7 @@ import { createServerClockSync, getEstimatedServerEpochMs } from '../src/shared/
 import { shouldOpenAttendanceOnEntry } from '../src/shared/employee-entry.ts';
 import { getHistoryCalendarStatus } from '../src/shared/history-calendar.ts';
 
-test('Migration detaches legacy Superadmin from employees and archives its old profile', () => {
+test('Migrations detach legacy Admin and Superadmin accounts from employee master safely', () => {
   const db = new DatabaseSync(':memory:');
   try {
     db.exec(`
@@ -71,13 +71,17 @@ test('Migration detaches legacy Superadmin from employees and archives its old p
          id, nik, nama_lengkap, email, no_hp, kantor_id, bidang_id, jabatan, tanggal_masuk, aktif
        ) VALUES
          (1, 'BG-001', 'Budi Hartono', 'owner@bignet.id', '08110000001', 1, 1, 'Owner / CEO', '2021-01-10', 1),
-         (2, 'BG-002', 'Andi Pratama', 'andi@bignet.id', '08110000002', 1, 1, 'NOC Engineer', '2023-02-15', 1)`
+         (2, 'BG-002', 'Admin Lama', 'admin.lama@bignet.id', '08110000002', 1, 1, 'Admin Operasional', '2022-02-15', 1),
+         (3, 'BG-003', 'Andi Pratama', 'andi@bignet.id', '08110000003', 1, 1, 'NOC Engineer', '2023-02-15', 1)`
     ).run();
 
     db.prepare(
       `INSERT INTO pengguna (
          id, username, email, password_hash, role, karyawan_id, aktif, token_version, created_at
-       ) VALUES (1, 'owner', 'owner@bignet.id', 'hash', 'SUPERADMIN', 1, 1, 1, '2021-01-10')`
+       ) VALUES
+         (1, 'owner', 'owner@bignet.id', 'hash', 'SUPERADMIN', 1, 1, 1, '2021-01-10'),
+         (2, 'admin_lama', 'admin.lama@bignet.id', 'hash', 'ADMIN', 2, 1, 1, '2022-02-15'),
+         (3, 'andi', 'andi@bignet.id', 'hash', 'KARYAWAN', 3, 1, 1, '2023-02-15')`
     ).run();
 
     const applied = runMigrations(db);
@@ -86,6 +90,7 @@ test('Migration detaches legacy Superadmin from employees and archives its old p
       '011_exclude_legacy_superadmin_profiles_from_employee_master',
       '012_enforce_role_employee_link_invariant',
       '013_standalone_superadmin_profile_photos',
+      '014_separate_admin_operational_accounts_from_employee_records',
     ]);
 
     const ownerAccount = db.prepare(
@@ -109,32 +114,56 @@ test('Migration detaches legacy Superadmin from employees and archives its old p
     assert.equal(archivedOwner.jabatan, 'Akun Pemilik Sistem (Arsip)');
 
     const ordinaryEmployee = db.prepare(
-      `SELECT aktif, is_system_archive FROM karyawan WHERE id = 2`
+      `SELECT aktif, is_system_archive FROM karyawan WHERE id = 3`
     ).get() as { aktif: number; is_system_archive: number };
     assert.equal(ordinaryEmployee.aktif, 1);
     assert.equal(ordinaryEmployee.is_system_archive, 0);
+
+    const adminAccount = db.prepare(
+      `SELECT role, karyawan_id, nama_tampilan, no_hp FROM pengguna WHERE username = 'admin_lama'`
+    ).get() as { role: string; karyawan_id: number | null; nama_tampilan: string; no_hp: string };
+    assert.equal(adminAccount.role, 'ADMIN');
+    assert.equal(adminAccount.karyawan_id, null);
+    assert.equal(adminAccount.nama_tampilan, 'Admin Lama');
+    assert.equal(adminAccount.no_hp, '08110000002');
+
+    const archivedAdmin = db.prepare(
+      `SELECT aktif, is_system_archive, jabatan FROM karyawan WHERE id = 2`
+    ).get() as { aktif: number; is_system_archive: number; jabatan: string };
+    assert.equal(archivedAdmin.aktif, 0);
+    assert.equal(archivedAdmin.is_system_archive, 1);
+    assert.equal(archivedAdmin.jabatan, 'Akun Admin Operasional (Arsip)');
+
+    db.prepare(
+      `INSERT INTO pengguna (username, email, password_hash, role, karyawan_id, nama_tampilan, aktif, token_version, created_at)
+       VALUES ('admin_baru', 'admin.baru@bignet.id', 'hash', 'ADMIN', NULL, 'Admin Baru', 1, 1, '2026-11-17')`
+    ).run();
 
     assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
 
     assert.throws(
       () => db.prepare(
         `INSERT INTO pengguna (username, email, password_hash, role, karyawan_id, aktif, token_version, created_at)
-         VALUES ('bad_owner', 'bad_owner@bignet.id', 'hash', 'SUPERADMIN', 2, 1, 1, '2026-11-17')`
+         VALUES ('bad_owner', 'bad_owner@bignet.id', 'hash', 'SUPERADMIN', 3, 1, 1, '2026-11-17')`
       ).run(),
-      /SUPERADMIN harus tanpa profil karyawan/i
+      /ADMIN OPERASIONAL dan SUPERADMIN adalah akun non-pegawai/i
     );
     assert.throws(
       () => db.prepare(
-        `UPDATE pengguna SET karyawan_id = 2 WHERE username = 'owner'`
+        `UPDATE pengguna SET karyawan_id = 3 WHERE username = 'owner'`
       ).run(),
-      /SUPERADMIN harus tanpa profil karyawan/i
+      /ADMIN OPERASIONAL dan SUPERADMIN adalah akun non-pegawai/i
     );
     assert.throws(
       () => db.prepare(
         `INSERT INTO pengguna (username, email, password_hash, role, karyawan_id, aktif, token_version, created_at)
          VALUES ('bad_employee', 'bad_employee@bignet.id', 'hash', 'KARYAWAN', NULL, 1, 1, '2026-11-17')`
       ).run(),
-      /SUPERADMIN harus tanpa profil karyawan/i
+      /KARYAWAN wajib memiliki profil pegawai/i
+    );
+    assert.throws(
+      () => db.prepare(`UPDATE pengguna SET karyawan_id = 3 WHERE username = 'admin_baru'`).run(),
+      /ADMIN OPERASIONAL dan SUPERADMIN adalah akun non-pegawai/i
     );
   } finally {
     db.close();
@@ -417,7 +446,7 @@ test('System settings API strictly enforces SUPERADMIN access while keeping publ
     assert.equal(pubRes.status, 200);
     const faviconRes = await fetch(`${baseUrl}/api/v1/assets/favicon`);
     assert.equal(faviconRes.status, 200);
-    assert.equal(faviconRes.headers.get('content-type'), 'image/svg+xml');
+    assert.equal(faviconRes.headers.get('content-type')?.split(';', 1)[0], 'image/svg+xml');
     assert.equal(faviconRes.headers.get('x-content-type-options'), 'nosniff');
 
     // Unauthenticated /api/v1/settings returns 401

@@ -313,6 +313,82 @@ const MIGRATIONS: MigrationDef[] = [
       }
     },
   },
+  {
+    version: '014',
+    name: 'separate_admin_operational_accounts_from_employee_records',
+    up: (db) => {
+      db.exec(`
+        DROP TRIGGER IF EXISTS trg_pengguna_role_link_insert;
+        DROP TRIGGER IF EXISTS trg_pengguna_role_link_update;
+
+        UPDATE pengguna
+        SET nama_tampilan = COALESCE(
+              NULLIF(nama_tampilan, ''),
+              (SELECT k.nama_lengkap FROM karyawan k WHERE k.id = pengguna.karyawan_id),
+              'Admin Operasional'
+            ),
+            no_hp = COALESCE(
+              NULLIF(no_hp, ''),
+              (SELECT k.no_hp FROM karyawan k WHERE k.id = pengguna.karyawan_id),
+              ''
+            ),
+            foto_profil_path = COALESCE(
+              foto_profil_path,
+              (SELECT k.foto_profil_path FROM karyawan k WHERE k.id = pengguna.karyawan_id)
+            ),
+            foto_profil_updated_at = COALESCE(
+              foto_profil_updated_at,
+              (SELECT k.foto_profil_updated_at FROM karyawan k WHERE k.id = pengguna.karyawan_id)
+            )
+        WHERE role = 'ADMIN' AND karyawan_id IS NOT NULL;
+
+        UPDATE karyawan
+        SET aktif = 0,
+            is_system_archive = 1,
+            jabatan = 'Akun Admin Operasional (Arsip)'
+        WHERE id IN (
+          SELECT karyawan_id FROM pengguna
+          WHERE role = 'ADMIN' AND karyawan_id IS NOT NULL
+        );
+
+        UPDATE pengguna
+        SET karyawan_id = NULL
+        WHERE role = 'ADMIN' AND karyawan_id IS NOT NULL;
+
+        CREATE TRIGGER trg_pengguna_role_link_insert
+        BEFORE INSERT ON pengguna
+        FOR EACH ROW
+        WHEN (NEW.role = 'KARYAWAN' AND NEW.karyawan_id IS NULL)
+          OR (NEW.role IN ('ADMIN','SUPERADMIN') AND NEW.karyawan_id IS NOT NULL)
+        BEGIN
+          SELECT RAISE(ABORT, 'KARYAWAN wajib memiliki profil pegawai; ADMIN OPERASIONAL dan SUPERADMIN adalah akun non-pegawai.');
+        END;
+
+        CREATE TRIGGER trg_pengguna_role_link_update
+        BEFORE UPDATE OF role, karyawan_id ON pengguna
+        FOR EACH ROW
+        WHEN (NEW.role = 'KARYAWAN' AND NEW.karyawan_id IS NULL)
+          OR (NEW.role IN ('ADMIN','SUPERADMIN') AND NEW.karyawan_id IS NOT NULL)
+        BEGIN
+          SELECT RAISE(ABORT, 'KARYAWAN wajib memiliki profil pegawai; ADMIN OPERASIONAL dan SUPERADMIN adalah akun non-pegawai.');
+        END;
+      `);
+
+      const invalid = db.prepare(
+        `SELECT id, role FROM pengguna
+         WHERE (role = 'KARYAWAN' AND karyawan_id IS NULL)
+            OR (role IN ('ADMIN','SUPERADMIN') AND karyawan_id IS NOT NULL)`
+      ).all();
+      if (invalid.length > 0) {
+        throw new Error('Migrasi 014 gagal memisahkan akun Admin Operasional dari profil pegawai.');
+      }
+
+      const violations = db.prepare('PRAGMA foreign_key_check').all();
+      if (violations.length > 0) {
+        throw new Error('Migrasi 014 menghasilkan pelanggaran foreign key.');
+      }
+    },
+  },
 ];
 
 export function runMigrations(db: DatabaseSync): string[] {

@@ -254,17 +254,30 @@ export function seedDemoDataset(db: DatabaseSync): boolean {
     ) VALUES ('superadmin', 'owner@bignet.id', ?, 'SUPERADMIN', NULL, 'Budi Santoso', '08111000001', 1, 1, ?)
   `).run(passwordHash, nowIso);
 
+  // Keep the legacy demo Admin identity outside the employee master. Its old
+  // employee row remains archived so seeded employee IDs and historical examples stay stable.
+  db.prepare(`
+    UPDATE karyawan
+    SET aktif = 0, is_system_archive = 1, jabatan = 'Akun Admin Operasional (Arsip)'
+    WHERE id = 1
+  `).run();
+  db.prepare(`
+    INSERT INTO pengguna (
+      username, email, password_hash, role, karyawan_id, nama_tampilan, no_hp,
+      aktif, token_version, created_at
+    ) VALUES ('admin', 'admin@bignet.id', ?, 'ADMIN', NULL, 'Siti Rahmawati', '08111000002', 1, 1, ?)
+  `).run(passwordHash, nowIso);
+
   const userInsert = db.prepare(`
     INSERT INTO pengguna (username, email, password_hash, role, karyawan_id, aktif, token_version, created_at)
-    VALUES (?, ?, ?, ?, ?, 1, 1, ?)
+    VALUES (?, ?, ?, 'KARYAWAN', ?, 1, 1, ?)
   `);
-  userInsert.run('admin', 'admin@bignet.id', passwordHash, 'ADMIN', 1, nowIso);
-  userInsert.run('andi', 'andi@bignet.id', passwordHash, 'KARYAWAN', 2, nowIso);
-  userInsert.run('rina', 'rina@bignet.id', passwordHash, 'KARYAWAN', 3, nowIso);
-  userInsert.run('dimas', 'dimas@bignet.id', passwordHash, 'KARYAWAN', 4, nowIso);
-  userInsert.run('fajar', 'fajar@bignet.id', passwordHash, 'KARYAWAN', 5, nowIso);
-  userInsert.run('dewi', 'dewi@bignet.id', passwordHash, 'KARYAWAN', 6, nowIso);
-  userInsert.run('hendra', 'hendra@bignet.id', passwordHash, 'KARYAWAN', 7, nowIso);
+  userInsert.run('andi', 'andi@bignet.id', passwordHash, 2, nowIso);
+  userInsert.run('rina', 'rina@bignet.id', passwordHash, 3, nowIso);
+  userInsert.run('dimas', 'dimas@bignet.id', passwordHash, 4, nowIso);
+  userInsert.run('fajar', 'fajar@bignet.id', passwordHash, 5, nowIso);
+  userInsert.run('dewi', 'dewi@bignet.id', passwordHash, 6, nowIso);
+  userInsert.run('hendra', 'hendra@bignet.id', passwordHash, 7, nowIso);
 
   const polInsert = db.prepare(`
     INSERT INTO kebijakan_absensi (

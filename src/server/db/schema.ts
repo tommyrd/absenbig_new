@@ -60,19 +60,19 @@ export const SCHEMA_SQL = `
   CREATE TRIGGER IF NOT EXISTS trg_pengguna_role_link_insert
   BEFORE INSERT ON pengguna
   FOR EACH ROW
-  WHEN (NEW.role = 'SUPERADMIN' AND NEW.karyawan_id IS NOT NULL)
-    OR (NEW.role <> 'SUPERADMIN' AND NEW.karyawan_id IS NULL)
+  WHEN (NEW.role = 'KARYAWAN' AND NEW.karyawan_id IS NULL)
+    OR (NEW.role IN ('ADMIN','SUPERADMIN') AND NEW.karyawan_id IS NOT NULL)
   BEGIN
-    SELECT RAISE(ABORT, 'SUPERADMIN harus tanpa profil karyawan; ADMIN/KARYAWAN wajib terhubung ke karyawan.');
+    SELECT RAISE(ABORT, 'KARYAWAN wajib memiliki profil pegawai; ADMIN OPERASIONAL dan SUPERADMIN adalah akun non-pegawai.');
   END;
 
   CREATE TRIGGER IF NOT EXISTS trg_pengguna_role_link_update
   BEFORE UPDATE OF role, karyawan_id ON pengguna
   FOR EACH ROW
-  WHEN (NEW.role = 'SUPERADMIN' AND NEW.karyawan_id IS NOT NULL)
-    OR (NEW.role <> 'SUPERADMIN' AND NEW.karyawan_id IS NULL)
+  WHEN (NEW.role = 'KARYAWAN' AND NEW.karyawan_id IS NULL)
+    OR (NEW.role IN ('ADMIN','SUPERADMIN') AND NEW.karyawan_id IS NOT NULL)
   BEGIN
-    SELECT RAISE(ABORT, 'SUPERADMIN harus tanpa profil karyawan; ADMIN/KARYAWAN wajib terhubung ke karyawan.');
+    SELECT RAISE(ABORT, 'KARYAWAN wajib memiliki profil pegawai; ADMIN OPERASIONAL dan SUPERADMIN adalah akun non-pegawai.');
   END;
 
   CREATE TABLE IF NOT EXISTS revoked_tokens (

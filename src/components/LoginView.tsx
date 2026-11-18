@@ -186,9 +186,13 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
           no_hp: regHp,
           password: regPassword,
           role_diminta: regRole,
-          jabatan: regJabatan,
-          kantor_id: regKantorId,
-          bidang_id: regBidangId,
+          ...(regRole === 'KARYAWAN'
+            ? {
+                jabatan: regJabatan,
+                kantor_id: regKantorId,
+                bidang_id: regBidangId,
+              }
+            : {}),
           catatan_pendaftar: regCatatan,
           fotoBase64: regFotoBase64,
         }),
@@ -598,47 +602,55 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <div className="min-w-0">
-                          <label htmlFor="register-office" className={labelClass}>Penempatan Kantor</label>
-                          <select
-                            id="register-office"
-                            value={regKantorId}
-                            onChange={(e) => setRegKantorId(Number(e.target.value))}
-                            className={inputClass}
-                          >
-                            {offices.map((o) => (
-                              <option key={o.id} value={o.id}>{o.nama}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="min-w-0">
-                          <label htmlFor="register-department" className={labelClass}>Bidang Kerja</label>
-                          <select
-                            id="register-department"
-                            value={regBidangId}
-                            onChange={(e) => setRegBidangId(Number(e.target.value))}
-                            className={inputClass}
-                          >
-                            {bidangList.map((b) => (
-                              <option key={b.id} value={b.id}>{b.nama}</option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
+                      {regRole === 'KARYAWAN' ? (
+                        <>
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <div className="min-w-0">
+                              <label htmlFor="register-office" className={labelClass}>Penempatan Kantor</label>
+                              <select
+                                id="register-office"
+                                value={regKantorId}
+                                onChange={(e) => setRegKantorId(Number(e.target.value))}
+                                className={inputClass}
+                              >
+                                {offices.map((o) => (
+                                  <option key={o.id} value={o.id}>{o.nama}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="min-w-0">
+                              <label htmlFor="register-department" className={labelClass}>Bidang Kerja</label>
+                              <select
+                                id="register-department"
+                                value={regBidangId}
+                                onChange={(e) => setRegBidangId(Number(e.target.value))}
+                                className={inputClass}
+                              >
+                                {bidangList.map((b) => (
+                                  <option key={b.id} value={b.id}>{b.nama}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
 
-                      <div>
-                        <label htmlFor="register-position" className={labelClass}>Jabatan / Posisi</label>
-                        <input
-                          id="register-position"
-                          type="text"
-                          required
-                          value={regJabatan}
-                          onChange={(e) => setRegJabatan(e.target.value)}
-                          placeholder="contoh: Teknisi Fiber Optik"
-                          className={inputClass}
-                        />
-                      </div>
+                          <div>
+                            <label htmlFor="register-position" className={labelClass}>Jabatan / Posisi</label>
+                            <input
+                              id="register-position"
+                              type="text"
+                              required
+                              value={regJabatan}
+                              onChange={(e) => setRegJabatan(e.target.value)}
+                              placeholder="contoh: Teknisi Fiber Optik"
+                              className={inputClass}
+                            />
+                          </div>
+                        </>
+                      ) : (
+                        <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs leading-relaxed text-blue-900 dark:border-blue-900/70 dark:bg-blue-950/30 dark:text-blue-200">
+                          Akun Admin Operasional adalah akun pengelola non-pegawai. Tidak memerlukan NIK, penempatan kantor, bidang kerja, atau absensi pribadi.
+                        </div>
+                      )}
 
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <div className="min-w-0">

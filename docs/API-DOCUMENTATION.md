@@ -30,8 +30,8 @@ Seluruh endpoint berada di bawah prefix `/api/v1`. Autentikasi menggunakan heade
 | `POST` | `/api/v1/auth/login` | Publik (Rate-limited) | Login via `identifier` (username/email) + `password`. Mengembalikan `{ token, user }` & cookie `HttpOnly`. Mengunci sementara (`429`) setelah 8 kali gagal per IP:username. |
 | `POST` | `/api/v1/auth/logout` | Semua / Opsional | Merevoke `jti` token ke tabel `revoked_tokens`, menghapus cookie, mencatat audit `AUTH/LOGOUT`. |
 | `GET` | `/api/v1/auth/me` | `KARYAWAN`, `ADMIN`, `SUPERADMIN` | Mengembalikan data profil pengguna aktif dari token terverifikasi. |
-| `GET` | `/api/v1/auth/register-options` | Publik | Daftar kantor aktif & bidang kerja untuk form pendaftaran akun baru. |
-| `POST` | `/api/v1/auth/register` | Publik (Rate-limited) | Pengajuan akun baru (`KARYAWAN` atau `ADMIN`) berstatus `PENDING` hingga di-ACC Superadmin. Foto avatar divalidasi magic bytes raster. |
+| `GET` | `/api/v1/auth/register-options` | Publik | Daftar kantor aktif & bidang kerja untuk form pendaftaran KARYAWAN; pendaftaran ADMIN tidak membutuhkan pilihan penempatan. |
+| `POST` | `/api/v1/auth/register` | Publik (Rate-limited) | Pengajuan `KARYAWAN` atau `ADMIN` berstatus `PENDING` hingga di-ACC Superadmin. KARYAWAN wajib mengirim kantor/bidang/jabatan; ADMIN tidak mengirim penempatan atau jabatan pegawai dan akan dibuat mandiri tanpa NIK saat ACC. Foto avatar divalidasi magic bytes raster. |
 
 ---
 
@@ -41,9 +41,9 @@ Seluruh endpoint berada di bawah prefix `/api/v1`. Autentikasi menggunakan heade
 |---|---|---|---|
 | `PUT` | `/api/v1/profile` | Semua Role Terautentikasi | Memperbarui `nama_lengkap`, `email`, dan `no_hp` sendiri + audit `PROFIL_AKUN`. |
 | `PUT` | `/api/v1/profile/password` | Semua Role Terautentikasi (Rate-limited) | Mengganti sandi sendiri, menaikkan `token_version` (merevoke sesi lama), dan mengembalikan token baru. |
-| `PUT` | `/api/v1/profile/photo` | `KARYAWAN`, `ADMIN`, `SUPERADMIN` | Mengunggah/mengganti foto profil raster (`PNG/JPG/WEBP <= 2MB`) atau menghapus ke avatar default. Untuk SUPERADMIN, foto disimpan pada record `pengguna`; pegawai tetap disimpan pada record `karyawan`. |
+| `PUT` | `/api/v1/profile/photo` | `KARYAWAN`, `ADMIN`, `SUPERADMIN` | Mengunggah/mengganti foto profil raster (`PNG/JPG/WEBP <= 2MB`) atau menghapus ke avatar default. Untuk ADMIN/SUPERADMIN, foto disimpan pada record `pengguna`; pegawai disimpan pada record `karyawan`. |
 | `GET` | `/api/v1/avatars/karyawan/:karyawanId` | Semua Role Terautentikasi | Mengambil foto profil karyawan (atau SVG inisial default). |
-| `GET` | `/api/v1/avatars/pengguna/:userId` | Semua Role Terautentikasi | Mengambil foto profil akun mandiri (termasuk SUPERADMIN) atau SVG inisial default. |
+| `GET` | `/api/v1/avatars/pengguna/:userId` | Semua Role Terautentikasi | Mengambil foto profil akun mandiri (ADMIN/SUPERADMIN) atau SVG inisial default. |
 | `GET` | `/api/v1/avatars/registration/:regId` | `SUPERADMIN` | Mengambil foto calon pendaftar saat proses verifikasi ACC. |
 
 ---
@@ -55,10 +55,10 @@ Seluruh endpoint berada di bawah prefix `/api/v1`. Autentikasi menggunakan heade
 | `GET` | `/api/v1/feed/today` | Semua Role Terautentikasi | Data Beranda (`roster` & `posts`). Alamat saat absen dibaca dari snapshot `absensi_sesi.lokasi_alamat` (atau cache lama yang sudah tersimpan); endpoint ini tidak melakukan reverse geocoding dan tidak menghubungi Geoapify. |
 | `GET` | `/api/v1/workforce/today` | Semua Role Terautentikasi | Status tenaga kerja hari ini (sudah disanitasi tanpa GPS mentah). |
 | `GET` | `/api/v1/workforce/stream` | Semua Role Terautentikasi | Stream SSE real-time (`event: connected`, `event: workforce`) untuk pembaruan feed & dashboard otomatis. |
-| `GET` | `/api/v1/attendance/today` | `KARYAWAN`, `ADMIN` | Resolusi jadwal, kebijakan aktif (`policySnapshot`), sesi terselesaikan, izin check-in Admin aktif, `serverTime`/`serverEpochMs`, `serverWindowState`, `serverSessionWindowStates`, dan `serverWindowCheckedAt`. Status OPEN/NOT_STARTED/EXPIRED/INVALID dihitung server dari satu timestamp yang sama; respons no-store. |
+| `GET` | `/api/v1/attendance/today` | `KARYAWAN` | Resolusi jadwal, kebijakan aktif (`policySnapshot`), sesi terselesaikan, izin check-in Admin aktif, `serverTime`/`serverEpochMs`, `serverWindowState`, `serverSessionWindowStates`, dan `serverWindowCheckedAt`. Status OPEN/NOT_STARTED/EXPIRED/INVALID dihitung server dari satu timestamp yang sama; respons no-store. |
 | `GET` | `/api/v1/admin/attendance/override-checkins` | `ADMIN` | Daftar karyawan yang sesi berikutnya sudah kedaluwarsa dan masih perlu check-in, termasuk status izin khusus yang masih aktif. |
 | `POST` | `/api/v1/admin/attendance/override-checkins` | `ADMIN` | Membuka akses satu kali untuk sesi berikutnya yang sudah kedaluwarsa. Alasan wajib; durasi yang diterima 5, 10, 15, atau 30 menit. Setiap pemberian dan pemakaian tercatat di audit log. |
-| `POST` | `/api/v1/attendance/session` | `KARYAWAN`, `ADMIN` (Rate-limited) | Mengirim absensi sesi berikutnya. Sesi yang sudah kedaluwarsa hanya dapat dikirim bila ada izin Admin aktif yang belum digunakan. Selfie kamera browser, GPS/geofence, urutan sesi, dan waktu server tetap divalidasi; record tetap memakai waktu aktual dan status keterlambatan tidak dihapus. Reverse-geocoding Geoapify dilakukan satu kali setelah GPS tervalidasi, lalu alamat disimpan bersama record. Kegagalan Geoapify tidak memblokir absensi. Response mencakup `sessionId` untuk mengarahkan karyawan ke card baru di Beranda. |
+| `POST` | `/api/v1/attendance/session` | `KARYAWAN` (Rate-limited) | Mengirim absensi sesi berikutnya. Sesi yang sudah kedaluwarsa hanya dapat dikirim bila ada izin Admin aktif yang belum digunakan. Selfie kamera browser, GPS/geofence, urutan sesi, dan waktu server tetap divalidasi; record tetap memakai waktu aktual dan status keterlambatan tidak dihapus. Reverse-geocoding Geoapify dilakukan satu kali setelah GPS tervalidasi, lalu alamat disimpan bersama record. Kegagalan Geoapify tidak memblokir absensi. Response mencakup `sessionId` untuk mengarahkan karyawan ke card baru di Beranda. |
 | `GET` | `/api/v1/photos/:sessionId` | Semua Role Terautentikasi | Mengambil foto sesi absensi. Karyawan dibatasi pada foto miliknya & feed <= 30 hari terakhir; Admin/Superadmin akses penuh. |
 
 ---
@@ -70,9 +70,9 @@ Seluruh endpoint berada di bawah prefix `/api/v1`. Autentikasi menggunakan heade
 | `GET` | `/api/v1/history/monthly` | Semua Role (`karyawanId` lain hanya `ADMIN`/`SUPERADMIN`) | Ringkasan kehadiran bulanan dari resolver tunggal (`hariMasuk`, `tidakHadir`, `rincian`, `days`). |
 | `GET` | `/api/v1/off-rights` | Semua Role | Daftar hak `OFF_PENGGANTI` milik karyawan (atau seluruh karyawan untuk Admin/Superadmin). |
 | `GET` | `/api/v1/requests` | Semua Role | Daftar pengajuan `CUTI`, `OFF`, `OFF_PENGGANTI`, `IZIN`, `SAKIT` (Karyawan hanya miliknya sendiri). |
-| `POST` | `/api/v1/requests` | `KARYAWAN`, `ADMIN` | Membuat pengajuan baru; jika `OFF_PENGGANTI`, mengunci `hak_off_pengganti` dalam transaksi. |
-| `PUT` | `/api/v1/requests/:id` | `KARYAWAN` (milik sendiri) / `ADMIN` | Mengubah pengajuan yang masih berstatus `PENDING`/`DRAFT`. |
-| `POST` | `/api/v1/requests/:id/cancel` | `KARYAWAN` (PENDING milik sendiri) / `ADMIN` | Membatalkan pengajuan dan melepaskan kembali kuota `hak_off_pengganti`. |
+| `POST` | `/api/v1/requests` | `KARYAWAN` | Membuat pengajuan baru; jika `OFF_PENGGANTI`, mengunci `hak_off_pengganti` dalam transaksi. |
+| `PUT` | `/api/v1/requests/:id` | `KARYAWAN` (milik sendiri) | Mengubah pengajuan yang masih berstatus `PENDING`/`DRAFT`. |
+| `POST` | `/api/v1/requests/:id/cancel` | `KARYAWAN` (PENDING milik sendiri) | Membatalkan pengajuan dan melepaskan kembali kuota `hak_off_pengganti`. |
 | `POST` | `/api/v1/requests/:id/decide` | `ADMIN` | Menyetujui (`APPROVED`) atau menolak (`REJECTED`) pengajuan dengan alasan wajib. |
 
 ---
@@ -112,7 +112,7 @@ Seluruh endpoint berada di bawah prefix `/api/v1`. Autentikasi menggunakan heade
 | `GET` | `/api/v1/superadmin/overview` | `SUPERADMIN`, `ADMIN` | Metrik pengawasan absensi, override terbaru, dan bukti foto terbaru. |
 | `GET` / `PUT` | `/api/v1/settings` | `SUPERADMIN` | Membaca & mengubah pengaturan aplikasi + upload/reset logo (sanitasi SVG & magic bytes). |
 | `GET` | `/api/v1/superadmin/registrations` | `SUPERADMIN` | Daftar pendaftaran akun baru (`PENDING`, `APPROVED`, `REJECTED`). |
-| `POST` | `/api/v1/superadmin/registrations/:id/approve` | `SUPERADMIN` | Menyetujui (ACC) pendaftaran dan mengaktifkan akun karyawan/admin. |
+| `POST` | `/api/v1/superadmin/registrations/:id/approve` | `SUPERADMIN` | Menyetujui (ACC) pendaftaran KARYAWAN dengan profil pegawai atau ADMIN sebagai akun non-pegawai tanpa NIK. |
 | `POST` | `/api/v1/superadmin/registrations/:id/reject` | `SUPERADMIN` | Menolak pendaftaran akun baru beserta alasan keputusan. |
-| `GET` / `POST` / `PUT` | `/api/v1/superadmin/accounts`, `/:userId` | `SUPERADMIN` | Menampilkan dan mengelola seluruh akun. ADMIN/KARYAWAN dibuat bersama profil pegawai; SUPERADMIN dibuat sebagai akun pemilik mandiri dengan `karyawan_id = NULL` tanpa NIK, kantor, bidang, atau data absensi. Akun pemilik dapat diubah dan dinonaktifkan; minimal satu Superadmin aktif harus tersisa. Ubah role pegawai hanya di antara ADMIN/KARYAWAN; akun pegawai tidak dapat dipromosikan menjadi SUPERADMIN lewat edit akun. |
+| `GET` / `POST` / `PUT` | `/api/v1/superadmin/accounts`, `/:userId` | `SUPERADMIN` | Menampilkan dan mengelola seluruh akun. KARYAWAN terhubung ke profil pegawai; ADMIN (Admin Operasional) dan SUPERADMIN (Owner/CEO) merupakan akun non-pegawai dengan `karyawan_id = NULL`, tanpa NIK, penempatan, atau absensi pribadi. Perubahan role ADMIN menjadi KARYAWAN mengaktifkan kembali profil arsip yang cocok atau membuat profil pegawai baru; perubahan KARYAWAN menjadi ADMIN mengarsipkan profil lamanya. Superadmin tidak dapat diubah role-nya melalui endpoint ini. |
 | `PUT` | `/api/v1/superadmin/accounts/:userId/reset-password` | `SUPERADMIN` | Reset sandi pegawai maupun akun pemilik dan mencabut seluruh sesi lama (`token_version + 1`). |
