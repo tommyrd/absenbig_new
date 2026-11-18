@@ -207,28 +207,14 @@ function attachUser(req: AuthenticatedRequest, res: Response, next: NextFunction
           now < session.idle_expires_at && now < session.absolute_expires_at) {
         const user = loadAuthUserById(payload.userId);
         if (user && (payload.tv ?? 1) === user.tokenVersion && payload.role === user.role) {
-          const idleExpiresAt = Math.min(now + SESSION_POLICIES[user.role].idleMs, session.absolute_expires_at);
-          const lastSeenAt = getWibIsoString(new Date(now));
-          db.prepare(`
-            UPDATE auth_sessions SET last_seen_at = ?, idle_expires_at = ?
-            WHERE jti = ? AND revoked_at IS NULL
-          `).run(lastSeenAt, idleExpiresAt, payload.jti);
-
           req.authUser = stripInternalAuthFields(user);
           req.authTokenPayload = payload;
           req.authSession = {
             jti: payload.jti,
             csrfHash: session.csrf_hash,
-            idleExpiresAt,
+            idleExpiresAt: session.idle_expires_at,
             absoluteExpiresAt: session.absolute_expires_at,
           };
-
-          const maxAge = Math.max(1, Math.ceil((idleExpiresAt - now) / 1000));
-          res.append('Set-Cookie', buildAuthCookie(token, req, maxAge));
-          const csrfCookie = extractCsrfCookie(req);
-          if (csrfCookie && hashOpaqueSecret(csrfCookie) === session.csrf_hash) {
-            res.append('Set-Cookie', buildCsrfCookie(csrfCookie, req, maxAge));
-          }
         } else {
           db.prepare(`UPDATE auth_sessions SET revoked_at = ? WHERE jti = ? AND revoked_at IS NULL`)
             .run(getWibIsoString(), payload.jti);
@@ -698,6 +684,49 @@ export function registerApiRoutes(app: Express) {
     res.json({ user, recoveryCodeUsed: verification.recoveryCodeUsed });
   });
 
+  app.post('/api/v1/auth/session/heartbeat', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const session = req.authSession;
+    const payload = req.authTokenPayload;
+    if (!session || !payload) {
+      res.status(401).json({ error: 'Sesi login tidak valid atau telah berakhir.' });
+      return;
+    }
+    const now = Date.now();
+    const policy = SESSION_POLICIES[req.authUser!.role];
+    const idleExpiresAt = Math.min(now + policy.idleMs, session.absoluteExpiresAt);
+    const updated = db.prepare(`
+      UPDATE auth_sessions SET last_seen_at = ?, idle_expires_at = ?
+      WHERE jti = ? AND user_id = ? AND revoked_at IS NULL
+        AND idle_expires_at > ? AND absolute_expires_at > ?
+    `).run(
+      getWibIsoString(new Date(now)),
+      idleExpiresAt,
+      session.jti,
+      req.authUser!.id,
+      now,
+      now
+    );
+    if (Number(updated.changes) !== 1) {
+      res.status(401).json({ error: 'Sesi login telah berakhir. Silakan masuk kembali.' });
+      return;
+    }
+    const csrfToken = extractCsrfCookie(req);
+    if (!csrfToken || hashOpaqueSecret(csrfToken) !== session.csrfHash) {
+      res.status(403).json({ error: 'Token CSRF tidak valid.' });
+      return;
+    }
+    const maxAge = Math.max(1, Math.ceil((idleExpiresAt - now) / 1000));
+    res.append('Set-Cookie', buildAuthCookie(
+      // Preserve the same session ID while refreshing only the idle timeout.
+      signToken({ userId: req.authUser!.id, role: req.authUser!.role, jti: session.jti, tv: payload.tv, exp: session.absoluteExpiresAt }),
+      req,
+      maxAge
+    ));
+    res.append('Set-Cookie', buildCsrfCookie(csrfToken, req, maxAge));
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ok: true, idleExpiresAt, absoluteExpiresAt: session.absoluteExpiresAt });
+  });
+
   app.get('/api/v1/auth/security', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const user = req.authUser!;
     const mfa = db.prepare('SELECT COALESCE(mfa_enabled, 0) AS mfa_enabled FROM pengguna WHERE id = ?')
@@ -1015,13 +1044,46 @@ export function registerApiRoutes(app: Express) {
   });
 
   app.get('/api/v1/workforce/stream', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const sessionId = req.authSession?.jti;
+    if (!sessionId) {
+      res.status(401).end();
+      return;
+    }
     res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders?.();
     res.write(`event: connected\ndata: ${JSON.stringify({ waktu: getWibIsoString() })}\n\n`);
     sseClients.add(res);
+
+    // Long-lived EventSource connections must not outlive their authenticated session.
+    const sessionTimer = setInterval(() => {
+      const current = db.prepare(`
+        SELECT s.idle_expires_at, s.absolute_expires_at, s.revoked_at,
+               u.aktif, COALESCE(u.token_version, 1) AS token_version
+        FROM auth_sessions s
+        JOIN pengguna u ON u.id = s.user_id
+        WHERE s.jti = ? AND s.user_id = ?
+        LIMIT 1
+      `).get(sessionId, req.authUser!.id) as
+        | { idle_expires_at: number; absolute_expires_at: number; revoked_at: string | null; aktif: number; token_version: number }
+        | undefined;
+      const now = Date.now();
+      if (!current || current.revoked_at || current.aktif !== 1 ||
+          current.token_version !== (req.authTokenPayload?.tv ?? 1) ||
+          now >= current.idle_expires_at || now >= current.absolute_expires_at) {
+        clearInterval(sessionTimer);
+        sseClients.delete(res);
+        res.write('event: session-expired\\ndata: {}\\n\\n');
+        res.end();
+        return;
+      }
+      res.write(': keep-alive\\n\\n');
+    }, 15_000);
+    sessionTimer.unref?.();
+
     req.on('close', () => {
+      clearInterval(sessionTimer);
       sseClients.delete(res);
     });
   });
