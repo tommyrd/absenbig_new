@@ -490,7 +490,7 @@ export function ProfileSettingsPanel({
               <input
                 type="password"
                 required
-                minLength={6}
+                minLength={15}
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded-lg text-slate-900 dark:text-slate-100"
