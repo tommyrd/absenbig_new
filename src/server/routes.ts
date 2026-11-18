@@ -717,11 +717,14 @@ export function registerApiRoutes(app: Express) {
       absoluteTimeoutHours: policy.absoluteMs / 3_600_000,
       currentSessionId: req.authSession?.jti || null,
       sessions: sessions.map((session) => ({
-        ...session,
-        current: session.jti === req.authSession?.jti,
+        sessionId: session.jti,
+        created_at: session.created_at,
+        last_seen_at: session.last_seen_at,
         idleExpiresAt: session.idle_expires_at,
         absoluteExpiresAt: session.absolute_expires_at,
-        jti: undefined,
+        ip_address: session.ip_address,
+        user_agent: session.user_agent,
+        current: session.jti === req.authSession?.jti,
       })),
     });
   });
