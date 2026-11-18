@@ -843,7 +843,7 @@ export function registerApiRoutes(app: Express) {
          WHERE k.aktif = 1 AND COALESCE(k.is_system_archive, 0) = 0
          ORDER BY k.nama_lengkap ASC`
       )
-      .all() as Karyawan[];
+      .all() as unknown as Karyawan[];
 
     const items = employees.flatMap((employee) => {
       const day = resolveDayForEmployee(db, employee, today);
