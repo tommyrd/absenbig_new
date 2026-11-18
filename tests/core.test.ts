@@ -182,7 +182,7 @@ test('TOTP implementation matches RFC 6238 SHA-1 test vector', () => {
 test('Password hashing uses versioned scrypt and remains compatible with legacy hashes', () => {
   const password = 'BIGNET-Secure-Password-2026!';
   const versioned = hashPassword(password);
-  assert.equal(versioned.split(String.fromCharCode(36))[1], 'scrypt');
+  assert.equal(versioned.split(':')[0], 'scrypt-v1');
   assert.equal(verifyPassword(password, versioned), true);
   assert.equal(verifyPassword('wrong-password', versioned), false);
 
