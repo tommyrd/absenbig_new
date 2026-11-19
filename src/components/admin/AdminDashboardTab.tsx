@@ -29,6 +29,9 @@ interface SnapshotModalState {
   serverTimeWib: string;
   filterLabel: string;
   rowCount: number;
+  scope: 'all' | 'filtered';
+  totalAllCount: number;
+  totalFilteredCount: number;
   canNativeShareFiles: boolean;
 }
 
@@ -149,29 +152,32 @@ export function AdminDashboardTab({ onNavigateApproval }: { onNavigateApproval: 
     return `${kantorName} · ${bidangName}`;
   }, [kantorFilter, bidangFilter, offices, bidangList]);
 
-  const handleOpenMonitoringSnapshot = async () => {
-    if (generatingPng || loading) return;
-    setGeneratingPng(true);
-    setSnapshotError(null);
-    setModalNotice(null);
-    setCaptionCopied(false);
-    try {
-      // Pull fresh server WIB time so the snapshot header timestamp is always authoritative.
-      let tanggal = serverDate;
-      let timeWib = serverTimeWib;
-      try {
-        const timeRes = await apiFetch<{ date: string; time: string }>('/api/v1/time');
-        if (timeRes.date) tanggal = timeRes.date;
-        if (timeRes.time) timeWib = timeRes.time;
-      } catch {
-        // Keep last synced server time from loadAll.
-      }
+  const hasActiveFilter = Boolean(kantorFilter || bidangFilter);
 
-      const rows = buildMonitoringCheckInRows(filteredWorkforce, earlyRows);
+  const generateSnapshotForScope = useCallback(
+    async (
+      scope: 'all' | 'filtered',
+      freshWorkforce: WorkforceMember[],
+      freshEarly: EarlyReportRow[],
+      tanggal: string,
+      timeWib: string
+    ) => {
+      const filteredList = freshWorkforce.filter((w) => {
+        if (kantorFilter && String(w.kantorId) !== kantorFilter) return false;
+        if (bidangFilter && String(w.bidangId) !== bidangFilter) return false;
+        return true;
+      });
+      const targetList = scope === 'filtered' ? filteredList : freshWorkforce;
+      const label =
+        scope === 'filtered' && hasActiveFilter
+          ? activeFilterLabel
+          : 'Semua Karyawan · Semua Kantor';
+
+      const rows = buildMonitoringCheckInRows(targetList, freshEarly);
       const snapshotInput = {
         tanggal: tanggal || new Date().toISOString().slice(0, 10),
         serverTimeWib: timeWib || '--:--',
-        filterLabel: activeFilterLabel,
+        filterLabel: label,
         rows,
       };
 
@@ -188,13 +194,76 @@ export function AdminDashboardTab({ onNavigateApproval }: { onNavigateApproval: 
         caption,
         tanggal: snapshotInput.tanggal,
         serverTimeWib: snapshotInput.serverTimeWib,
-        filterLabel: activeFilterLabel,
+        filterLabel: label,
         rowCount: rows.length,
+        scope,
+        totalAllCount: freshWorkforce.length,
+        totalFilteredCount: filteredList.length,
         canNativeShareFiles,
       });
+    },
+    [activeFilterLabel, bidangFilter, hasActiveFilter, kantorFilter]
+  );
+
+  const handleOpenMonitoringSnapshot = async (requestedScope: 'all' | 'filtered' = 'all') => {
+    if (generatingPng || loading) return;
+    setGeneratingPng(true);
+    setSnapshotError(null);
+    setModalNotice(null);
+    setCaptionCopied(false);
+    try {
+      // Pull fresh live data & server WIB time so EVERY employee who just checked in is captured.
+      let latestWorkforce = workforce;
+      let latestEarly = earlyRows;
+      let tanggal = serverDate;
+      let timeWib = serverTimeWib;
+      try {
+        const [wfRes, earlyRes, timeRes] = await Promise.all([
+          apiFetch<{ tanggal: string; serverTime?: string; items: WorkforceMember[] }>(
+            '/api/v1/workforce/today'
+          ),
+          apiFetch<{ tanggal: string; items: EarlyReportRow[] }>('/api/v1/payroll/early-report'),
+          apiFetch<{ date: string; time: string }>('/api/v1/time'),
+        ]);
+        latestWorkforce = wfRes.items;
+        latestEarly = earlyRes.items;
+        setWorkforce(wfRes.items);
+        setEarlyRows(earlyRes.items);
+        tanggal = timeRes.date || wfRes.tanggal || earlyRes.tanggal || tanggal;
+        timeWib = timeRes.time || wfRes.serverTime || timeWib;
+        setServerDate(tanggal);
+        setServerTimeWib(timeWib);
+      } catch {
+        // Keep last synced server data if live refresh encounters a brief hiccup.
+      }
+
+      const effectiveScope = requestedScope === 'filtered' && hasActiveFilter ? 'filtered' : 'all';
+      await generateSnapshotForScope(effectiveScope, latestWorkforce, latestEarly, tanggal, timeWib);
     } catch (err) {
       setSnapshotError(
         err instanceof Error ? err.message : 'Gagal membuat gambar PNG laporan jam masuk.'
+      );
+    } finally {
+      setGeneratingPng(false);
+    }
+  };
+
+  const handleSwitchSnapshotScope = async (nextScope: 'all' | 'filtered') => {
+    if (!snapshotModal || snapshotModal.scope === nextScope || generatingPng) return;
+    setGeneratingPng(true);
+    setModalNotice(null);
+    setCaptionCopied(false);
+    try {
+      await generateSnapshotForScope(
+        nextScope,
+        workforce,
+        earlyRows,
+        snapshotModal.tanggal,
+        snapshotModal.serverTimeWib
+      );
+    } catch (err) {
+      setModalNotice(
+        err instanceof Error ? err.message : 'Gagal memperbarui cakupan gambar PNG.'
       );
     } finally {
       setGeneratingPng(false);
@@ -446,7 +515,7 @@ export function AdminDashboardTab({ onNavigateApproval }: { onNavigateApproval: 
             Monitoring Kehadiran & Laporan Jam Masuk Hari Ini
           </h2>
           <p className="text-[11px] text-slate-500 dark:text-slate-400">
-            Filter aktif: <span className="font-semibold text-slate-700 dark:text-slate-300">{activeFilterLabel}</span> (ikut diterapkan ke gambar PNG)
+            Total <span className="font-semibold text-slate-700 dark:text-slate-300">{workforce.length} karyawan</span> siap di-capture penuh ke gambar PNG
           </p>
         </div>
         <DataTable
@@ -516,8 +585,8 @@ export function AdminDashboardTab({ onNavigateApproval }: { onNavigateApproval: 
                   Laporan Gambar Jam Masuk Hari Ini (PNG)
                 </h2>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                  {snapshotModal.filterLabel} · {snapshotModal.rowCount} karyawan · Update{' '}
-                  {snapshotModal.serverTimeWib.slice(0, 5)} WIB
+                  {snapshotModal.filterLabel} · {snapshotModal.rowCount} karyawan ·{' '}
+                  {snapshotModal.tanggal} · {snapshotModal.serverTimeWib} WIB
                 </p>
               </div>
               <button
@@ -530,17 +599,57 @@ export function AdminDashboardTab({ onNavigateApproval }: { onNavigateApproval: 
               </button>
             </div>
 
-            {/* Body: PNG Preview + Ready-to-Share Caption */}
+            {/* Optional Scope Switcher when Kantor/Bidang filter is active */}
+            {hasActiveFilter && (
+              <div className="px-4 py-2.5 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 shrink-0">
+                <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                  Cakupan karyawan pada snapshot:
+                </span>
+                <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-0.5">
+                  <button
+                    type="button"
+                    disabled={generatingPng}
+                    onClick={() => void handleSwitchSnapshotScope('all')}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors ${
+                      snapshotModal.scope === 'all'
+                        ? 'bg-[#c0392b] text-white'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    Semua Karyawan ({snapshotModal.totalAllCount})
+                  </button>
+                  <button
+                    type="button"
+                    disabled={generatingPng}
+                    onClick={() => void handleSwitchSnapshotScope('filtered')}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors ${
+                      snapshotModal.scope === 'filtered'
+                        ? 'bg-[#c0392b] text-white'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    Filter Aktif ({snapshotModal.totalFilteredCount})
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Body: Scrollable Full-Width PNG Preview + Ready-to-Share Caption */}
             <div className="min-h-0 overflow-y-auto overscroll-contain p-4 grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
               <div className="md:col-span-7 space-y-2">
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Pratinjau Gambar (Highlight Jam Masuk)
-                </p>
-                <div className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-950 shadow-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    Pratinjau PNG ({snapshotModal.rowCount} Karyawan)
+                  </p>
+                  <span className="text-[11px] text-slate-400 dark:text-slate-500">
+                    Gulir untuk cek semua nama
+                  </span>
+                </div>
+                <div className="rounded-xl overflow-y-auto overscroll-contain max-h-[58dvh] border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-950 shadow-sm">
                   <img
                     src={snapshotModal.previewUrl}
                     alt={`Laporan jam masuk ${snapshotModal.tanggal}`}
-                    className="w-full h-auto max-h-[56dvh] object-contain mx-auto block"
+                    className="w-full h-auto block"
                   />
                 </div>
               </div>

@@ -498,7 +498,7 @@ export function getWorkforceToday(
   // Strip all sensitive data (no GPS, no photo path, no private request reason!)
   return employees.map((emp) => {
     const day = resolveDayForEmployee(db, emp, today);
-    const s1 = day.sessionRecords.find((s) => s.urutan_sesi === 1);
+    const s1 = day.sessionRecords.find((s) => s.urutan_sesi === 1) ?? day.sessionRecords[0];
     const last = day.sessionRecords[day.sessionRecords.length - 1];
     const isWorkingToday =
       day.mustCheckIn && (day.sessionsCompleted > 0 || day.operationalStatus === 'BELUM_SELESAI' || day.operationalStatus === 'HADIR');

@@ -29,6 +29,7 @@ import { buildAttendanceShareCaption } from '../src/lib/attendance-share.ts';
 import {
   buildMonitoringCheckInCaption,
   computeMonitoringCheckInStats,
+  groupMonitoringRowsByOffice,
   sortMonitoringCheckInRows,
   type MonitoringCheckInRow,
 } from '../src/lib/monitoring-snapshot.ts';
@@ -686,7 +687,7 @@ test('Attendance share caption includes accurate metadata, status, location, and
   assert.match(caption, /Dimas Nugroho \(2024002\)/);
   assert.match(caption, /Lead Network Technician · Teknisi Lapangan/);
   assert.match(caption, /Sesi 2\/4 — Progres Siang/);
-  assert.match(caption, /11:48 WIB/);
+  assert.match(caption, /Tanggal & Jam: .*19 November 2026 · 11:48:22 WIB/);
   assert.match(caption, /Status: Tepat Waktu/);
   assert.match(caption, /Caption \(Aktivitas Pekerjaan\)/);
   assert.match(caption, /Pengecekan ODP pelanggan sektor timur selesai normal\./);
@@ -708,14 +709,15 @@ test('Attendance share caption includes accurate metadata, status, location, and
   assert.match(lateStandbyCaption, /Luar Radius · 1,4 km/);
 });
 
-test('Monitoring Hari Ini check-in snapshot sorts by Jam Masuk, computes stats, and formats morning caption', () => {
+test('Monitoring Hari Ini check-in snapshot groups by office location and captures checked-in, belum absen, tidak masuk, and cuti employees', () => {
   const rows: MonitoringCheckInRow[] = [
     {
       karyawanId: 1,
       nik: '2024001',
       namaLengkap: 'Fajar Hidayat',
       jabatan: 'NOC',
-      kantorNama: 'Kantor Pusat A',
+      kantorId: 1,
+      kantorNama: 'Kantor Pusat A (Jakarta)',
       bidangNama: 'NOC',
       isWorkingToday: true,
       operationalStatus: 'BELUM_SELESAI',
@@ -731,7 +733,8 @@ test('Monitoring Hari Ini check-in snapshot sorts by Jam Masuk, computes stats, 
       nik: '2024002',
       namaLengkap: 'Dewi Lestari',
       jabatan: 'Teknisi',
-      kantorNama: 'Kantor Pusat A',
+      kantorId: 2,
+      kantorNama: 'Kantor Operasional B (Bandung)',
       bidangNama: 'Teknisi Lapangan',
       isWorkingToday: true,
       operationalStatus: 'BELUM_SELESAI',
@@ -747,7 +750,8 @@ test('Monitoring Hari Ini check-in snapshot sorts by Jam Masuk, computes stats, 
       nik: '2024003',
       namaLengkap: 'Andi Pratama',
       jabatan: 'Staff',
-      kantorNama: 'Kantor Pusat A',
+      kantorId: 1,
+      kantorNama: 'Kantor Pusat A (Jakarta)',
       bidangNama: 'Administrasi',
       isWorkingToday: true,
       operationalStatus: 'BELUM_SELESAI',
@@ -763,8 +767,26 @@ test('Monitoring Hari Ini check-in snapshot sorts by Jam Masuk, computes stats, 
       nik: '2024004',
       namaLengkap: 'Hendra Wijaya',
       jabatan: 'Staff',
-      kantorNama: 'Kantor Pusat A',
+      kantorId: 2,
+      kantorNama: 'Kantor Operasional B (Bandung)',
       bidangNama: 'Administrasi',
+      isWorkingToday: false,
+      operationalStatus: 'TIDAK_HADIR',
+      sessionsCompleted: 0,
+      sessionsTotal: 3,
+      sesi1Time: null,
+      sesi1Terlambat: false,
+      keterlambatanMenit: 0,
+      dalamGeofence: null,
+    },
+    {
+      karyawanId: 5,
+      nik: '2024005',
+      namaLengkap: 'Rina Kusuma',
+      jabatan: 'CS',
+      kantorId: 1,
+      kantorNama: 'Kantor Pusat A (Jakarta)',
+      bidangNama: 'Customer Support',
       isWorkingToday: false,
       operationalStatus: 'CUTI',
       sessionsCompleted: 0,
@@ -779,30 +801,48 @@ test('Monitoring Hari Ini check-in snapshot sorts by Jam Masuk, computes stats, 
   const sorted = sortMonitoringCheckInRows(rows);
   assert.deepEqual(
     sorted.map((r) => r.namaLengkap),
-    ['Andi Pratama', 'Dewi Lestari', 'Fajar Hidayat', 'Hendra Wijaya']
+    ['Andi Pratama', 'Dewi Lestari', 'Fajar Hidayat', 'Hendra Wijaya', 'Rina Kusuma']
   );
 
-  const stats = computeMonitoringCheckInStats(sorted);
-  assert.equal(stats.totalWajibKerja, 3);
+  const groups = groupMonitoringRowsByOffice(rows);
+  assert.equal(groups.length, 2);
+  assert.equal(groups[0].officeName, 'Kantor Pusat A');
+  assert.deepEqual(
+    groups[0].rows.map((r) => r.namaLengkap),
+    ['Andi Pratama', 'Fajar Hidayat', 'Rina Kusuma']
+  );
+  assert.equal(groups[1].officeName, 'Kantor Operasional B');
+  assert.deepEqual(
+    groups[1].rows.map((r) => r.namaLengkap),
+    ['Dewi Lestari', 'Hendra Wijaya']
+  );
+
+  const stats = computeMonitoringCheckInStats(rows);
+  assert.equal(stats.totalKaryawan, 5);
+  assert.equal(stats.totalWajibKerja, 4);
   assert.equal(stats.sudahMasuk, 2);
   assert.equal(stats.tepatWaktu, 1);
   assert.equal(stats.terlambat, 1);
-  assert.equal(stats.belumAbsen, 1);
-  assert.equal(stats.tidakWajibKerja, 1);
+  assert.equal(stats.belumAbsen, 2); // Fajar (BELUM_ABSEN) + Hendra (TIDAK_HADIR)
+  assert.equal(stats.tidakWajibKerja, 1); // Rina (CUTI)
 
   const caption = buildMonitoringCheckInCaption({
     tanggal: '2026-11-19',
     serverTimeWib: '08:30:00',
-    filterLabel: 'Kantor Pusat A · Semua Bidang',
+    filterLabel: 'Semua Karyawan · Semua Kantor',
     rows,
   });
   assert.match(caption, /LAPORAN JAM MASUK HARIAN — ABSENSI BIGNET/);
-  assert.match(caption, /Update Server: 08:30 WIB/);
-  assert.match(caption, /2\/3 Sudah Masuk · 1 Tepat Waktu · 1 Terlambat · 1 Belum Absen/);
+  assert.match(caption, /Tanggal: .*19 November 2026/);
+  assert.match(caption, /Waktu Snapshot: 08:30:00 WIB/);
+  assert.match(caption, /2\/4 Masuk · 1 Tepat Waktu · 1 Terlambat · 2 Belum\/Tidak Masuk · 1 Izin\/Libur/);
+  assert.match(caption, /📍 Kantor Pusat A/);
   assert.match(caption, /01\. \*07:52 WIB\* — Andi Pratama \(Tepat Waktu\)/);
-  assert.match(caption, /02\. \*08:18 WIB\* — Dewi Lestari \(Terlambat 18 mnt\)/);
-  assert.match(caption, /03\. \*Belum Absen\* — Fajar Hidayat/);
-  assert.match(caption, /04\. \[CUTI\] — Hendra Wijaya/);
+  assert.match(caption, /02\. \*Belum Absen\* — Fajar Hidayat/);
+  assert.match(caption, /03\. \*CUTI\* — Rina Kusuma/);
+  assert.match(caption, /📍 Kantor Operasional B/);
+  assert.match(caption, /01\. \*08:18 WIB\* — Dewi Lestari \(Terlambat 18 mnt\)/);
+  assert.match(caption, /02\. \*Tidak Masuk\* — Hendra Wijaya/);
 });
 
 

@@ -135,6 +135,14 @@ export function getPostCaptionText(post: AttendanceFeedPost): string {
   return 'Melanjutkan aktivitas pekerjaan.';
 }
 
+export function getExactWibTime(post: AttendanceFeedPost): string {
+  if (post.waktuServer && post.waktuServer.length >= 19) {
+    const hms = post.waktuServer.slice(11, 19);
+    if (/^\d{2}:\d{2}:\d{2}$/.test(hms)) return hms;
+  }
+  return post.jamWib || '--:--';
+}
+
 /**
  * Build a clean, structured caption for sharing via WhatsApp, Telegram, or Web Share API.
  * Mirrors every verified data point rendered on the PNG snapshot card.
@@ -147,6 +155,7 @@ export function buildAttendanceShareCaption(post: AttendanceFeedPost): string {
   const activityLabel = getActivityTypeLabel(post.tipeAktivitas);
   const captionBody = getPostCaptionText(post);
   const formattedDate = formatIndonesianDate(post.tanggal, 'long');
+  const exactTime = getExactWibTime(post);
   const locationText =
     (post.lokasiAktualAlamat || '').trim() ||
     (post.kantorAlamat || '').trim() ||
@@ -162,7 +171,7 @@ export function buildAttendanceShareCaption(post: AttendanceFeedPost): string {
     `Nama: ${post.namaLengkap}${nikSuffix}`,
     `Jabatan: ${post.jabatan} · ${post.bidangNama}`,
     `Sesi: Sesi ${post.urutanSesi}/${post.sessionsTotalToday} — ${post.namaSesi}`,
-    `Waktu Server: ${formattedDate} · ${post.jamWib} WIB`,
+    `Tanggal & Jam: ${formattedDate} · ${exactTime} WIB`,
     `Status: ${punctuality}`,
     '',
     `*Caption (${activityLabel}):*`,
@@ -293,7 +302,9 @@ function drawPhotoFrame(
   height: number,
   namaSesi: string,
   isLate: boolean,
-  lateMinutes: number
+  lateMinutes: number,
+  dateStamp: string,
+  timeStamp: string
 ) {
   ctx.save();
   roundedRect(ctx, x, y, width, height, 22);
@@ -367,6 +378,16 @@ function drawPhotoFrame(
   ctx.fill();
   ctx.fillStyle = '#ffffff';
   ctx.fillText(statusText, statusX + 36, y + 48);
+
+  // Bottom-left crisp server timestamp pill on the photo frame.
+  const stampText = `${dateStamp} · ${timeStamp} WIB`;
+  ctx.font = `700 17px ${FONT_MONO}`;
+  const stampW = Math.ceil(ctx.measureText(stampText).width) + 32;
+  roundedRect(ctx, x + 20, y + height - 56, stampW, 38, 12);
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.82)';
+  ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(stampText, x + 36, y + height - 31);
 
   ctx.restore();
 
@@ -506,11 +527,13 @@ export async function createAttendanceShareImage(post: AttendanceFeedPost): Prom
   drawAvatar(ctx, avatar, post.namaLengkap, CONTENT_X, identityY, avatarSize);
 
   // Measure right-side timestamp width so employee name never collides.
-  const timeText = `${post.jamWib} WIB`;
+  const exactTime = getExactWibTime(post);
+  const timeText = `${exactTime} WIB`;
   const shortDateText = formatIndonesianDate(post.tanggal, 'short');
-  ctx.font = `700 30px ${FONT_MONO}`;
+  const longDateText = formatIndonesianDate(post.tanggal, 'long');
+  ctx.font = `800 28px ${FONT_MONO}`;
   const timeW = ctx.measureText(timeText).width;
-  ctx.font = `500 19px ${FONT_SANS}`;
+  ctx.font = `600 18px ${FONT_SANS}`;
   const dateW = ctx.measureText(shortDateText).width;
   const rightColW = Math.max(timeW, dateW) + 28;
 
@@ -531,10 +554,10 @@ export async function createAttendanceShareImage(post: AttendanceFeedPost): Prom
   // Right-aligned authoritative WIB time & date.
   ctx.textAlign = 'right';
   ctx.fillStyle = '#0f172a';
-  ctx.font = `700 30px ${FONT_MONO}`;
+  ctx.font = `800 28px ${FONT_MONO}`;
   ctx.fillText(timeText, CONTENT_X + CONTENT_W, identityY + 32);
-  ctx.fillStyle = '#64748b';
-  ctx.font = `500 19px ${FONT_SANS}`;
+  ctx.fillStyle = '#475569';
+  ctx.font = `600 18px ${FONT_SANS}`;
   ctx.fillText(shortDateText, CONTENT_X + CONTENT_W, identityY + 62);
   ctx.textAlign = 'left';
 
@@ -551,7 +574,9 @@ export async function createAttendanceShareImage(post: AttendanceFeedPost): Prom
     photoH,
     post.namaSesi,
     isLate,
-    post.keterlambatanMenit
+    post.keterlambatanMenit,
+    shortDateText,
+    exactTime
   );
 
   // 5. Caption & Aktivitas Card (with signature crimson accent bar).
@@ -671,9 +696,13 @@ export async function createAttendanceShareImage(post: AttendanceFeedPost): Prom
   ctx.stroke();
 
   const footerTextY = Math.min(CARD_Y + CARD_H - 22, dividerY + 34);
-  ctx.fillStyle = '#64748b';
-  ctx.font = `600 17px ${FONT_SANS}`;
-  ctx.fillText(`Terverifikasi Sistem Absensi BIGNET · ID #${post.id}`, CONTENT_X, footerTextY);
+  ctx.fillStyle = '#475569';
+  ctx.font = `600 16px ${FONT_SANS}`;
+  ctx.fillText(
+    `${longDateText} · ${timeText} · ID #${post.id}`,
+    CONTENT_X,
+    footerTextY
+  );
 
   ctx.textAlign = 'right';
   ctx.fillStyle = '#0f172a';
