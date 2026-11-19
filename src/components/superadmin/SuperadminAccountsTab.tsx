@@ -350,7 +350,7 @@ export function SuperadminAccountsTab({
       render: (r) => (
         <div className="text-xs">
           <p className="font-bold text-navy-900 dark:text-brand-400">
-            {r.role_diminta === 'ADMIN' ? 'Admin Operasional' : 'Teknisi / Karyawan'}
+            {r.role_diminta === 'ADMIN' ? 'Operator' : 'Karyawan'}
           </p>
           <p className="text-slate-500 dark:text-slate-400">{r.jabatan}</p>
         </div>
@@ -773,8 +773,8 @@ export function SuperadminAccountsTab({
                     }
                     className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
                   >
-                    <option value="KARYAWAN">Teknisi / Karyawan</option>
-                    <option value="ADMIN">Admin Operasional</option>
+                    <option value="KARYAWAN">Karyawan</option>
+                    <option value="ADMIN">Operator</option>
                   </select>
                 </div>
               </div>

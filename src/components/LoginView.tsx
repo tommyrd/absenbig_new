@@ -93,7 +93,7 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
     if (nextRole === 'ADMIN') {
       const admBidang = bidangList.find((b) => b.kode === 'ADM');
       if (admBidang) setRegBidangId(admBidang.id);
-      setRegJabatan('Admin Operasional');
+      setRegJabatan('Operator');
     } else {
       const tekBidang = bidangList.find((b) => b.kode === 'TEK') || bidangList[0];
       if (tekBidang) setRegBidangId(tekBidang.id);
@@ -508,7 +508,7 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
                             : 'min-h-14 rounded-xl border border-slate-200 bg-[#f8f9fb] px-3 py-3 text-left text-slate-700 transition hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'
                         }
                       >
-                        <span className="block text-xs font-bold">Teknisi / Karyawan</span>
+                        <span className="block text-xs font-bold">Karyawan</span>
                         <span className="mt-0.5 block text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
                           Absensi sesi, GPS, dan pengajuan
                         </span>
@@ -522,7 +522,7 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
                             : 'min-h-14 rounded-xl border border-slate-200 bg-[#f8f9fb] px-3 py-3 text-left text-slate-700 transition hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'
                         }
                       >
-                        <span className="block text-xs font-bold">Admin Operasional</span>
+                        <span className="block text-xs font-bold">Operator</span>
                         <span className="mt-0.5 block text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
                           Approval, kalender, dan payroll
                         </span>
