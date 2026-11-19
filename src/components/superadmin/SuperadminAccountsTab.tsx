@@ -361,17 +361,8 @@ export function SuperadminAccountsTab({
       header: 'Kantor & Bidang',
       render: (r) => (
         <div className="text-xs">
-          {r.role === 'SUPERADMIN' ? (
-            <>
-              <p className="font-medium text-amber-700 dark:text-amber-300">Bukan Pegawai</p>
-              <p className="text-slate-500 dark:text-slate-400">Akun pemilik sistem</p>
-            </>
-          ) : (
-            <>
-              <p className="font-medium text-slate-800 dark:text-slate-200">{r.kantor_nama}</p>
-              <p className="text-slate-500 dark:text-slate-400">{r.bidang_nama}</p>
-            </>
-          )}
+          <p className="font-medium text-slate-800 dark:text-slate-200">{r.kantor_nama}</p>
+          <p className="text-slate-500 dark:text-slate-400">{r.bidang_nama}</p>
         </div>
       ),
     },

@@ -26,7 +26,7 @@ export function AdminPolicyTab() {
   const [form, setForm] = useState({
     level: 'BIDANG' as PolicyLevel,
     bidang_id: 1,
-    karyawan_id: 3,
+    karyawan_id: 0,
     nama: '',
     jumlah_sesi: 3,
     min_sesi_hadir: 2,

@@ -226,10 +226,11 @@ function getActiveCheckinOverride(
   const row = db
     .prepare(
       `SELECT o.id, o.urutan_sesi, o.nama_sesi, o.alasan, o.berlaku_sampai,
-              o.created_at, o.admin_id, k.nama_lengkap as admin_nama
+              o.created_at, o.admin_id,
+              COALESCE(NULLIF(u.nama_tampilan, ''), k.nama_lengkap, u.username) as admin_nama
        FROM override_akses_absensi o
        JOIN pengguna u ON u.id = o.admin_id
-       JOIN karyawan k ON k.id = u.karyawan_id
+       LEFT JOIN karyawan k ON k.id = u.karyawan_id
        WHERE o.karyawan_id = ? AND o.tanggal = ? AND o.urutan_sesi = ?
          AND o.status = 'AKTIF' AND o.used_at IS NULL AND o.berlaku_sampai > ?
        ORDER BY o.id DESC LIMIT 1`
@@ -828,7 +829,7 @@ export function registerApiRoutes(app: Express) {
          WHERE k.aktif = 1 AND COALESCE(k.is_system_archive, 0) = 0
          ORDER BY k.nama_lengkap ASC`
       )
-      .all() as Karyawan[];
+      .all() as unknown as Karyawan[];
 
     const items = employees.flatMap((employee) => {
       const day = resolveDayForEmployee(db, employee, today);
@@ -1343,7 +1344,7 @@ export function registerApiRoutes(app: Express) {
     }
 
     const user = req.authUser!;
-    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const cutoff = getWibDateString(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
     if (user.role === 'KARYAWAN' && row.karyawan_id !== user.karyawan_id && row.tanggal < cutoff) {
       res.status(403).json({ error: 'Anda tidak berwenang melihat arsip foto lama rekan kerja.' });
       return;
@@ -1613,23 +1614,40 @@ export function registerApiRoutes(app: Express) {
       res.status(400).json({ error: 'Data pembaruan tidak valid.' });
       return;
     }
+    if (existing.jenis === 'OFF_PENGGANTI' && nextMulai !== nextAkhir) {
+      res.status(400).json({ error: 'Satu hak Off Pengganti hanya berlaku untuk 1 tanggal off.' });
+      return;
+    }
 
-    db.prepare(
-      `UPDATE pengajuan SET tanggal_mulai = ?, tanggal_akhir = ?, alasan = ?, catatan = ?, updated_at = ? WHERE id = ?`
-    ).run(nextMulai, nextAkhir, nextAlasan, nextCatatan, nowIso, reqId);
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.prepare(
+        `UPDATE pengajuan SET tanggal_mulai = ?, tanggal_akhir = ?, alasan = ?, catatan = ?, updated_at = ? WHERE id = ?`
+      ).run(nextMulai, nextAkhir, nextAlasan, nextCatatan, nowIso, reqId);
 
-    writeAuditLog(db, {
-      actor: user,
-      req,
-      modul: 'PENGAJUAN',
-      aksi: 'UPDATE_PENGAJUAN',
-      targetEntity: 'pengajuan',
-      targetId: reqId,
-      karyawanId: existing.karyawan_id,
-      tanggalTerdampak: nextMulai,
-      before: existing,
-      after: { tanggal_mulai: nextMulai, tanggal_akhir: nextAkhir, alasan: nextAlasan, catatan: nextCatatan },
-    });
+      if (existing.jenis === 'OFF_PENGGANTI') {
+        db.prepare(
+          `UPDATE penggunaan_off_pengganti SET tanggal_off = ? WHERE pengajuan_id = ?`
+        ).run(nextMulai, reqId);
+      }
+
+      writeAuditLog(db, {
+        actor: user,
+        req,
+        modul: 'PENGAJUAN',
+        aksi: 'UPDATE_PENGAJUAN',
+        targetEntity: 'pengajuan',
+        targetId: reqId,
+        karyawanId: existing.karyawan_id,
+        tanggalTerdampak: nextMulai,
+        before: existing,
+        after: { tanggal_mulai: nextMulai, tanggal_akhir: nextAkhir, alasan: nextAlasan, catatan: nextCatatan },
+      });
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
+    }
 
     res.json({ ok: true });
   });
@@ -1835,9 +1853,9 @@ export function registerApiRoutes(app: Express) {
         kode.trim().toUpperCase(),
         nama.trim(),
         (alamat || '').trim(),
-        Number(lat) || -6.2088,
-        Number(lng) || 106.8456,
-        Number(radius_meter) || 250
+        Number.isFinite(Number(lat)) ? Number(lat) : -6.2088,
+        Number.isFinite(Number(lng)) ? Number(lng) : 106.8456,
+        Number(radius_meter) > 0 ? Number(radius_meter) : 250
       );
     const officeId = Number(info.lastInsertRowid);
     for (let d = 0; d <= 6; d++) {
@@ -2485,6 +2503,7 @@ export function registerApiRoutes(app: Express) {
       before,
       alasan: 'Penghapusan hari libur oleh Admin',
     });
+    broadcastWorkforceUpdate('HOLIDAY_DELETED');
     res.json({ ok: true });
   });
 
@@ -2626,6 +2645,7 @@ export function registerApiRoutes(app: Express) {
       db.exec('ROLLBACK');
       throw e;
     }
+    broadcastWorkforceUpdate('SPECIAL_WORK_CANCELLED');
     res.json({ ok: true });
   });
 
@@ -3034,8 +3054,9 @@ export function registerApiRoutes(app: Express) {
 
     res.setHeader('Content-Type', 'image/svg+xml');
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
     res.setHeader('Cache-Control', 'no-cache');
-    res.send(DEFAULT_LOGO_SVG);
+    res.send(Buffer.from(DEFAULT_LOGO_SVG, 'utf8'));
   });
 
   app.get('/api/v1/assets/favicon', (req: Request, res: Response) => {
@@ -3070,7 +3091,7 @@ export function registerApiRoutes(app: Express) {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
     res.setHeader('Cache-Control', 'no-cache');
-    res.send(DEFAULT_FAVICON_SVG);
+    res.send(Buffer.from(DEFAULT_FAVICON_SVG, 'utf8'));
   });
 
   app.get('/api/v1/settings', requireRole('SUPERADMIN'), (_req: Request, res: Response) => {
@@ -3430,7 +3451,7 @@ export function registerApiRoutes(app: Express) {
       res.setHeader('Content-Type', 'image/svg+xml');
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('Cache-Control', 'no-cache');
-      res.send(buildDefaultAvatarSvg(row.nama_lengkap, row.role || 'KARYAWAN'));
+      res.send(Buffer.from(buildDefaultAvatarSvg(row.nama_lengkap, row.role || 'KARYAWAN'), 'utf8'));
     }
   );
 
@@ -3475,7 +3496,7 @@ export function registerApiRoutes(app: Express) {
       res.setHeader('Content-Type', 'image/svg+xml');
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('Cache-Control', 'no-cache');
-      res.send(buildDefaultAvatarSvg(row.nama_lengkap, row.role));
+      res.send(Buffer.from(buildDefaultAvatarSvg(row.nama_lengkap, row.role), 'utf8'));
     }
   );
 
@@ -3522,7 +3543,7 @@ export function registerApiRoutes(app: Express) {
       res.setHeader('Content-Type', 'image/svg+xml');
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('Cache-Control', 'no-cache');
-      res.send(buildDefaultAvatarSvg(row.nama_lengkap, row.role_diminta));
+      res.send(Buffer.from(buildDefaultAvatarSvg(row.nama_lengkap, row.role_diminta), 'utf8'));
     }
   );
 

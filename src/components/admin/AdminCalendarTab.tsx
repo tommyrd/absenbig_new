@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Briefcase, CalendarDays, CalendarOff, Plus, Trash2, X } from 'lucide-react';
 import { apiFetch } from '../../lib/api';
+import { getServerWibDateString } from '../../lib/server-clock-client';
 import type {
   HakOffPengganti,
   HariLibur,
@@ -26,7 +27,7 @@ export function AdminCalendarTab() {
   // Holiday Modal
   const [holModal, setHolModal] = useState(false);
   const [holForm, setHolForm] = useState({
-    tanggal: new Date().toISOString().slice(0, 10),
+    tanggal: getServerWibDateString(),
     nama: '',
     kantor_id: '',
     dihitung_masuk: true,
@@ -36,8 +37,8 @@ export function AdminCalendarTab() {
   // Kerja Khusus Modal
   const [kkModal, setKkModal] = useState(false);
   const [kkForm, setKkForm] = useState({
-    karyawan_id: 3,
-    tanggal: new Date().toISOString().slice(0, 10),
+    karyawan_id: 0,
+    tanggal: getServerWibDateString(),
     nama_project: '',
     keterangan: '',
     jumlah_sesi: 3,
@@ -45,6 +46,7 @@ export function AdminCalendarTab() {
     berhak_off_pengganti: true,
   });
   const [formErr, setFormErr] = useState<string | null>(null);
+  const [actionErr, setActionErr] = useState<string | null>(null);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -73,29 +75,39 @@ export function AdminCalendarTab() {
   }, [loadAll]);
 
   const toggleCalendarDay = async (cal: KalenderKerja) => {
-    const nextStatus = cal.status_hari === 'HARI_KERJA' ? 'HARI_LIBUR' : 'HARI_KERJA';
-    await apiFetch(`/api/v1/calendars/${cal.id}`, {
-      method: 'PUT',
-      body: JSON.stringify({
-        status_hari: nextStatus,
-        jumlah_sesi_khusus: nextStatus === 'HARI_KERJA' ? cal.jumlah_sesi_khusus : null,
-        keterangan:
-          nextStatus === 'HARI_LIBUR' ? 'Libur Mingguan Kantor' : 'Hari Kerja Reguler',
-      }),
-    });
-    await loadAll();
+    setActionErr(null);
+    try {
+      const nextStatus = cal.status_hari === 'HARI_KERJA' ? 'HARI_LIBUR' : 'HARI_KERJA';
+      await apiFetch(`/api/v1/calendars/${cal.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          status_hari: nextStatus,
+          jumlah_sesi_khusus: nextStatus === 'HARI_KERJA' ? cal.jumlah_sesi_khusus : null,
+          keterangan:
+            nextStatus === 'HARI_LIBUR' ? 'Libur Mingguan Kantor' : 'Hari Kerja Reguler',
+        }),
+      });
+      await loadAll();
+    } catch (err) {
+      setActionErr(err instanceof Error ? err.message : 'Gagal memperbarui kalender kerja.');
+    }
   };
 
   const setSpecialSessionCount = async (cal: KalenderKerja, count: number | null) => {
-    await apiFetch(`/api/v1/calendars/${cal.id}`, {
-      method: 'PUT',
-      body: JSON.stringify({
-        status_hari: 'HARI_KERJA',
-        jumlah_sesi_khusus: count,
-        keterangan: count ? `Setengah Hari (${count} Sesi)` : 'Hari Kerja Reguler',
-      }),
-    });
-    await loadAll();
+    setActionErr(null);
+    try {
+      await apiFetch(`/api/v1/calendars/${cal.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          status_hari: 'HARI_KERJA',
+          jumlah_sesi_khusus: count,
+          keterangan: count ? `Setengah Hari (${count} Sesi)` : 'Hari Kerja Reguler',
+        }),
+      });
+      await loadAll();
+    } catch (err) {
+      setActionErr(err instanceof Error ? err.message : 'Gagal mengubah jumlah sesi khusus.');
+    }
   };
 
   const submitHoliday = async (e: FormEvent) => {
@@ -117,8 +129,13 @@ export function AdminCalendarTab() {
   };
 
   const deleteHoliday = async (id: number) => {
-    await apiFetch(`/api/v1/holidays/${id}`, { method: 'DELETE' });
-    await loadAll();
+    setActionErr(null);
+    try {
+      await apiFetch(`/api/v1/holidays/${id}`, { method: 'DELETE' });
+      await loadAll();
+    } catch (err) {
+      setActionErr(err instanceof Error ? err.message : 'Gagal menghapus hari libur.');
+    }
   };
 
   const submitSpecialWork = async (e: FormEvent) => {
@@ -137,8 +154,13 @@ export function AdminCalendarTab() {
   };
 
   const cancelSpecialWork = async (id: number) => {
-    await apiFetch(`/api/v1/special-work/${id}/cancel`, { method: 'POST' });
-    await loadAll();
+    setActionErr(null);
+    try {
+      await apiFetch(`/api/v1/special-work/${id}/cancel`, { method: 'POST' });
+      await loadAll();
+    } catch (err) {
+      setActionErr(err instanceof Error ? err.message : 'Gagal membatalkan penugasan kerja khusus.');
+    }
   };
 
   return (
@@ -157,6 +179,13 @@ export function AdminCalendarTab() {
             <button
               type="button"
               onClick={() => {
+                setHolForm({
+                  tanggal: getServerWibDateString(),
+                  nama: '',
+                  kantor_id: '',
+                  dihitung_masuk: true,
+                  keterangan: '',
+                });
                 setFormErr(null);
                 setHolModal(true);
               }}
@@ -170,6 +199,15 @@ export function AdminCalendarTab() {
             <button
               type="button"
               onClick={() => {
+                setKkForm({
+                  karyawan_id: employees[0]?.id ?? 0,
+                  tanggal: getServerWibDateString(),
+                  nama_project: '',
+                  keterangan: '',
+                  jumlah_sesi: 3,
+                  min_sesi_hadir: 2,
+                  berhak_off_pengganti: true,
+                });
                 setFormErr(null);
                 setKkModal(true);
               }}
@@ -181,6 +219,12 @@ export function AdminCalendarTab() {
           )}
         </div>
       </div>
+
+      {actionErr && (
+        <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800/70 text-xs text-red-800 dark:text-red-300">
+          {actionErr}
+        </div>
+      )}
 
       <div className="overflow-x-auto pb-1">
         <div className="inline-flex p-1 bg-slate-200/70 dark:bg-slate-800 rounded-lg gap-1 whitespace-nowrap">

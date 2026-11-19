@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 import type { MonthlySummary } from '../shared/types';
 import { apiFetch } from './api';
+import { ensureServerClockSynced, formatServerWibDateTime } from './server-clock-client';
 
 export async function exportPayrollToExcel(bulan: string, items: MonthlySummary[]) {
   const rows = items.map((s, idx) => ({
@@ -166,11 +167,12 @@ export async function exportPayrollToImage(
     ctx.fillText(String(s.rincian.totalOverride), 1065, y + 23);
   });
 
-  // Footer
+  // Footer (always uses authoritative server WIB clock)
+  await ensureServerClockSynced();
   ctx.fillStyle = '#64748b';
   ctx.font = '11px "DM Sans", sans-serif';
   ctx.fillText(
-    `Dicetak dari Sistem Absensi BIGNET · ${new Date().toLocaleString('id-ID')}`,
+    `Dicetak dari Sistem Absensi BIGNET · Waktu Server: ${formatServerWibDateTime()}`,
     32,
     height - 18
   );

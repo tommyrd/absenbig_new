@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Edit3, FileCheck2, Plus, X, XCircle } from 'lucide-react';
 import { apiFetch } from '../../lib/api';
+import { getServerWibDateString, useServerClock } from '../../lib/server-clock-client';
 import type { HakOffPengganti, Pengajuan, RequestType } from '../../shared/types';
 import { StatusBadge } from '../StatusBadge';
 
@@ -11,15 +12,17 @@ export function EmployeePengajuanPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Pengajuan | null>(null);
 
-  // Form state
+  // Form state (always seeded from server WIB date)
+  const { dateWib: serverToday } = useServerClock(30000);
   const [jenis, setJenis] = useState<RequestType>('CUTI');
-  const [tanggalMulai, setTanggalMulai] = useState(() => new Date().toISOString().slice(0, 10));
-  const [tanggalAkhir, setTanggalAkhir] = useState(() => new Date().toISOString().slice(0, 10));
+  const [tanggalMulai, setTanggalMulai] = useState(() => getServerWibDateString());
+  const [tanggalAkhir, setTanggalAkhir] = useState(() => getServerWibDateString());
   const [alasan, setAlasan] = useState('');
   const [catatan, setCatatan] = useState('');
   const [hakOffId, setHakOffId] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -44,7 +47,7 @@ export function EmployeePengajuanPage() {
   const openCreate = () => {
     setEditing(null);
     setJenis('CUTI');
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getServerWibDateString() || serverToday;
     setTanggalMulai(today);
     setTanggalAkhir(today);
     setAlasan('');
@@ -104,11 +107,16 @@ export function EmployeePengajuanPage() {
   };
 
   const handleCancel = async (req: Pengajuan) => {
-    await apiFetch(`/api/v1/requests/${req.id}/cancel`, {
-      method: 'POST',
-      body: JSON.stringify({ alasan: 'Dibatalkan oleh karyawan sebelum diproses' }),
-    });
-    await loadData();
+    setActionError(null);
+    try {
+      await apiFetch(`/api/v1/requests/${req.id}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify({ alasan: 'Dibatalkan oleh karyawan sebelum diproses' }),
+      });
+      await loadData();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Gagal membatalkan pengajuan.');
+    }
   };
 
   return (
@@ -131,6 +139,12 @@ export function EmployeePengajuanPage() {
           Buat Pengajuan
         </button>
       </div>
+
+      {actionError && (
+        <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800/70 text-xs text-red-800 dark:text-red-300">
+          {actionError}
+        </div>
+      )}
 
       {/* Off Pengganti Rights Wallet */}
       {offRights.length > 0 && (
@@ -160,7 +174,7 @@ export function EmployeePengajuanPage() {
                     onClick={() => {
                       setEditing(null);
                       setJenis('OFF_PENGGANTI');
-                      const today = new Date().toISOString().slice(0, 10);
+                      const today = getServerWibDateString() || serverToday;
                       setTanggalMulai(today);
                       setTanggalAkhir(today);
                       setHakOffId(String(r.id));

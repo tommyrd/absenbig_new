@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Check, Plus, X } from 'lucide-react';
 import { apiFetch } from '../../lib/api';
+import { getServerWibDateString } from '../../lib/server-clock-client';
 import type { Karyawan, Pengajuan, RequestType } from '../../shared/types';
 import { DataTable, type ColumnDef } from '../DataTable';
 import { StatusBadge } from '../StatusBadge';
@@ -24,14 +25,15 @@ export function AdminApprovalTab() {
   // Admin Create On Behalf Modal
   const [createModal, setCreateModal] = useState(false);
   const [createForm, setCreateForm] = useState({
-    karyawanId: 3,
+    karyawanId: 0,
     jenis: 'IZIN' as RequestType,
-    tanggalMulai: new Date().toISOString().slice(0, 10),
-    tanggalAkhir: new Date().toISOString().slice(0, 10),
+    tanggalMulai: getServerWibDateString(),
+    tanggalAkhir: getServerWibDateString(),
     alasan: '',
     catatan: '',
   });
   const [createErr, setCreateErr] = useState<string | null>(null);
+  const [decisionErr, setDecisionErr] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -61,6 +63,7 @@ export function AdminApprovalTab() {
     e.preventDefault();
     if (!decisionTarget) return;
     setSubmitting(true);
+    setDecisionErr(null);
     try {
       await apiFetch(`/api/v1/requests/${decisionTarget.req.id}/decide`, {
         method: 'POST',
@@ -72,17 +75,24 @@ export function AdminApprovalTab() {
       setDecisionTarget(null);
       setDecisionReason('');
       await loadData();
+    } catch (err) {
+      setDecisionErr(err instanceof Error ? err.message : 'Gagal memproses keputusan pengajuan.');
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleAdminCancel = async (req: Pengajuan) => {
-    await apiFetch(`/api/v1/requests/${req.id}/cancel`, {
-      method: 'POST',
-      body: JSON.stringify({ alasan: 'Dibatalkan oleh Admin karena perubahan jadwal kerja' }),
-    });
-    await loadData();
+    setError(null);
+    try {
+      await apiFetch(`/api/v1/requests/${req.id}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify({ alasan: 'Dibatalkan oleh Admin karena perubahan jadwal kerja' }),
+      });
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal membatalkan status pengajuan.');
+    }
   };
 
   const submitCreate = async (e: FormEvent) => {
@@ -210,6 +220,15 @@ export function AdminApprovalTab() {
         <button
           type="button"
           onClick={() => {
+            const today = getServerWibDateString();
+            setCreateForm({
+              karyawanId: employees[0]?.id ?? 0,
+              jenis: 'IZIN',
+              tanggalMulai: today,
+              tanggalAkhir: today,
+              alasan: '',
+              catatan: '',
+            });
             setCreateErr(null);
             setCreateModal(true);
           }}
@@ -219,6 +238,12 @@ export function AdminApprovalTab() {
           Buat Atas Nama Karyawan
         </button>
       </div>
+
+      {decisionErr && (
+        <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800/70 text-xs text-red-800 dark:text-red-300">
+          {decisionErr}
+        </div>
+      )}
 
       <DataTable
         data={requests}

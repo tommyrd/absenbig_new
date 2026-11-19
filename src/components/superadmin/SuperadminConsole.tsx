@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { apiFetch, getAuthorizedPhotoUrl } from '../../lib/api';
 import { exportPayrollToExcel, exportPayrollToImage } from '../../lib/exportUtils';
+import { getServerWibYearMonth, useServerClock } from '../../lib/server-clock-client';
 import type {
   AuditLog,
   AuthUser,
@@ -88,6 +89,15 @@ interface SuperadminConsoleProps {
   onLogout: () => void;
 }
 
+function formatAuditJson(raw: string | null): string {
+  if (!raw) return 'null';
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2);
+  } catch {
+    return raw;
+  }
+}
+
 export function SuperadminConsole({
   user,
   settings,
@@ -95,18 +105,10 @@ export function SuperadminConsole({
   onSettingsUpdated,
   onLogout,
 }: SuperadminConsoleProps) {
+  const { yearMonthWib: serverYearMonth } = useServerClock(60000);
   const [tab, setTab] = useState<SuperTab>('beranda');
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [bulan, setBulan] = useState(() => {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Jakarta',
-      year: 'numeric',
-      month: '2-digit',
-    }).formatToParts(new Date());
-    const y = parts.find((p) => p.type === 'year')?.value ?? '2026';
-    const m = parts.find((p) => p.type === 'month')?.value ?? '11';
-    return `${y}-${m}`;
-  });
+  const [bulan, setBulan] = useState(() => getServerWibYearMonth());
 
   const [overview, setOverview] = useState<OverviewPayload | null>(null);
   const [audits, setAudits] = useState<AuditLog[]>([]);
@@ -120,7 +122,14 @@ export function SuperadminConsole({
   const [selectedAudit, setSelectedAudit] = useState<AuditLog | null>(null);
   const [selectedEvidence, setSelectedEvidence] = useState<EvidenceRow | null>(null);
 
+  useEffect(() => {
+    if (!bulan && serverYearMonth) {
+      setBulan(serverYearMonth);
+    }
+  }, [bulan, serverYearMonth]);
+
   const loadAll = useCallback(async () => {
+    if (!bulan) return;
     setLoading(true);
     try {
       const auditQs = new URLSearchParams();
@@ -918,9 +927,7 @@ export function SuperadminConsole({
                     Before Snapshot
                   </p>
                   <pre className="p-3 rounded-lg bg-slate-950 text-slate-200 font-mono text-[11px] overflow-x-auto">
-                    {selectedAudit.before_json
-                      ? JSON.stringify(JSON.parse(selectedAudit.before_json), null, 2)
-                      : 'null'}
+                    {formatAuditJson(selectedAudit.before_json)}
                   </pre>
                 </div>
                 <div>
@@ -928,9 +935,7 @@ export function SuperadminConsole({
                     After Snapshot
                   </p>
                   <pre className="p-3 rounded-lg bg-slate-950 text-emerald-300 font-mono text-[11px] overflow-x-auto">
-                    {selectedAudit.after_json
-                      ? JSON.stringify(JSON.parse(selectedAudit.after_json), null, 2)
-                      : 'null'}
+                    {formatAuditJson(selectedAudit.after_json)}
                   </pre>
                 </div>
               </div>

@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import http from 'node:http';
 import test from 'node:test';
 import express from 'express';
 import { signToken } from '../src/server/auth.ts';
-import { getDb } from '../src/server/db.ts';
+import { closeDb, getDb } from '../src/server/db.ts';
 import { registerApiRoutes } from '../src/server/routes.ts';
 import { runMigrations } from '../src/server/db/migrations.ts';
 import {
@@ -21,6 +24,20 @@ import { getSessionWindowState } from '../src/shared/session-window.ts';
 import { createServerClockSync, getEstimatedServerEpochMs } from '../src/shared/server-clock.ts';
 import { shouldOpenAttendanceOnEntry } from '../src/shared/employee-entry.ts';
 import { getHistoryCalendarStatus } from '../src/shared/history-calendar.ts';
+import { formatServerEpochPartsInWib } from '../src/lib/server-clock-client.ts';
+
+// Isolate core test suite to a temporary SQLite directory so running `npm test`
+// never mutates the live application database.
+const CORE_TEST_TMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'bignet-core-test-'));
+process.env.DATA_DIR = CORE_TEST_TMP_DIR;
+process.env.DB_PATH = path.join(CORE_TEST_TMP_DIR, 'core_test.db');
+process.env.SEED_DEMO_DATA = 'true';
+process.env.ALLOW_DEMO_LOGIN = 'true';
+
+test.after(() => {
+  closeDb();
+  fs.rmSync(CORE_TEST_TMP_DIR, { recursive: true, force: true });
+});
 
 test('Migration detaches legacy Superadmin from employees and archives its old profile', () => {
   const db = new DatabaseSync(':memory:');
@@ -610,4 +627,15 @@ test('System settings API strictly enforces SUPERADMIN access while keeping publ
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
+});
+
+test('Server clock client formats authoritative server epoch strictly in Asia/Jakarta WIB regardless of host timezone', () => {
+  // 2026-11-18T18:30:45Z is 2026-11-19 01:30:45 WIB (next calendar day in Jakarta)
+  const utcInstant = Date.UTC(2026, 10, 18, 18, 30, 45);
+  const parts = formatServerEpochPartsInWib(utcInstant);
+  assert.equal(parts.dateWib, '2026-11-19');
+  assert.equal(parts.yearMonthWib, '2026-11');
+  assert.equal(parts.timeWib, '01:30:45');
+  assert.equal(parts.hmWib, '01:30');
+  assert.match(parts.dateTimeLabelWib, /01:30:45 WIB$/);
 });

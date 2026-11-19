@@ -10,21 +10,14 @@ import {
 } from 'lucide-react';
 import { apiFetch, getAuthorizedPhotoUrl } from '../../lib/api';
 import { exportPayrollToExcel, exportPayrollToImage } from '../../lib/exportUtils';
+import { getServerWibYearMonth, useServerClock } from '../../lib/server-clock-client';
 import type { BidangKerja, Kantor, MonthlySummary, PeriodePayroll, ResolvedDay } from '../../shared/types';
 import { DataTable, type ColumnDef } from '../DataTable';
 import { StatusBadge } from '../StatusBadge';
 
 export function AdminPayrollTab() {
-  const [bulan, setBulan] = useState(() => {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Jakarta',
-      year: 'numeric',
-      month: '2-digit',
-    }).formatToParts(new Date());
-    const y = parts.find((p) => p.type === 'year')?.value ?? '2026';
-    const m = parts.find((p) => p.type === 'month')?.value ?? '11';
-    return `${y}-${m}`;
-  });
+  const { yearMonthWib: serverYearMonth } = useServerClock(60000);
+  const [bulan, setBulan] = useState(() => getServerWibYearMonth());
 
   const [summaries, setSummaries] = useState<MonthlySummary[]>([]);
   const [period, setPeriod] = useState<PeriodePayroll | null>(null);
@@ -54,8 +47,16 @@ export function AdminPayrollTab() {
   const [closeModal, setCloseModal] = useState(false);
   const [closeNote, setCloseNote] = useState('Rekap kehadiran dan override telah divalidasi.');
   const [closing, setClosing] = useState(false);
+  const [closeErr, setCloseErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!bulan && serverYearMonth) {
+      setBulan(serverYearMonth);
+    }
+  }, [bulan, serverYearMonth]);
 
   const loadSummary = useCallback(async () => {
+    if (!bulan) return;
     setLoading(true);
     setError(null);
     try {
@@ -74,20 +75,19 @@ export function AdminPayrollTab() {
       setOffices(off.items);
       setBidangList(bid.items);
 
-      if (inspectSummary) {
-        const refreshed = res.items.find((s) => s.karyawanId === inspectSummary.karyawanId) || null;
-        setInspectSummary(refreshed);
-      }
+      setInspectSummary((prev) =>
+        prev ? res.items.find((s) => s.karyawanId === prev.karyawanId) || null : null
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal memuat rekap payroll.');
     } finally {
       setLoading(false);
     }
-  }, [bulan, kantorId, bidangId, inspectSummary]);
+  }, [bulan, kantorId, bidangId]);
 
   useEffect(() => {
-    loadSummary();
-  }, [bulan, kantorId, bidangId]);
+    void loadSummary();
+  }, [loadSummary]);
 
   const submitOverride = async (e: FormEvent) => {
     e.preventDefault();
@@ -119,6 +119,7 @@ export function AdminPayrollTab() {
   const handleClosePeriod = async (e: FormEvent) => {
     e.preventDefault();
     setClosing(true);
+    setCloseErr(null);
     try {
       await apiFetch('/api/v1/payroll/close', {
         method: 'POST',
@@ -126,6 +127,8 @@ export function AdminPayrollTab() {
       });
       setCloseModal(false);
       await loadSummary();
+    } catch (err) {
+      setCloseErr(err instanceof Error ? err.message : 'Gagal menutup periode payroll.');
     } finally {
       setClosing(false);
     }
@@ -575,6 +578,11 @@ export function AdminPayrollTab() {
               </button>
             </div>
             <form onSubmit={handleClosePeriod} className="p-5 space-y-4 overflow-y-auto">
+              {closeErr && (
+                <div className="p-3 rounded-lg bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800/70 text-xs text-red-800 dark:text-red-300">
+                  {closeErr}
+                </div>
+              )}
               <div className="p-3.5 rounded-lg bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 text-xs space-y-1 text-slate-700 dark:text-slate-300">
                 <p>Total Karyawan: <strong className="text-slate-900 dark:text-slate-100">{summaries.length}</strong></p>
                 <p>Snapshot HARI MASUK: <strong className="text-emerald-700 dark:text-emerald-400">{totalMasuk} hari</strong></p>

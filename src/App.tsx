@@ -4,6 +4,7 @@
  */
 import { useEffect, useLayoutEffect, useState } from 'react';
 import { apiFetch, getStoredToken, logoutApi } from './lib/api';
+import { initServerClock } from './lib/server-clock-client';
 import { useTheme } from './lib/theme';
 import type { AuthUser, SystemSettings } from './shared/types';
 import { LoginView } from './components/LoginView';
@@ -36,7 +37,8 @@ export default function App() {
   }, [user?.id, user?.role]);
 
   useEffect(() => {
-    apiFetch<{ settings: SystemSettings | null }>('/api/v1/settings/public')
+    const clockPromise = initServerClock().catch(() => false);
+    const settingsPromise = apiFetch<{ settings: SystemSettings | null }>('/api/v1/settings/public')
       .then((res) => {
         if (res.settings) {
           setSettings(res.settings);
@@ -46,14 +48,15 @@ export default function App() {
       .catch(() => {});
 
     const token = getStoredToken();
-    if (!token) {
+    const authPromise = token
+      ? apiFetch<{ user: AuthUser }>('/api/v1/auth/me')
+          .then((res) => setUser(res.user))
+          .catch(() => setUser(null))
+      : Promise.resolve();
+
+    void Promise.all([clockPromise, settingsPromise, authPromise]).finally(() => {
       setChecking(false);
-      return;
-    }
-    apiFetch<{ user: AuthUser }>('/api/v1/auth/me')
-      .then((res) => setUser(res.user))
-      .catch(() => setUser(null))
-      .finally(() => setChecking(false));
+    });
   }, []);
 
   useEffect(() => {

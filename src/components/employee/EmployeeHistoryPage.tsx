@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Calendar, Image as ImageIcon, MapPin, ShieldAlert, X } from 'lucide-react';
 import { apiFetch, getAuthorizedPhotoUrl } from '../../lib/api';
+import { getServerWibYearMonth, useServerClock } from '../../lib/server-clock-client';
 import type { AbsensiSesiRecord, MonthlySummary } from '../../shared/types';
 import { getHistoryCalendarStatus, type HistoryCalendarStatus } from '../../shared/history-calendar';
 import { StatusBadge } from '../StatusBadge';
@@ -67,24 +68,22 @@ const HISTORY_CALENDAR_STYLES: Record<
 };
 
 export function EmployeeHistoryPage() {
-  const [bulan, setBulan] = useState(() => {
-    const now = new Date();
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Jakarta',
-      year: 'numeric',
-      month: '2-digit',
-    }).formatToParts(now);
-    const y = parts.find((p) => p.type === 'year')?.value ?? '2026';
-    const m = parts.find((p) => p.type === 'month')?.value ?? '11';
-    return `${y}-${m}`;
-  });
+  const { yearMonthWib: serverYearMonth } = useServerClock(60000);
+  const [bulan, setBulan] = useState(() => getServerWibYearMonth());
   const [summary, setSummary] = useState<MonthlySummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [previewSession, setPreviewSession] = useState<AbsensiSesiRecord | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!bulan && serverYearMonth) {
+      setBulan(serverYearMonth);
+    }
+  }, [bulan, serverYearMonth]);
+
   const loadHistory = useCallback(async () => {
+    if (!bulan) return;
     setLoading(true);
     setError(null);
     try {
@@ -103,23 +102,30 @@ export function EmployeeHistoryPage() {
     loadHistory();
   }, [loadHistory]);
 
-  const [yearPart, monthPart] = bulan.split('-');
+  const validMonth = /^\d{4}-\d{2}$/.test(bulan);
+  const [yearPart, monthPart] = validMonth ? bulan.split('-') : ['2026', '01'];
   const calendarYear = Number(yearPart);
   const calendarMonth = Number(monthPart);
-  const monthDayCount = new Date(Date.UTC(calendarYear, calendarMonth, 0)).getUTCDate();
+  const monthDayCount = validMonth ? new Date(Date.UTC(calendarYear, calendarMonth, 0)).getUTCDate() : 0;
   // Calendar is Monday-first to match the Indonesian work-week layout.
-  const firstWeekdayOffset = (new Date(Date.UTC(calendarYear, calendarMonth - 1, 1)).getUTCDay() + 6) % 7;
-  const calendarCells: (number | null)[] = [
-    ...Array.from({ length: firstWeekdayOffset }, () => null),
-    ...Array.from({ length: monthDayCount }, (_, index) => index + 1),
-  ];
+  const firstWeekdayOffset = validMonth
+    ? (new Date(Date.UTC(calendarYear, calendarMonth - 1, 1)).getUTCDay() + 6) % 7
+    : 0;
+  const calendarCells: (number | null)[] = validMonth
+    ? [
+        ...Array.from({ length: firstWeekdayOffset }, () => null),
+        ...Array.from({ length: monthDayCount }, (_, index) => index + 1),
+      ]
+    : [];
   while (calendarCells.length % 7 !== 0) calendarCells.push(null);
 
-  const monthTitle = new Intl.DateTimeFormat('id-ID', {
-    month: 'long',
-    year: 'numeric',
-    timeZone: 'UTC',
-  }).format(new Date(Date.UTC(calendarYear, calendarMonth - 1, 1)));
+  const monthTitle = validMonth
+    ? new Intl.DateTimeFormat('id-ID', {
+        month: 'long',
+        year: 'numeric',
+        timeZone: 'UTC',
+      }).format(new Date(Date.UTC(calendarYear, calendarMonth - 1, 1)))
+    : 'Menyinkronkan waktu server...';
   const dayByDate = new Map((summary?.days || []).map((day) => [day.tanggal, day] as const));
   const selectedDay = selectedDate
     ? summary?.days.find((day) => day.tanggal === selectedDate) || null

@@ -51,6 +51,7 @@ function formatDateLabel(ymd: string, todayYmd?: string): string {
   const [y, m, d] = ymd.split('-').map(Number);
   if (!y || !m || !d) return ymd;
   return new Intl.DateTimeFormat('id-ID', {
+    timeZone: 'UTC',
     day: 'numeric',
     month: 'short',
   }).format(new Date(Date.UTC(y, m - 1, d)));

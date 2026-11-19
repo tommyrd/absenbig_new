@@ -1,7 +1,7 @@
 import type { AuthUser } from '../shared/types';
 
 const TOKEN_KEY = 'bignet_auth_token';
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
+const API_BASE = ((import.meta as { env?: Record<string, string | undefined> }).env?.VITE_API_BASE_URL || '').replace(/\/+$/, '');
 
 export function buildApiUrl(path: string): string {
   if (/^https?:\/\//i.test(path)) return path;

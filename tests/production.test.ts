@@ -224,7 +224,7 @@ test('2. Health check and initial Superadmin authentication work with HttpOnly c
   superToken = okLogin.data.token;
 
   // The standalone owner account can upload, display, and reset its own profile photo without an employee profile.
-  const owner = db.prepare(`SELECT id, karyawan_id FROM pengguna WHERE username = 'owner_prod'`)
+  const owner = getDb().prepare(`SELECT id, karyawan_id FROM pengguna WHERE username = 'owner_prod'`)
     .get() as { id: number; karyawan_id: number | null };
   assert.equal(owner.karyawan_id, null);
   const ownerPhoto = await apiJson<{ user: { karyawan_id: number | null; has_foto_profil: boolean } }>(
@@ -468,7 +468,7 @@ test('5. Authorization boundaries, query-token restriction, logout jti & token_v
   const savedField = getDb().prepare(
     `SELECT kode, nama, deskripsi FROM bidang_kerja WHERE id = ?`
   ).get(createField.data.id) as { kode: string; nama: string; deskripsi: string };
-  assert.deepEqual(savedField, {
+  assert.deepEqual({ ...savedField }, {
     kode: 'QA_OPS',
     nama: 'Operasional QA',
     deskripsi: 'Diperbarui oleh Admin operasional',

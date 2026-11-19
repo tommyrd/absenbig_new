@@ -188,34 +188,45 @@ export function AdminMasterTab() {
     }
   };
 
-  const deleteOffice = async (office: Kantor) => {
-    if (office.can_delete !== true || deletingItem) return;
-    const confirmed = window.confirm(
-      `Hapus kantor "${office.nama}" (${office.kode})? Pengaturan kalender mingguan kantor ini juga akan dihapus. Tindakan ini tidak dapat dibatalkan.`
-    );
-    if (!confirmed) return;
+  const [pendingDelete, setPendingDelete] = useState<
+    | { kind: 'office'; item: Kantor }
+    | { kind: 'bidang'; item: BidangKerja }
+    | null
+  >(null);
 
-    setDeletingItem(`office:${office.id}`);
-    setDeleteError(null);
-    setDeleteNotice(null);
-    try {
-      await apiFetch(`/api/v1/master/offices/${office.id}`, { method: 'DELETE' });
-      setDeleteNotice(`Kantor "${office.nama}" berhasil dihapus.`);
-      await loadAll();
-    } catch (err) {
-      setDeleteError(err instanceof Error ? err.message : 'Gagal menghapus kantor.');
-    } finally {
-      setDeletingItem(null);
-    }
+  const deleteOffice = (office: Kantor) => {
+    if (office.can_delete !== true || deletingItem) return;
+    setPendingDelete({ kind: 'office', item: office });
   };
 
-  const deleteBidang = async (bidang: BidangKerja) => {
+  const deleteBidang = (bidang: BidangKerja) => {
     if (bidang.can_delete !== true || deletingItem) return;
-    const confirmed = window.confirm(
-      `Hapus bidang kerja "${bidang.nama}" (${bidang.kode})? Tindakan ini tidak dapat dibatalkan.`
-    );
-    if (!confirmed) return;
+    setPendingDelete({ kind: 'bidang', item: bidang });
+  };
 
+  const confirmPendingDelete = async () => {
+    if (!pendingDelete || deletingItem) return;
+    const target = pendingDelete;
+    setPendingDelete(null);
+
+    if (target.kind === 'office') {
+      const office = target.item;
+      setDeletingItem(`office:${office.id}`);
+      setDeleteError(null);
+      setDeleteNotice(null);
+      try {
+        await apiFetch(`/api/v1/master/offices/${office.id}`, { method: 'DELETE' });
+        setDeleteNotice(`Kantor "${office.nama}" berhasil dihapus.`);
+        await loadAll();
+      } catch (err) {
+        setDeleteError(err instanceof Error ? err.message : 'Gagal menghapus kantor.');
+      } finally {
+        setDeletingItem(null);
+      }
+      return;
+    }
+
+    const bidang = target.item;
     setDeletingItem(`bidang:${bidang.id}`);
     setDeleteError(null);
     setDeleteNotice(null);
@@ -964,6 +975,47 @@ export function AdminMasterTab() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {pendingDelete && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <h2 className="font-display text-base font-bold text-slate-900 dark:text-slate-100">
+                {pendingDelete.kind === 'office' ? 'Konfirmasi Hapus Kantor' : 'Konfirmasi Hapus Bidang'}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setPendingDelete(null)}
+                className="min-w-[40px] min-h-[40px] flex items-center justify-center"
+              >
+                <X className="w-5 h-5 text-slate-500 dark:text-slate-400" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+                {pendingDelete.kind === 'office'
+                  ? `Hapus kantor "${pendingDelete.item.nama}" (${pendingDelete.item.kode})? Pengaturan kalender mingguan kantor ini juga akan dihapus. Tindakan ini tidak dapat dibatalkan.`
+                  : `Hapus bidang kerja "${pendingDelete.item.nama}" (${pendingDelete.item.kode})? Tindakan ini tidak dapat dibatalkan.`}
+              </p>
+              <div className="flex flex-col-reverse sm:flex-row justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPendingDelete(null)}
+                  className="min-h-[44px] sm:min-h-[40px] px-4 text-xs font-semibold border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-lg"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void confirmPendingDelete()}
+                  className="min-h-[44px] sm:min-h-[40px] px-5 text-xs font-semibold bg-red-700 hover:bg-red-800 text-white rounded-lg"
+                >
+                  Ya, Hapus Permanen
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

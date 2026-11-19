@@ -251,9 +251,7 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  <div className="hidden sm:block">
-                    <ServerClock compact onDark />
-                  </div>
+                  <ServerClock compact onDark />
                   <ThemeToggle onDark />
                 </div>
               </div>

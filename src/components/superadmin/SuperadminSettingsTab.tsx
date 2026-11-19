@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   CheckCircle2,
   Image as ImageIcon,
@@ -31,12 +31,18 @@ export function SuperadminSettingsTab({ onSettingsUpdated }: SuperadminSettingsT
   const [wajibGpsAbsensi, setWajibGpsAbsensi] = useState(true);
   const [izinDemoLogin, setIzinDemoLogin] = useState(true);
 
-  const [logoPreview, setLogoPreview] = useState<string>(`/api/v1/assets/logo?v=${Date.now()}`);
+  const assetVersionRef = useRef(1);
+  const nextAssetVersion = () => {
+    assetVersionRef.current += 1;
+    return String(assetVersionRef.current);
+  };
+
+  const [logoPreview, setLogoPreview] = useState<string>('/api/v1/assets/logo?v=init');
   const [pendingLogoBase64, setPendingLogoBase64] = useState<string | null>(null);
   const [resetLogo, setResetLogo] = useState(false);
   const [hasCustomLogo, setHasCustomLogo] = useState(false);
 
-  const [faviconPreview, setFaviconPreview] = useState<string>(`/api/v1/assets/favicon?v=${Date.now()}`);
+  const [faviconPreview, setFaviconPreview] = useState<string>('/api/v1/assets/favicon?v=init');
   const [pendingFaviconBase64, setPendingFaviconBase64] = useState<string | null>(null);
   const [resetFavicon, setResetFavicon] = useState(false);
   const [hasCustomFavicon, setHasCustomFavicon] = useState(false);
@@ -90,7 +96,7 @@ export function SuperadminSettingsTab({ onSettingsUpdated }: SuperadminSettingsT
   const handleResetLogo = () => {
     setPendingLogoBase64(null);
     setResetLogo(true);
-    setLogoPreview(`/api/v1/assets/logo?reset=1&v=${Date.now()}`);
+    setLogoPreview(`/api/v1/assets/logo?reset=1&v=${nextAssetVersion()}`);
   };
 
   const handleFaviconFile = (file: File | undefined) => {
@@ -134,7 +140,7 @@ export function SuperadminSettingsTab({ onSettingsUpdated }: SuperadminSettingsT
   const handleResetFavicon = () => {
     setPendingFaviconBase64(null);
     setResetFavicon(true);
-    setFaviconPreview(`/api/v1/assets/favicon?reset=1&v=${Date.now()}`);
+    setFaviconPreview(`/api/v1/assets/favicon?reset=1&v=${nextAssetVersion()}`);
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -165,13 +171,13 @@ export function SuperadminSettingsTab({ onSettingsUpdated }: SuperadminSettingsT
       setResetLogo(false);
       setHasCustomLogo(res.settings.has_custom_logo);
       setLogoPreview(
-        `/api/v1/assets/logo?v=${encodeURIComponent(res.settings.logo_updated_at || String(Date.now()))}`
+        `/api/v1/assets/logo?v=${encodeURIComponent(res.settings.logo_updated_at || nextAssetVersion())}`
       );
       setPendingFaviconBase64(null);
       setResetFavicon(false);
       setHasCustomFavicon(res.settings.has_custom_favicon);
       setFaviconPreview(
-        `/api/v1/assets/favicon?v=${encodeURIComponent(res.settings.favicon_updated_at || String(Date.now()))}`
+        `/api/v1/assets/favicon?v=${encodeURIComponent(res.settings.favicon_updated_at || nextAssetVersion())}`
       );
       onSettingsUpdated(res.settings);
       setMsg({

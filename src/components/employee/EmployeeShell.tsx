@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import { apiFetch } from '../../lib/api';
+import { useServerClock } from '../../lib/server-clock-client';
 import type { AuthUser, ResolvedDay, SystemSettings } from '../../shared/types';
 import { shouldOpenAttendanceOnEntry } from '../../shared/employee-entry';
 import { ServerClock } from '../ServerClock';
@@ -155,18 +156,13 @@ export function EmployeeShell({
     return () => window.clearInterval(timerId);
   }, [fetchToday, tab]);
 
-  const nowWibHm =
-    serverWibHm ||
-    new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'Asia/Jakarta',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }).format(new Date());
+  const serverClock = useServerClock(5000);
+  const nowWibHm = serverClock.synced && serverClock.hmWib ? serverClock.hmWib : serverWibHm;
 
   const showIncompleteReminder =
     tab !== 'absensi' &&
     myDay !== null &&
+    Boolean(nowWibHm) &&
     shouldOpenAttendanceOnEntry(myDay, `${nowWibHm}:00`);
 
   if (!initialRouteReady) {
