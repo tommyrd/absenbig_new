@@ -64,7 +64,6 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
   const [regHp, setRegHp] = useState('');
   const [regKantorId, setRegKantorId] = useState<number>(1);
   const [regBidangId, setRegBidangId] = useState<number>(1);
-  const [regJabatan, setRegJabatan] = useState('Teknisi Lapangan');
   const [regCatatan, setRegCatatan] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regConfirmPassword, setRegConfirmPassword] = useState('');
@@ -90,14 +89,9 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
 
   const handleSelectRegRole = (nextRole: 'KARYAWAN' | 'ADMIN') => {
     setRegRole(nextRole);
-    if (nextRole === 'ADMIN') {
-      const admBidang = bidangList.find((b) => b.kode === 'ADM');
-      if (admBidang) setRegBidangId(admBidang.id);
-      setRegJabatan('Operator');
-    } else {
+    if (nextRole === 'KARYAWAN') {
       const tekBidang = bidangList.find((b) => b.kode === 'TEK') || bidangList[0];
       if (tekBidang) setRegBidangId(tekBidang.id);
-      setRegJabatan('Teknisi Lapangan');
     }
   };
 
@@ -165,7 +159,6 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
           no_hp: regHp,
           password: regPassword,
           role_diminta: regRole,
-          jabatan: regJabatan,
           kantor_id: regKantorId,
           bidang_id: regRole === 'KARYAWAN' ? regBidangId : null,
           catatan_pendaftar: regCatatan,
@@ -672,21 +665,6 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
                         </select>
                       </div>
                     )}
-                  </div>
-
-                  <div>
-                    <label htmlFor="register-position" className={labelClass}>
-                      Jabatan / Posisi
-                    </label>
-                    <input
-                      id="register-position"
-                      type="text"
-                      required
-                      value={regJabatan}
-                      onChange={(e) => setRegJabatan(e.target.value)}
-                      placeholder="contoh: Teknisi Fiber Optik"
-                      className={regInputClass}
-                    />
                   </div>
 
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

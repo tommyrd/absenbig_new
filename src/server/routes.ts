@@ -511,15 +511,17 @@ export function registerApiRoutes(app: Express) {
     }
 
     let resolvedBidangId: number | null = null;
+    let resolvedBidangNama: string | null = null;
     if (requestedRole === 'KARYAWAN') {
       const bidangRow = db
-        .prepare(`SELECT id FROM bidang_kerja WHERE id = ?`)
-        .get(Number(bidang_id)) as { id: number } | undefined;
+        .prepare(`SELECT id, nama FROM bidang_kerja WHERE id = ?`)
+        .get(Number(bidang_id)) as { id: number; nama: string } | undefined;
       if (!bidangRow) {
         res.status(400).json({ error: 'Pilihan bidang kerja wajib valid untuk Karyawan.' });
         return;
       }
       resolvedBidangId = bidangRow.id;
+      resolvedBidangNama = bidangRow.nama;
     } else {
       // Operator (ADMIN) does not select a bidang kerja on the form; assign internal fallback FK
       const fallbackBidang = db
@@ -572,7 +574,7 @@ export function registerApiRoutes(app: Express) {
     const nowIso = getWibIsoString();
     const defaultJabatan =
       (jabatan || '').trim() ||
-      (requestedRole === 'ADMIN' ? 'Operator' : 'Teknisi Lapangan');
+      (requestedRole === 'ADMIN' ? 'Operator' : resolvedBidangNama || 'Karyawan');
 
     const info = db
       .prepare(
@@ -608,8 +610,9 @@ export function registerApiRoutes(app: Express) {
         username: cleanUser,
         email: cleanEmail,
         role_diminta: requestedRole,
+        jabatan: defaultJabatan,
         kantor_id: Number(kantor_id),
-        bidang_id: Number(bidang_id),
+        bidang_id: requestedRole === 'KARYAWAN' ? resolvedBidangId : null,
         status: 'PENDING',
       },
       alasan: (catatan_pendaftar || '').trim() || `Pendaftaran akun ${requestedRole} menunggu ACC Superadmin`,
@@ -4807,7 +4810,16 @@ export function registerApiRoutes(app: Express) {
         body.role === 'ADMIN' ? 'ADMIN' : body.role === 'KARYAWAN' ? 'KARYAWAN' : reg.role_diminta;
       const finalKantor = Number(body.kantor_id) || reg.kantor_id;
       const finalBidang = Number(body.bidang_id) || reg.bidang_id;
-      const finalJabatan = (body.jabatan || '').trim() || reg.jabatan || 'Staff';
+      let derivedJabatan = reg.jabatan || 'Karyawan';
+      if (finalRole === 'ADMIN') {
+        derivedJabatan = 'Operator';
+      } else {
+        const bidangRow = db
+          .prepare(`SELECT nama FROM bidang_kerja WHERE id = ?`)
+          .get(finalBidang) as { nama: string } | undefined;
+        derivedJabatan = bidangRow?.nama || reg.jabatan || 'Karyawan';
+      }
+      const finalJabatan = (body.jabatan || '').trim() || derivedJabatan;
       const nowIso = getWibIsoString();
       const today = getWibDateString();
 

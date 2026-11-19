@@ -56,7 +56,6 @@ export function SuperadminAccountsTab({
     role: 'KARYAWAN' as 'KARYAWAN' | 'ADMIN',
     kantor_id: 1,
     bidang_id: 1,
-    jabatan: '',
     alasan_keputusan: 'Disetujui Superadmin — akun aktif digunakan',
   });
 
@@ -135,7 +134,6 @@ export function SuperadminAccountsTab({
       role: r.role_diminta,
       kantor_id: r.kantor_id,
       bidang_id: r.bidang_id,
-      jabatan: r.jabatan,
       alasan_keputusan: 'Disetujui Superadmin — akun aktif digunakan',
     });
     setModalErr(null);
@@ -151,7 +149,13 @@ export function SuperadminAccountsTab({
         `/api/v1/superadmin/registrations/${approveTarget.id}/approve`,
         {
           method: 'POST',
-          body: JSON.stringify(approveForm),
+          body: JSON.stringify({
+            nik: approveForm.nik,
+            role: approveForm.role,
+            kantor_id: approveForm.kantor_id,
+            bidang_id: approveForm.role === 'KARYAWAN' ? approveForm.bidang_id : undefined,
+            alasan_keputusan: approveForm.alasan_keputusan,
+          }),
         }
       );
       setApproveTarget(null);
@@ -352,7 +356,9 @@ export function SuperadminAccountsTab({
           <p className="font-bold text-navy-900 dark:text-brand-400">
             {r.role_diminta === 'ADMIN' ? 'Operator' : 'Karyawan'}
           </p>
-          <p className="text-slate-500 dark:text-slate-400">{r.jabatan}</p>
+          {r.role_diminta === 'KARYAWAN' && r.jabatan && (
+            <p className="text-slate-500 dark:text-slate-400">{r.jabatan}</p>
+          )}
         </div>
       ),
     },
@@ -826,19 +832,6 @@ export function SuperadminAccountsTab({
                     </select>
                   </div>
                 )}
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Jabatan
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={approveForm.jabatan}
-                  onChange={(e) => setApproveForm({ ...approveForm, jabatan: e.target.value })}
-                  className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg"
-                />
               </div>
 
               <div>
