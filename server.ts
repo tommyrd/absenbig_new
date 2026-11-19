@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import fs from 'node:fs';
+import http from 'node:http';
 import path from 'node:path';
 import { closeDb, getDb } from './src/server/db.ts';
 import { registerApiRoutes } from './src/server/routes.ts';
@@ -27,6 +28,7 @@ function parseAllowedOrigins(): Set<string> {
 
 async function startServer() {
   const app = express();
+  const httpServer = http.createServer(app);
   const port = Number(process.env.PORT) || 3000;
   const host = process.env.HOST || '0.0.0.0';
   const isProd = process.env.NODE_ENV === 'production';
@@ -76,8 +78,32 @@ async function startServer() {
 
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');
+    const hmrDisabled = process.env.DISABLE_HMR === 'true';
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      plugins: hmrDisabled
+        ? [
+            {
+              name: 'disable-hmr-websocket-client',
+              transform(code, id) {
+                if (id.endsWith('/client/client.mjs') || id.includes('@vite/client')) {
+                  return {
+                    code: code.replace(
+                      'transport.connect(createHMRHandler(handleMessage));',
+                      '/* HMR WebSocket disabled via DISABLE_HMR=true */'
+                    ),
+                    map: null,
+                  };
+                }
+                return null;
+              },
+            },
+          ]
+        : [],
+      server: {
+        middlewareMode: true,
+        hmr: hmrDisabled ? false : true,
+        ws: hmrDisabled ? false : { server: httpServer },
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -118,7 +144,7 @@ async function startServer() {
     });
   });
 
-  const server = app.listen(port, host, () => {
+  const server = httpServer.listen(port, host, () => {
     console.log(
       `Absensi BIGNET server listening on http://${host}:${port} [${isProd ? 'production' : 'development'}, TZ=${process.env.TZ}]`
     );
