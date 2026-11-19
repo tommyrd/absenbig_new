@@ -89,7 +89,7 @@ async function startServer() {
                   return {
                     code: code.replace(
                       'transport.connect(createHMRHandler(handleMessage));',
-                      '/* HMR WebSocket disabled via DISABLE_HMR=true */'
+                      '/* HMR WebSocket disabled via DISABLE_HMR=true */ transport.send = async () => {}; transport.invoke = async () => undefined;'
                     ),
                     map: null,
                   };

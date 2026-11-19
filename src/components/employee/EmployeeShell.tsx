@@ -22,7 +22,6 @@ import { UserAvatar } from '../UserAvatar';
 import { PWAInstallButton } from '../PWAInstallButton';
 import { AttendanceFeedView } from '../AttendanceFeedView';
 import { EmployeeAbsensiPage, type AttendanceSubmitResult } from './EmployeeAbsensiPage';
-import { EmployeeDisciplineStrip } from './EmployeeDisciplineStrip';
 import { EmployeeHistoryPage } from './EmployeeHistoryPage';
 import { EmployeePengajuanPage } from './EmployeePengajuanPage';
 import { EmployeeProfilPage } from './EmployeeProfilPage';
@@ -194,6 +193,18 @@ export function EmployeeShell({
       }
     },
     [fetchToday, myDay, serverWibTime, showAttendanceAlert]
+  );
+
+  const handleDayUpdated = useCallback(
+    (updatedDay: ResolvedDay, nextServerTime?: string, nextEpochMs?: number) => {
+      const nowPerf = performance.now();
+      if (typeof nextEpochMs === 'number' && Number.isFinite(nextEpochMs)) {
+        anchorServerClock(nextEpochMs, nowPerf, nowPerf);
+      }
+      setMyDay(updatedDay);
+      if (nextServerTime) setServerWibTime(nextServerTime);
+    },
+    []
   );
 
   // 1. Select the initial page strictly from authoritative server WIB time.
@@ -558,25 +569,20 @@ export function EmployeeShell({
         )}
 
         {tab === 'beranda' && (
-          <>
-            <EmployeeDisciplineStrip
-              onGoToHistory={() => handleSelectTab('history')}
-              onGoToPengajuan={() => handleSelectTab('pengajuan')}
-            />
-            <AttendanceFeedView
-              user={user}
-              myDay={myDay}
-              focusAttendanceId={focusAttendanceId}
-              onFocusHandled={clearFocusedAttendance}
-              onGoToAbsensi={() => setTab('absensi')}
-            />
-          </>
+          <AttendanceFeedView
+            user={user}
+            myDay={myDay}
+            focusAttendanceId={focusAttendanceId}
+            onFocusHandled={clearFocusedAttendance}
+            onGoToAbsensi={() => setTab('absensi')}
+          />
         )}
         {tab === 'absensi' && (
           <EmployeeAbsensiPage
             user={user}
             onSessionSubmitted={refreshMyDay}
             onSessionFailed={handleSessionFailed}
+            onDayUpdated={handleDayUpdated}
           />
         )}
         {tab === 'history' && <EmployeeHistoryPage />}

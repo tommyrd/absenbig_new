@@ -1,7 +1,7 @@
 export type Role = 'KARYAWAN' | 'ADMIN' | 'SUPERADMIN';
 
 export type PolicyLevel = 'DEFAULT' | 'BIDANG' | 'KARYAWAN';
-export type AttendanceLocationRule = 'SESI_PERTAMA_KANTOR' | 'SEMUA_SESI_KANTOR';
+export type AttendanceLocationRule = 'SESI_PERTAMA_KANTOR' | 'SEMUA_SESI_KANTOR' | 'BEBAS_LOKASI';
 
 export type DayStatusType = 'HARI_KERJA' | 'HARI_LIBUR' | 'KERJA_KHUSUS' | 'OFF_PENGGANTI';
 
@@ -18,7 +18,7 @@ export type OperationalStatus =
 
 export type PayrollStatus = 'DIHITUNG_MASUK' | 'TIDAK_DIHITUNG_MASUK';
 
-export type RequestType = 'CUTI' | 'OFF' | 'OFF_PENGGANTI' | 'IZIN' | 'SAKIT';
+export type RequestType = 'CUTI' | 'OFF' | 'OFF_PENGGANTI' | 'IZIN' | 'SAKIT' | 'KERJA_HARI_LIBUR';
 
 export type RequestStatus = 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'EXPIRED';
 
@@ -301,6 +301,18 @@ export interface Pengajuan {
   alasan_keputusan: string | null;
   created_at: string;
   updated_at: string;
+  attendanceProofs?: {
+    id: number;
+    urutan_sesi: number;
+    nama_sesi: string;
+    waktu_server: string;
+    status_ketepatan: 'TEPAT_WAKTU' | 'TERLAMBAT';
+    jarak_kantor_meter: number | null;
+    dalam_geofence: number;
+    lokasi_alamat: string | null;
+    deskripsi_aktivitas: string;
+    has_foto: boolean;
+  }[];
 }
 
 export interface OverrideKehadiran {
@@ -362,6 +374,8 @@ export interface ResolvedDay {
   sessionsRequired: number;
   sessionRecords: AbsensiSesiRecord[];
   mustCheckIn: boolean;
+  canStartHolidayWork?: boolean;
+  holidayEmergencyRequest?: Pengajuan | null;
   checkinOverride?: {
     id: number;
     active: boolean;

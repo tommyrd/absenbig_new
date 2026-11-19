@@ -921,5 +921,296 @@ test('8. Map Sebaran, Tren Kehadiran, Privasi No HP, & Backup Superadmin', async
   assert.ok(buf.byteLength > 1000, 'File arsip backup tidak boleh kosong');
 });
 
+test('9. Self-Initiated Holiday Emergency Work (Capture First, Verify Later): Start, Cancel, Field Check-in, Admin Approve (+Hak Off) & Reject', async () => {
+  const today = getWibDateString();
+
+  // Create a non-paid company holiday for today so employees resolve as HARI_LIBUR
+  const hol = await apiJson<{ id: number }>('/api/v1/holidays', {
+    method: 'POST',
+    token: adminToken,
+    body: {
+      tanggal: today,
+      nama: 'Hari Libur Uji Darurat',
+      kantorId: null,
+      dihitungMasuk: false,
+      keterangan: 'Pengujian alur absen mandiri hari libur',
+    },
+  });
+  assert.equal(hol.status, 201, `Gagal membuat hari libur uji: ${JSON.stringify(hol.data)}`);
+
+  // Create two clean employees (no pre-seeded OFF_PENGGANTI or sessions today) for Approval & Rejection paths
+  const appAccount = await apiJson<{ userId: number; karyawanId: number }>('/api/v1/superadmin/accounts', {
+    method: 'POST',
+    token: superToken,
+    body: {
+      role: 'KARYAWAN',
+      nama_lengkap: 'Citra Uji Libur',
+      username: 'citra_libur_test',
+      email: 'citra.libur@bignet.id',
+      no_hp: '081299990002',
+      password: 'password123',
+      jabatan: 'Teknisi Lapangan',
+      kantor_id: 1,
+      bidang_id: 1,
+    },
+  });
+  assert.equal(appAccount.status, 201, `Gagal membuat akun uji approve: ${JSON.stringify(appAccount.data)}`);
+
+  const rejAccount = await apiJson<{ userId: number; karyawanId: number }>('/api/v1/superadmin/accounts', {
+    method: 'POST',
+    token: superToken,
+    body: {
+      role: 'KARYAWAN',
+      nama_lengkap: 'Budi Uji Libur',
+      username: 'budi_libur_test',
+      email: 'budi.libur@bignet.id',
+      no_hp: '081299990001',
+      password: 'password123',
+      jabatan: 'Teknisi NOC',
+      kantor_id: 1,
+      bidang_id: 1,
+    },
+  });
+  assert.equal(rejAccount.status, 201, `Gagal membuat akun uji libur: ${JSON.stringify(rejAccount.data)}`);
+
+  const hendra = await loginAs('citra_libur_test', 'password123');
+  const budi = await loginAs('budi_libur_test', 'password123');
+
+  // 9a. Initially on HARI_LIBUR: mustCheckIn=false, canStartHolidayWork=true, payroll=TIDAK_DIHITUNG_MASUK
+  const hendraBefore = await apiJson<{
+    day: {
+      dayType: string;
+      mustCheckIn: boolean;
+      canStartHolidayWork?: boolean;
+      payrollStatus: string;
+      sessionsCompleted: number;
+    };
+  }>('/api/v1/attendance/today', { token: hendra.token });
+  assert.equal(hendraBefore.status, 200);
+  assert.equal(hendraBefore.data.day.dayType, 'HARI_LIBUR');
+  assert.equal(hendraBefore.data.day.mustCheckIn, false);
+  assert.equal(hendraBefore.data.day.canStartHolidayWork, true);
+  assert.equal(hendraBefore.data.day.payrollStatus, 'TIDAK_DIHITUNG_MASUK');
+  assert.equal(hendraBefore.data.day.sessionsCompleted, 0);
+
+  // 9b. Start holiday emergency work, then cancel before any check-in -> cleanly returns to HARI_LIBUR
+  const startCancelTest = await apiJson<{ ok: boolean; requestId: number; day: { mustCheckIn: boolean } }>(
+    '/api/v1/attendance/holiday-work/start',
+    {
+      method: 'POST',
+      token: hendra.token,
+      body: { alasan: 'Cek gangguan sementara (batal)' },
+    }
+  );
+  assert.equal(startCancelTest.status, 201);
+  assert.equal(startCancelTest.data.day.mustCheckIn, true);
+
+  const cancelBeforeCheckin = await apiJson<{ ok: boolean }>(
+    `/api/v1/requests/${startCancelTest.data.requestId}/cancel`,
+    {
+      method: 'POST',
+      token: hendra.token,
+      body: { alasan: 'Tidak jadi masuk' },
+    }
+  );
+  assert.equal(cancelBeforeCheckin.status, 200);
+
+  // 9c. Re-activate holiday emergency work -> check-in OUTSIDE office geofence succeeds (BEBAS_LOKASI)
+  const startReal = await apiJson<{
+    ok: boolean;
+    requestId: number;
+    day: {
+      dayType: string;
+      mustCheckIn: boolean;
+      payrollStatus: string;
+      policySnapshot: { aturanLokasi: string; jumlahSesi: number; minSesiHadir: number };
+    };
+  }>('/api/v1/attendance/holiday-work/start', {
+    method: 'POST',
+    token: hendra.token,
+    body: {
+      alasan: 'Perbaikan FO Putus Area Bekasi Timur',
+      catatan: 'Koordinasi darurat dengan NOC',
+    },
+  });
+  assert.equal(startReal.status, 201);
+  assert.equal(startReal.data.day.dayType, 'HARI_LIBUR');
+  assert.equal(startReal.data.day.mustCheckIn, true);
+  assert.equal(startReal.data.day.payrollStatus, 'TIDAK_DIHITUNG_MASUK');
+  assert.equal(startReal.data.day.policySnapshot.aturanLokasi, 'BEBAS_LOKASI');
+  assert.equal(startReal.data.day.policySnapshot.minSesiHadir, 1);
+
+  // Check in ~20km away from Jakarta office (field site) with live camera photo
+  const hendraCheckin = await apiJson<{
+    ok: boolean;
+    sessionId: number;
+    statusKetepatan: string;
+    day: {
+      dayType: string;
+      payrollStatus: string;
+      sessionsCompleted: number;
+    };
+  }>('/api/v1/attendance/session', {
+    method: 'POST',
+    token: hendra.token,
+    body: {
+      urutanSesi: 1,
+      lat: -6.245,
+      lng: 107.015,
+      accuracyMeter: 25,
+      tipeAktivitas: 'CHECK_IN',
+      deskripsiAktivitas: 'Splicing kabel FO putus di lokasi pelanggan',
+      fotoBase64: SAMPLE_PNG_BASE64,
+      fotoSource: 'BROWSER_CAMERA',
+    },
+  });
+  assert.equal(
+    hendraCheckin.status,
+    201,
+    `Check-in lapangan kerja darurat gagal: ${JSON.stringify(hendraCheckin.data)}`
+  );
+  assert.equal(hendraCheckin.data.statusKetepatan, 'TEPAT_WAKTU');
+  assert.equal(hendraCheckin.data.day.sessionsCompleted, 1);
+  // Payroll gate: MUST NOT be DIHITUNG_MASUK before Admin approves!
+  assert.equal(hendraCheckin.data.day.payrollStatus, 'TIDAK_DIHITUNG_MASUK');
+
+  // Employee cannot cancel once attendance proof is already recorded
+  const blockedCancel = await apiJson<{ error: string }>(
+    `/api/v1/requests/${startReal.data.requestId}/cancel`,
+    {
+      method: 'POST',
+      token: hendra.token,
+      body: { alasan: 'Coba batalkan setelah absen' },
+    }
+  );
+  assert.equal(blockedCancel.status, 400);
+
+  // 9d. Admin lists KERJA_HARI_LIBUR requests -> receives attached attendanceProofs with photo
+  const adminReqs = await apiJson<{
+    items: Array<{
+      id: number;
+      jenis: string;
+      status: string;
+      attendanceProofs?: Array<{ id: number; urutan_sesi: number; has_foto: boolean }>;
+    }>;
+  }>('/api/v1/requests?jenis=KERJA_HARI_LIBUR&status=PENDING', { token: adminToken });
+  assert.equal(adminReqs.status, 200);
+  const hendraReq = adminReqs.data.items.find((r) => r.id === startReal.data.requestId);
+  assert.ok(hendraReq, 'Pengajuan KERJA_HARI_LIBUR harus muncul di daftar approval Admin');
+  assert.equal(hendraReq!.attendanceProofs?.length, 1);
+  assert.equal(hendraReq!.attendanceProofs?.[0].has_foto, true);
+
+  // Verify no Hak Off Pengganti exists for Hendra before approval
+  const offBefore = await apiJson<{ items: Array<{ id: number; tanggal_kerja_sumber: string }> }>(
+    '/api/v1/off-rights',
+    { token: hendra.token }
+  );
+  const hadTodayOffBefore = offBefore.data.items.some((o) => o.tanggal_kerja_sumber === today);
+  assert.equal(hadTodayOffBefore, false);
+
+  // 9e. Admin approves with berhakOffPengganti = true -> converts to KERJA_KHUSUS (HADIR / DIHITUNG_MASUK) + issues 1 Hak Off Pengganti
+  const approveRes = await apiJson<{ ok: boolean; linkedSpecialWorkId: number | null; issuedOffRightId: number | null }>(
+    `/api/v1/requests/${startReal.data.requestId}/decide`,
+    {
+      method: 'POST',
+      token: adminToken,
+      body: {
+        decision: 'APPROVED',
+        alasanKeputusan: 'Terverifikasi foto lapangan dan tiket gangguan NOC',
+        berhakOffPengganti: true,
+      },
+    }
+  );
+  assert.equal(approveRes.status, 200);
+  assert.ok(approveRes.data.linkedSpecialWorkId);
+  assert.ok(approveRes.data.issuedOffRightId);
+
+  const hendraAfter = await apiJson<{
+    day: {
+      dayType: string;
+      operationalStatus: string;
+      payrollStatus: string;
+    };
+  }>('/api/v1/attendance/today', { token: hendra.token });
+  assert.equal(hendraAfter.status, 200);
+  assert.equal(hendraAfter.data.day.dayType, 'KERJA_KHUSUS');
+  assert.equal(hendraAfter.data.day.operationalStatus, 'HADIR');
+  assert.equal(hendraAfter.data.day.payrollStatus, 'DIHITUNG_MASUK');
+
+  const offAfter = await apiJson<{ items: Array<{ id: number; status: string; tanggal_kerja_sumber: string }> }>(
+    '/api/v1/off-rights',
+    { token: hendra.token }
+  );
+  assert.ok(
+    offAfter.data.items.some((o) => o.tanggal_kerja_sumber === today && o.status === 'TERSEDIA'),
+    'Hak Off Pengganti harus terbit dengan status TERSEDIA setelah Admin menyetujui'
+  );
+
+  // 9f. Rejection path on Budi: start -> check-in -> Admin REJECTS -> stays HARI_LIBUR, no DIHITUNG_MASUK, no Hak Off Pengganti
+  const budiStart = await apiJson<{ ok: boolean; requestId: number }>(
+    '/api/v1/attendance/holiday-work/start',
+    {
+      method: 'POST',
+      token: budi.token,
+      body: { alasan: 'Cek perangkat tanpa tiket gangguan' },
+    }
+  );
+  assert.equal(budiStart.status, 201);
+
+  const budiCheckin = await apiJson<{ ok: boolean }>('/api/v1/attendance/session', {
+    method: 'POST',
+    token: budi.token,
+    body: {
+      urutanSesi: 1,
+      lat: -6.2088,
+      lng: 106.8456,
+      accuracyMeter: 15,
+      tipeAktivitas: 'CHECK_IN',
+      deskripsiAktivitas: 'Pengecekan mandiri',
+      fotoBase64: SAMPLE_PNG_BASE64,
+      fotoSource: 'BROWSER_CAMERA',
+    },
+  });
+  assert.equal(budiCheckin.status, 201);
+
+  const budiReject = await apiJson<{ ok: boolean }>(
+    `/api/v1/requests/${budiStart.data.requestId}/decide`,
+    {
+      method: 'POST',
+      token: adminToken,
+      body: {
+        decision: 'REJECTED',
+        alasanKeputusan: 'Tidak ada eskalasi atau instruksi kerja hari libur',
+      },
+    }
+  );
+  assert.equal(budiReject.status, 200);
+
+  const budiAfter = await apiJson<{
+    day: {
+      dayType: string;
+      operationalStatus: string;
+      payrollStatus: string;
+      mustCheckIn: boolean;
+      holidayEmergencyRequest?: { status: string; alasan_keputusan: string | null } | null;
+    };
+  }>('/api/v1/attendance/today', { token: budi.token });
+  assert.equal(budiAfter.status, 200);
+  assert.equal(budiAfter.data.day.dayType, 'HARI_LIBUR');
+  assert.equal(budiAfter.data.day.operationalStatus, 'HARI_LIBUR');
+  assert.equal(budiAfter.data.day.payrollStatus, 'TIDAK_DIHITUNG_MASUK');
+  assert.equal(budiAfter.data.day.mustCheckIn, false);
+  assert.equal(budiAfter.data.day.holidayEmergencyRequest?.status, 'REJECTED');
+
+  const budiOff = await apiJson<{ items: Array<{ id: number }> }>('/api/v1/off-rights', {
+    token: budi.token,
+  });
+  assert.equal(budiOff.data.items.length, 0);
+
+  // Clean up test holiday so database state stays tidy
+  await apiJson(`/api/v1/holidays/${hol.data.id}`, { method: 'DELETE', token: adminToken });
+});
+
+
 
 

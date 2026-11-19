@@ -112,6 +112,7 @@ test('Migration detaches legacy Superadmin from employees and archives its old p
       '012_enforce_role_employee_link_invariant',
       '013_standalone_superadmin_profile_photos',
       '014_allow_single_session_attendance_policies',
+      '015_support_holiday_emergency_work_requests',
     ]);
 
     const ownerAccount = db.prepare(

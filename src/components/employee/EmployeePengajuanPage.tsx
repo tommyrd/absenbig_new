@@ -218,7 +218,9 @@ export function EmployeePengajuanPage() {
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-display text-sm font-bold text-slate-900 dark:text-slate-100">
-                      {req.jenis.replace(/_/g, ' ')}
+                      {req.jenis === 'KERJA_HARI_LIBUR'
+                        ? 'KERJA HARI LIBUR (DARURAT)'
+                        : req.jenis.replace(/_/g, ' ')}
                     </span>
                     <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">
                       ·
@@ -232,6 +234,14 @@ export function EmployeePengajuanPage() {
                   <p className="text-sm text-slate-700 dark:text-slate-200 mt-1.5">{req.alasan}</p>
                   {req.catatan && (
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Catatan: {req.catatan}</p>
+                  )}
+                  {req.jenis === 'KERJA_HARI_LIBUR' && (
+                    <p className="text-xs text-amber-700 dark:text-amber-400 mt-1 font-medium">
+                      Bukti absensi tercatat: {req.attendanceProofs?.length ?? 0} sesi
+                      {req.attendanceProofs && req.attendanceProofs.length > 0
+                        ? ` (${req.attendanceProofs.map((p) => p.waktu_server.slice(11, 16) + ' WIB').join(', ')})`
+                        : ' — belum check-in'}
+                    </p>
                   )}
                   {req.jenis === 'OFF_PENGGANTI' && req.tanggal_kerja_sumber && (
                     <p className="text-xs text-indigo-700 dark:text-indigo-400 mt-1">
@@ -264,14 +274,16 @@ export function EmployeePengajuanPage() {
                     <Edit3 className="w-3.5 h-3.5" />
                     Edit Pengajuan
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => handleCancel(req)}
-                    className="min-h-[36px] inline-flex items-center gap-1.5 text-xs font-semibold text-red-700 dark:text-red-400 hover:underline"
-                  >
-                    <XCircle className="w-3.5 h-3.5" />
-                    Batalkan
-                  </button>
+                  {!(req.jenis === 'KERJA_HARI_LIBUR' && (req.attendanceProofs?.length ?? 0) > 0) && (
+                    <button
+                      type="button"
+                      onClick={() => handleCancel(req)}
+                      className="min-h-[36px] inline-flex items-center gap-1.5 text-xs font-semibold text-red-700 dark:text-red-400 hover:underline"
+                    >
+                      <XCircle className="w-3.5 h-3.5" />
+                      Batalkan
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -361,40 +373,42 @@ export function EmployeePengajuanPage() {
                 </div>
               )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                    {jenis === 'OFF_PENGGANTI' ? 'Tanggal Off' : 'Tanggal Mulai'}
-                  </label>
-                  <input
-                    type="date"
-                    value={tanggalMulai}
-                    onChange={(e) => {
-                      setTanggalMulai(e.target.value);
-                      if (jenis === 'OFF_PENGGANTI' || tanggalAkhir < e.target.value) {
-                        setTanggalAkhir(e.target.value);
-                      }
-                    }}
-                    required
-                    className="w-full min-h-[44px] sm:h-10 px-3 text-sm font-mono bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
-                  />
-                </div>
-                {jenis !== 'OFF_PENGGANTI' && (
+              {jenis !== 'KERJA_HARI_LIBUR' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                      Tanggal Akhir
+                      {jenis === 'OFF_PENGGANTI' ? 'Tanggal Off' : 'Tanggal Mulai'}
                     </label>
                     <input
                       type="date"
-                      value={tanggalAkhir}
-                      min={tanggalMulai}
-                      onChange={(e) => setTanggalAkhir(e.target.value)}
+                      value={tanggalMulai}
+                      onChange={(e) => {
+                        setTanggalMulai(e.target.value);
+                        if (jenis === 'OFF_PENGGANTI' || tanggalAkhir < e.target.value) {
+                          setTanggalAkhir(e.target.value);
+                        }
+                      }}
                       required
                       className="w-full min-h-[44px] sm:h-10 px-3 text-sm font-mono bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
                     />
                   </div>
-                )}
-              </div>
+                  {jenis !== 'OFF_PENGGANTI' && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                        Tanggal Akhir
+                      </label>
+                      <input
+                        type="date"
+                        value={tanggalAkhir}
+                        min={tanggalMulai}
+                        onChange={(e) => setTanggalAkhir(e.target.value)}
+                        required
+                        className="w-full min-h-[44px] sm:h-10 px-3 text-sm font-mono bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">

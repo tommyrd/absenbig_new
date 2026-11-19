@@ -166,7 +166,7 @@ export const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS pengajuan (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     karyawan_id INTEGER NOT NULL REFERENCES karyawan(id),
-    jenis TEXT NOT NULL CHECK(jenis IN ('CUTI','OFF','OFF_PENGGANTI','IZIN','SAKIT')),
+    jenis TEXT NOT NULL CHECK(jenis IN ('CUTI','OFF','OFF_PENGGANTI','IZIN','SAKIT','KERJA_HARI_LIBUR')),
     tanggal_mulai TEXT NOT NULL,
     tanggal_akhir TEXT NOT NULL,
     alasan TEXT NOT NULL,

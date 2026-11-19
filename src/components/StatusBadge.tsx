@@ -48,6 +48,11 @@ const STATUS_MAP: Record<
     cls: 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800/70',
     Icon: Briefcase,
   },
+  KERJA_HARI_LIBUR: {
+    label: 'KERJA HARI LIBUR',
+    cls: 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800/70',
+    Icon: Briefcase,
+  },
   OFF_PENGGANTI: {
     label: 'OFF PENGGANTI',
     cls: 'bg-indigo-50 text-indigo-800 border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800/70',

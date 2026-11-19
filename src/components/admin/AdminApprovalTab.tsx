@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { Check, Plus, X } from 'lucide-react';
-import { apiFetch } from '../../lib/api';
+import { Camera, Check, Clock, MapPin, Plus, X } from 'lucide-react';
+import { apiFetch, getAuthorizedPhotoUrl } from '../../lib/api';
 import { getServerWibDateString } from '../../lib/server-clock-client';
 import type { Karyawan, Pengajuan, RequestType } from '../../shared/types';
 import { DataTable, type ColumnDef } from '../DataTable';
@@ -20,7 +20,13 @@ export function AdminApprovalTab() {
     mode: 'APPROVED' | 'REJECTED';
   } | null>(null);
   const [decisionReason, setDecisionReason] = useState('');
+  const [grantOffRight, setGrantOffRight] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [previewPhoto, setPreviewPhoto] = useState<{
+    url: string;
+    title: string;
+    subtitle: string;
+  } | null>(null);
 
   // Admin Create On Behalf Modal
   const [createModal, setCreateModal] = useState(false);
@@ -71,6 +77,9 @@ export function AdminApprovalTab() {
         body: JSON.stringify({
           decision: decisionTarget.mode,
           alasanKeputusan: decisionReason,
+          ...(decisionTarget.req.jenis === 'KERJA_HARI_LIBUR' && decisionTarget.mode === 'APPROVED'
+            ? { berhakOffPengganti: grantOffRight }
+            : {}),
         }),
       });
       setDecisionTarget(null);
@@ -135,7 +144,9 @@ export function AdminApprovalTab() {
       sortValue: (r) => r.tanggal_mulai,
       render: (r) => (
         <div className="text-xs">
-          <p className="font-bold text-slate-900 dark:text-slate-100">{r.jenis.replace(/_/g, ' ')}</p>
+          <p className="font-bold text-slate-900 dark:text-slate-100">
+            {r.jenis === 'KERJA_HARI_LIBUR' ? 'KERJA HARI LIBUR' : r.jenis.replace(/_/g, ' ')}
+          </p>
           <p className="font-mono text-slate-600 dark:text-slate-400 tabular-nums mt-0.5">
             {r.tanggal_mulai === r.tanggal_akhir
               ? r.tanggal_mulai
@@ -146,10 +157,68 @@ export function AdminApprovalTab() {
     },
     {
       key: 'alasan',
-      header: 'Alasan',
+      header: 'Alasan & Bukti',
       render: (r) => (
-        <div className="max-w-xs text-xs text-slate-700 dark:text-slate-300">
+        <div className="max-w-sm text-xs text-slate-700 dark:text-slate-300 space-y-1.5">
           <p>{r.alasan}</p>
+          {r.catatan && <p className="text-slate-500 dark:text-slate-400">Catatan: {r.catatan}</p>}
+          {r.jenis === 'KERJA_HARI_LIBUR' && (
+            <div className="pt-1 space-y-1.5">
+              {r.attendanceProofs && r.attendanceProofs.length > 0 ? (
+                r.attendanceProofs.map((proof) => (
+                  <div
+                    key={proof.id}
+                    className="flex items-center gap-2 p-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700"
+                  >
+                    {proof.has_foto ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPreviewPhoto({
+                            url: getAuthorizedPhotoUrl(proof.id),
+                            title: `${r.karyawan_nama || 'Karyawan'} · ${proof.nama_sesi}`,
+                            subtitle: `${r.tanggal_mulai} · ${proof.waktu_server.slice(11, 16)} WIB${
+                              proof.lokasi_alamat ? ` · ${proof.lokasi_alamat}` : ''
+                            }`,
+                          })
+                        }
+                        className="w-10 h-10 rounded-md overflow-hidden border border-slate-200 dark:border-slate-700 shrink-0 hover:opacity-90"
+                        title="Lihat foto bukti absensi"
+                      >
+                        <img
+                          src={getAuthorizedPhotoUrl(proof.id)}
+                          alt={`Bukti ${proof.nama_sesi}`}
+                          className="w-full h-full object-cover"
+                        />
+                      </button>
+                    ) : (
+                      <div className="w-10 h-10 rounded-md bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 shrink-0">
+                        <Camera className="w-4 h-4" />
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1 text-[11px] leading-snug">
+                      <p className="font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-1">
+                        <Clock className="w-3 h-3 text-amber-600 shrink-0" />
+                        Sesi {proof.urutan_sesi} · {proof.waktu_server.slice(11, 16)} WIB
+                      </p>
+                      <p className="text-slate-500 dark:text-slate-400 truncate flex items-center gap-1">
+                        <MapPin className="w-3 h-3 shrink-0" />
+                        {proof.lokasi_alamat
+                          ? proof.lokasi_alamat
+                          : proof.jarak_kantor_meter !== null
+                            ? `${proof.jarak_kantor_meter}m dari kantor`
+                            : 'GPS tercatat'}
+                      </p>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                  Belum ada bukti absensi kamera/GPS yang masuk untuk tanggal ini.
+                </p>
+              )}
+            </div>
+          )}
           {r.tanggal_kerja_sumber && (
             <p className="text-indigo-700 dark:text-indigo-400 mt-0.5">
               Sumber Off: {r.nama_project_sumber} ({r.tanggal_kerja_sumber})
@@ -179,7 +248,12 @@ export function AdminApprovalTab() {
               onClick={() => {
                 setDecisionErr(null);
                 setDecisionTarget({ req: r, mode: 'APPROVED' });
-                setDecisionReason('Disetujui sesuai jadwal operasional');
+                setGrantOffRight(true);
+                setDecisionReason(
+                  r.jenis === 'KERJA_HARI_LIBUR'
+                    ? 'Kerja hari libur darurat diverifikasi sesuai bukti absensi'
+                    : 'Disetujui sesuai jadwal operasional'
+                );
               }}
               className="min-h-[40px] sm:min-h-[32px] px-3 sm:px-2.5 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center gap-1"
             >
@@ -278,6 +352,7 @@ export function AdminApprovalTab() {
               className="min-h-[44px] sm:h-9 px-2.5 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 w-full sm:w-auto"
             >
               <option value="">Semua Jenis</option>
+              <option value="KERJA_HARI_LIBUR">KERJA HARI LIBUR</option>
               <option value="CUTI">CUTI</option>
               <option value="OFF">OFF</option>
               <option value="OFF_PENGGANTI">OFF PENGGANTI</option>
@@ -316,13 +391,91 @@ export function AdminApprovalTab() {
                   {decisionErr}
                 </div>
               )}
-              <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 text-xs">
+              <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 text-xs space-y-1.5">
                 <p className="font-bold text-slate-900 dark:text-slate-100">{decisionTarget.req.karyawan_nama}</p>
-                <p className="text-slate-600 dark:text-slate-400 mt-0.5">
-                  {decisionTarget.req.jenis} · {decisionTarget.req.tanggal_mulai} s/d{' '}
-                  {decisionTarget.req.tanggal_akhir}
+                <p className="text-slate-600 dark:text-slate-400">
+                  {decisionTarget.req.jenis === 'KERJA_HARI_LIBUR'
+                    ? 'KERJA HARI LIBUR (DARURAT)'
+                    : decisionTarget.req.jenis.replace(/_/g, ' ')}{' '}
+                  ·{' '}
+                  {decisionTarget.req.tanggal_mulai === decisionTarget.req.tanggal_akhir
+                    ? decisionTarget.req.tanggal_mulai
+                    : `${decisionTarget.req.tanggal_mulai} s/d ${decisionTarget.req.tanggal_akhir}`}
                 </p>
+                <p className="text-slate-700 dark:text-slate-300">{decisionTarget.req.alasan}</p>
               </div>
+
+              {decisionTarget.req.jenis === 'KERJA_HARI_LIBUR' && (
+                <div className="space-y-2.5">
+                  <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900/60 space-y-2">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      Bukti Absensi Hari Libur ({decisionTarget.req.attendanceProofs?.length ?? 0} sesi)
+                    </p>
+                    {decisionTarget.req.attendanceProofs && decisionTarget.req.attendanceProofs.length > 0 ? (
+                      decisionTarget.req.attendanceProofs.map((proof) => (
+                        <div key={proof.id} className="flex items-center gap-2.5 text-xs">
+                          {proof.has_foto && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setPreviewPhoto({
+                                  url: getAuthorizedPhotoUrl(proof.id),
+                                  title: `${decisionTarget.req.karyawan_nama || 'Karyawan'} · ${proof.nama_sesi}`,
+                                  subtitle: `${decisionTarget.req.tanggal_mulai} · ${proof.waktu_server.slice(11, 16)} WIB${
+                                    proof.lokasi_alamat ? ` · ${proof.lokasi_alamat}` : ''
+                                  }`,
+                                })
+                              }
+                              className="w-12 h-12 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 shrink-0"
+                            >
+                              <img
+                                src={getAuthorizedPhotoUrl(proof.id)}
+                                alt={`Bukti ${proof.nama_sesi}`}
+                                className="w-full h-full object-cover"
+                              />
+                            </button>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p className="font-semibold text-slate-900 dark:text-slate-100">
+                              {proof.nama_sesi} · {proof.waktu_server.slice(11, 16)} WIB
+                            </p>
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                              {proof.lokasi_alamat ||
+                                (proof.jarak_kantor_meter !== null
+                                  ? `${proof.jarak_kantor_meter}m dari kantor`
+                                  : 'GPS tercatat')}
+                            </p>
+                            {proof.deskripsi_aktivitas && (
+                              <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-0.5">
+                                {proof.deskripsi_aktivitas}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-xs text-amber-700 dark:text-amber-400">
+                        Belum ada sesi absensi tercatat. Jika disetujui tanpa bukti absensi, hak off pengganti tidak akan diterbitkan otomatis.
+                      </p>
+                    )}
+                  </div>
+
+                  {decisionTarget.mode === 'APPROVED' && (
+                    <label className="flex items-start gap-2.5 p-3 rounded-lg bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/70 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={grantOffRight}
+                        onChange={(e) => setGrantOffRight(e.target.checked)}
+                        className="mt-0.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                      />
+                      <span className="text-xs text-emerald-950 dark:text-emerald-200 leading-snug">
+                        <strong>Berikan 1 Hak Off Pengganti</strong> (berlaku 60 hari) setelah kerja hari libur disetujui.
+                      </span>
+                    </label>
+                  )}
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                   Alasan Keputusan (Wajib Tercatat di Audit)
@@ -476,6 +629,44 @@ export function AdminApprovalTab() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Photo Lightbox for Holiday Emergency Work Proof */}
+      {previewPhoto && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setPreviewPhoto(null)}
+        >
+          <div
+            className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full overflow-hidden border border-slate-200 dark:border-slate-800 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                  {previewPhoto.title}
+                </p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                  {previewPhoto.subtitle}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewPhoto(null)}
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="bg-slate-950 flex items-center justify-center max-h-[70vh]">
+              <img
+                src={previewPhoto.url}
+                alt={previewPhoto.title}
+                className="max-h-[70vh] w-auto object-contain"
+              />
+            </div>
           </div>
         </div>
       )}

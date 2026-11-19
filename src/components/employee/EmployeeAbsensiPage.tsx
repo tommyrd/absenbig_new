@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   AlertTriangle,
   Briefcase,
@@ -14,6 +14,7 @@ import {
   Navigation,
   RefreshCw,
   SwitchCamera,
+  XCircle,
 } from 'lucide-react';
 import { apiFetch, getAuthorizedPhotoUrl } from '../../lib/api';
 import type { AuthUser, Karyawan, ResolvedDay } from '../../shared/types';
@@ -56,6 +57,7 @@ interface EmployeeAbsensiPageProps {
   user: AuthUser;
   onSessionSubmitted: (result: AttendanceSubmitResult) => void;
   onSessionFailed?: (message: string) => void;
+  onDayUpdated?: (day: ResolvedDay, serverTime?: string, serverEpochMs?: number) => void;
 }
 
 function haversineClient(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -133,10 +135,17 @@ export function EmployeeAbsensiPage({
   user,
   onSessionSubmitted,
   onSessionFailed,
+  onDayUpdated,
 }: EmployeeAbsensiPageProps) {
   const [data, setData] = useState<TodayResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [holidayFormOpen, setHolidayFormOpen] = useState(false);
+  const [holidayAlasan, setHolidayAlasan] = useState('');
+  const [holidayCatatan, setHolidayCatatan] = useState('');
+  const [holidaySubmitting, setHolidaySubmitting] = useState(false);
+  const [holidayError, setHolidayError] = useState<string | null>(null);
+  const [cancellingHoliday, setCancellingHoliday] = useState(false);
   const serverClockSyncRef = useRef<ServerClockSync | null>(null);
   const serverWindowSyncPerfRef = useRef<number | null>(null);
   const todayRequestIdRef = useRef(0);
@@ -776,6 +785,65 @@ export function EmployeeAbsensiPage({
     }
   };
 
+  const handleStartHolidayWork = async (e: FormEvent) => {
+    e.preventDefault();
+    if (holidaySubmitting) return;
+    setHolidayError(null);
+    const trimmedAlasan = holidayAlasan.trim();
+    if (trimmedAlasan.length < 5) {
+      setHolidayError('Tuliskan alasan atau nama pekerjaan urgent minimal 5 karakter.');
+      return;
+    }
+    setHolidaySubmitting(true);
+    try {
+      const res = await apiFetch<{
+        ok: boolean;
+        requestId: number;
+        day: ResolvedDay;
+        serverTime?: string;
+        serverEpochMs?: number;
+      }>('/api/v1/attendance/holiday-work/start', {
+        method: 'POST',
+        body: JSON.stringify({
+          alasan: trimmedAlasan,
+          catatan: holidayCatatan.trim(),
+        }),
+      });
+      setHolidayFormOpen(false);
+      setHolidayAlasan('');
+      setHolidayCatatan('');
+      onDayUpdated?.(res.day, res.serverTime, res.serverEpochMs);
+      await loadToday(true);
+    } catch (err) {
+      setHolidayError(
+        err instanceof Error ? err.message : 'Gagal mengaktifkan mode kerja darurat hari libur.'
+      );
+    } finally {
+      setHolidaySubmitting(false);
+    }
+  };
+
+  const handleCancelHolidayWork = async (requestId: number) => {
+    if (cancellingHoliday) return;
+    setHolidayError(null);
+    setCancellingHoliday(true);
+    try {
+      await apiFetch(`/api/v1/requests/${requestId}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify({ alasan: 'Dibatalkan oleh karyawan sebelum melakukan check-in' }),
+      });
+      await loadToday(true);
+      const latest = await apiFetch<TodayResponse>('/api/v1/attendance/today');
+      onDayUpdated?.(latest.day, latest.serverTime, latest.serverEpochMs);
+    } catch (err) {
+      setHolidayError(
+        err instanceof Error ? err.message : 'Gagal membatalkan mode kerja darurat.'
+      );
+    } finally {
+      setCancellingHoliday(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="space-y-4">
@@ -939,24 +1007,182 @@ export function EmployeeAbsensiPage({
       </div>
 
       {/* Special Day Notices */}
-      {day.dayType === 'HARI_LIBUR' && (
-        <div className="bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800/70 rounded-2xl p-4 sm:p-5 flex items-start gap-3.5">
-          <div className="w-10 h-10 rounded-xl bg-sky-100 dark:bg-sky-900/70 text-sky-700 dark:text-sky-200 flex items-center justify-center shrink-0">
-            <CalendarOff className="w-5 h-5" />
+      {day.dayType === 'HARI_LIBUR' && day.holidayEmergencyRequest?.status === 'PENDING' && (
+        <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/80 rounded-2xl p-4 sm:p-5 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/70 text-amber-700 dark:text-amber-200 flex items-center justify-center shrink-0">
+                <Briefcase className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="font-display text-sm sm:text-base font-bold text-amber-950 dark:text-amber-100">
+                    Kerja Hari Libur — Menunggu Verifikasi Admin
+                  </h2>
+                  <StatusBadge status="PENDING" />
+                </div>
+                <p className="text-xs sm:text-sm text-amber-900 dark:text-amber-200">
+                  <strong>Pekerjaan Urgent:</strong> {day.holidayEmergencyRequest.alasan}
+                  {day.holidayEmergencyRequest.catatan ? ` · ${day.holidayEmergencyRequest.catatan}` : ''}
+                </p>
+                <p className="text-xs text-amber-800/90 dark:text-amber-300/90 leading-relaxed">
+                  Bukti foto kamera langsung, GPS, dan jam WIB server langsung dicatat sekarang (00:00–23:59 WIB, lokasi fleksibel). Minimal <strong>1x absen (Mulai Kerja)</strong> sudah sah; Sesi 2 bersifat opsional. Status kehadiran &amp; Hak Off Pengganti akan aktif setelah diverifikasi Admin Operasional.
+                </p>
+              </div>
+            </div>
+            {day.sessionsCompleted === 0 && (
+              <button
+                type="button"
+                disabled={cancellingHoliday}
+                onClick={() => void handleCancelHolidayWork(day.holidayEmergencyRequest!.id)}
+                className="min-h-[38px] px-3 py-1.5 rounded-lg border border-amber-300 dark:border-amber-700 bg-white/80 dark:bg-slate-900/70 hover:bg-white text-xs font-semibold text-amber-900 dark:text-amber-200 inline-flex items-center justify-center gap-1.5 shrink-0 self-start disabled:opacity-60"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                {cancellingHoliday ? 'Membatalkan...' : 'Batalkan Mode Darurat'}
+              </button>
+            )}
           </div>
-          <div>
-            <h2 className="font-display text-base font-bold text-sky-950 dark:text-sky-100">
-              Hari Libur — Tidak Perlu Absensi
-            </h2>
-            <p className="text-xs sm:text-sm text-sky-900 dark:text-sky-200 mt-1">
-              {day.holidayInfo
-                ? `${day.holidayInfo.nama}. ${day.holidayInfo.keterangan}`
-                : 'Hari ini adalah hari libur sesuai kalender kantor Anda.'}
+          {holidayError && (
+            <p className="text-xs text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-800 rounded-lg px-3 py-2">
+              {holidayError}
             </p>
-            <p className="text-xs text-sky-800 dark:text-sky-300 mt-1.5 font-medium">
-              Payroll: {day.payrollStatus === 'DIHITUNG_MASUK' ? 'Dihitung Masuk' : 'Hari Libur Reguler'}
-            </p>
+          )}
+        </div>
+      )}
+
+      {day.dayType === 'HARI_LIBUR' && day.holidayEmergencyRequest?.status !== 'PENDING' && (
+        <div className="bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800/70 rounded-2xl p-4 sm:p-5 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3.5">
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-sky-100 dark:bg-sky-900/70 text-sky-700 dark:text-sky-200 flex items-center justify-center shrink-0">
+                <CalendarOff className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="font-display text-base font-bold text-sky-950 dark:text-sky-100">
+                  Hari Libur — Tidak Perlu Absensi
+                </h2>
+                <p className="text-xs sm:text-sm text-sky-900 dark:text-sky-200 mt-1">
+                  {day.holidayInfo
+                    ? `${day.holidayInfo.nama}. ${day.holidayInfo.keterangan}`
+                    : 'Hari ini adalah hari libur sesuai kalender kantor Anda.'}
+                </p>
+                <p className="text-xs text-sky-800 dark:text-sky-300 mt-1.5 font-medium">
+                  Payroll: {day.payrollStatus === 'DIHITUNG_MASUK' ? 'Dihitung Masuk' : 'Hari Libur Reguler'}
+                </p>
+              </div>
+            </div>
+
+            {day.canStartHolidayWork && !holidayFormOpen && (
+              <button
+                type="button"
+                onClick={() => {
+                  setHolidayError(null);
+                  setHolidayFormOpen(true);
+                }}
+                className="min-h-[42px] px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold inline-flex items-center justify-center gap-2 shrink-0 shadow-xs transition-colors"
+              >
+                <Briefcase className="w-4 h-4" />
+                Masuk Kerja Darurat / Hari Libur
+              </button>
+            )}
           </div>
+
+          {day.holidayEmergencyRequest?.status === 'REJECTED' && (
+            <div className="p-3.5 rounded-xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 text-xs text-red-900 dark:text-red-200 space-y-1">
+              <p className="font-bold">Pengajuan Kerja Hari Libur Ditolak Admin</p>
+              <p>
+                <strong>Alasan pengajuan:</strong> {day.holidayEmergencyRequest.alasan}
+              </p>
+              {day.holidayEmergencyRequest.alasan_keputusan && (
+                <p>
+                  <strong>Keterangan Admin:</strong> {day.holidayEmergencyRequest.alasan_keputusan}
+                </p>
+              )}
+            </div>
+          )}
+
+          {day.canStartHolidayWork && holidayFormOpen && (
+            <form
+              onSubmit={handleStartHolidayWork}
+              className="bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800/80 rounded-xl p-4 space-y-3"
+            >
+              <div>
+                <h3 className="font-display text-sm font-bold text-slate-900 dark:text-slate-100">
+                  Aktifkan Absensi Kerja Darurat Hari Libur
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Anda dapat langsung merekam foto kamera &amp; GPS sekarang tanpa menunggu Admin. Pengajuan akan masuk ke antrean verifikasi Admin Operasional.
+                </p>
+              </div>
+
+              {holidayError && (
+                <div className="p-2.5 rounded-lg bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 text-xs text-red-800 dark:text-red-200">
+                  {holidayError}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Alasan / Nama Pekerjaan Urgent <span className="text-red-600">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  minLength={5}
+                  maxLength={300}
+                  value={holidayAlasan}
+                  onChange={(e) => setHolidayAlasan(e.target.value)}
+                  placeholder="Mis. Perbaikan kabel FO putus area Barat / gangguan server"
+                  className="w-full min-h-[42px] px-3 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 placeholder:text-slate-400"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Catatan Tambahan (Opsional)
+                </label>
+                <input
+                  type="text"
+                  maxLength={500}
+                  value={holidayCatatan}
+                  onChange={(e) => setHolidayCatatan(e.target.value)}
+                  placeholder="Mis. koordinasi dengan teknisi NOC / lokasi pelanggan"
+                  className="w-full min-h-[42px] px-3 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 placeholder:text-slate-400"
+                />
+              </div>
+
+              <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={holidaySubmitting}
+                  onClick={() => {
+                    setHolidayFormOpen(false);
+                    setHolidayError(null);
+                  }}
+                  className="min-h-[40px] px-4 text-xs font-semibold text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={holidaySubmitting}
+                  className="min-h-[40px] px-4 text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white rounded-lg inline-flex items-center justify-center gap-1.5 disabled:opacity-60"
+                >
+                  {holidaySubmitting ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Mengaktifkan...
+                    </>
+                  ) : (
+                    <>
+                      <Camera className="w-3.5 h-3.5" />
+                      Aktifkan &amp; Buka Absensi Sekarang
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       )}
 
@@ -1166,6 +1392,15 @@ export function EmployeeAbsensiPage({
                     </div>
                   )}
 
+                  {day.holidayEmergencyRequest?.status === 'PENDING' && day.sessionsCompleted >= 1 && (
+                    <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-start gap-2.5 text-xs text-emerald-900 dark:text-emerald-200">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                      <p>
+                        <strong>Sesi 1 (Mulai Kerja Darurat) sudah tercatat sebagai bukti sah.</strong> Sesi 2 di bawah bersifat opsional jika Anda ingin mencatat waktu selesai pekerjaan.
+                      </p>
+                    </div>
+                  )}
+
                   {/* STEP 1: LOKASI GPS & ALAMAT */}
                   <div className="space-y-2.5">
                     <div className="flex items-center justify-between gap-2">
@@ -1186,7 +1421,9 @@ export function EmployeeAbsensiPage({
                           <p className="text-[11px] text-slate-500 dark:text-slate-400">
                             {sessionRequiresOffice
                               ? `Wajib di dalam radius ${user.kantor_radius}m kantor`
-                              : 'Sesi fleksibel · Boleh dari lokasi tugas lapangan'}
+                              : day.policySnapshot.aturanLokasi === 'BEBAS_LOKASI'
+                                ? 'Lokasi fleksibel (kantor atau lapangan) · Koordinat GPS tetap direkam sebagai bukti'
+                                : 'Sesi fleksibel · Boleh dari lokasi tugas lapangan'}
                           </p>
                         </div>
                       </div>

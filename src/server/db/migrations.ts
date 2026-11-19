@@ -404,6 +404,58 @@ const MIGRATIONS: MigrationDef[] = [
       }
     },
   },
+  {
+    version: '015',
+    name: 'support_holiday_emergency_work_requests',
+    disableForeignKeys: true,
+    up(db) {
+      const pengajuanTable = db
+        .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'pengajuan'`)
+        .get() as { sql?: string } | undefined;
+
+      if (pengajuanTable?.sql && !/KERJA_HARI_LIBUR/i.test(pengajuanTable.sql)) {
+        db.exec(`
+          CREATE TABLE pengajuan_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            karyawan_id INTEGER NOT NULL REFERENCES karyawan(id),
+            jenis TEXT NOT NULL CHECK(jenis IN ('CUTI','OFF','OFF_PENGGANTI','IZIN','SAKIT','KERJA_HARI_LIBUR')),
+            tanggal_mulai TEXT NOT NULL,
+            tanggal_akhir TEXT NOT NULL,
+            alasan TEXT NOT NULL,
+            catatan TEXT NOT NULL DEFAULT '',
+            lampiran_nama TEXT,
+            hak_off_id INTEGER REFERENCES hak_off_pengganti(id),
+            status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('DRAFT','PENDING','APPROVED','REJECTED','CANCELLED','EXPIRED')),
+            diproses_oleh INTEGER REFERENCES pengguna(id),
+            diproses_pada TEXT,
+            alasan_keputusan TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+
+          INSERT INTO pengajuan_new (
+            id, karyawan_id, jenis, tanggal_mulai, tanggal_akhir, alasan, catatan,
+            lampiran_nama, hak_off_id, status, diproses_oleh, diproses_pada,
+            alasan_keputusan, created_at, updated_at
+          )
+          SELECT
+            id, karyawan_id, jenis, tanggal_mulai, tanggal_akhir, alasan, catatan,
+            lampiran_nama, hak_off_id, status, diproses_oleh, diproses_pada,
+            alasan_keputusan, created_at, updated_at
+          FROM pengajuan;
+
+          DROP TABLE pengajuan;
+          ALTER TABLE pengajuan_new RENAME TO pengajuan;
+          CREATE INDEX IF NOT EXISTS idx_pengajuan_karyawan ON pengajuan(karyawan_id, status);
+        `);
+      }
+
+      const violations = db.prepare('PRAGMA foreign_key_check').all();
+      if (violations.length > 0) {
+        throw new Error('Migrasi dukungan kerja hari libur darurat menghasilkan pelanggaran foreign key.');
+      }
+    },
+  },
 ];
 
 export function runMigrations(db: DatabaseSync): string[] {

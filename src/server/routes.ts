@@ -1483,10 +1483,13 @@ export function registerApiRoutes(app: Express) {
       return;
     }
 
-    // Check lateness against session start + tolerance
+    // Check lateness against session start + tolerance (emergency holiday work is flexible 00:00-23:59)
+    const isHolidayEmergencySession =
+      day.holidayEmergencyRequest?.status === 'PENDING' ||
+      Boolean(day.kerjaKhususInfo && day.holidayEmergencyRequest?.status === 'APPROVED');
     const tol = day.policySnapshot.toleransiTerlambatMenit;
     const lateDiff = nowMin - (startMin + tol);
-    const isLate = expectedNext === 1 && lateDiff > 0;
+    const isLate = !isHolidayEmergencySession && expectedNext === 1 && lateDiff > 0;
     const keterlambatanMenit = isLate ? nowMin - startMin : 0;
 
     // Store a display-only address snapshot resolved by the server from the
@@ -1641,6 +1644,99 @@ export function registerApiRoutes(app: Express) {
     });
   }));
 
+  // 4b. Self-Initiated Holiday / Emergency Work Check-in Activation ("Capture First, Verify Later")
+  app.post('/api/v1/attendance/holiday-work/start', requireRole('KARYAWAN'), (req: AuthenticatedRequest, res: Response) => {
+    const user = req.authUser!;
+    if (user.karyawan_id === null) {
+      res.status(403).json({ error: 'Hanya akun Karyawan yang dapat mengaktifkan absensi kerja hari libur.' });
+      return;
+    }
+    const emp = getKaryawanById(user.karyawan_id);
+    if (!emp) {
+      res.status(404).json({ error: 'Data karyawan tidak ditemukan.' });
+      return;
+    }
+
+    const { alasan, catatan } = req.body as { alasan?: string; catatan?: string };
+    const cleanAlasan = (alasan || '').trim();
+    const cleanCatatan = (catatan || '').trim().slice(0, 500);
+    if (cleanAlasan.length < 5) {
+      res.status(400).json({
+        error: 'Alasan atau nama pekerjaan urgent wajib diisi minimal 5 karakter.',
+      });
+      return;
+    }
+    if (cleanAlasan.length > 300) {
+      res.status(400).json({ error: 'Alasan pekerjaan urgent maksimal 300 karakter.' });
+      return;
+    }
+
+    const today = getWibDateString();
+    const day = resolveDayForEmployee(db, emp, today);
+    if (day.dayType !== 'HARI_LIBUR' || day.kerjaKhususInfo) {
+      res.status(400).json({
+        error: 'Mode kerja darurat hanya dapat diaktifkan pada hari libur yang belum memiliki penugasan kerja khusus.',
+      });
+      return;
+    }
+    if (day.holidayEmergencyRequest?.status === 'PENDING' || day.holidayEmergencyRequest?.status === 'APPROVED') {
+      res.status(400).json({ error: 'Mode kerja darurat hari libur sudah aktif untuk hari ini.' });
+      return;
+    }
+    if (day.holidayEmergencyRequest?.status === 'REJECTED') {
+      res.status(400).json({
+        error: 'Pengajuan kerja hari libur Anda hari ini sudah ditolak Admin. Hubungi Admin Operasional jika ada penugasan baru.',
+      });
+      return;
+    }
+
+    const nowIso = getWibIsoString();
+    let requestId = 0;
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const info = db
+        .prepare(
+          `INSERT INTO pengajuan (
+            karyawan_id, jenis, tanggal_mulai, tanggal_akhir, alasan, catatan,
+            lampiran_nama, hak_off_id, status, created_at, updated_at
+          ) VALUES (?, 'KERJA_HARI_LIBUR', ?, ?, ?, ?, NULL, NULL, 'PENDING', ?, ?)`
+        )
+        .run(emp.id, today, today, cleanAlasan, cleanCatatan, nowIso, nowIso);
+      requestId = Number(info.lastInsertRowid);
+
+      writeAuditLog(db, {
+        actor: user,
+        req,
+        modul: 'ABSENSI',
+        aksi: 'START_KERJA_HARI_LIBUR',
+        targetEntity: 'pengajuan',
+        targetId: requestId,
+        karyawanId: emp.id,
+        tanggalTerdampak: today,
+        after: { jenis: 'KERJA_HARI_LIBUR', alasan: cleanAlasan, catatan: cleanCatatan, status: 'PENDING' },
+      });
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      res.status(400).json({
+        error: 'Gagal mengaktifkan mode kerja darurat hari libur.',
+        detail: safeErrorDetail(err),
+      });
+      return;
+    }
+
+    broadcastWorkforceUpdate('HOLIDAY_WORK_STARTED');
+    const updatedDay = resolveDayForEmployee(db, emp, today);
+    const responseNow = new Date();
+    res.status(201).json({
+      ok: true,
+      requestId,
+      day: updatedDay,
+      serverTime: getWibTimeString(responseNow),
+      serverEpochMs: responseNow.getTime(),
+    });
+  });
+
   // 5. Attendance Photo Access (own history + today's shared Beranda feed; Admin/Superadmin all)
   app.get('/api/v1/photos/:sessionId', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const sessionId = Number(req.params.sessionId);
@@ -1768,7 +1864,44 @@ export function registerApiRoutes(app: Express) {
     }
     sql += ` ORDER BY p.created_at DESC`;
 
-    const items = db.prepare(sql).all(...params);
+    const rawItems = db.prepare(sql).all(...params) as unknown as Pengajuan[];
+    const proofStmt = db.prepare(
+      `SELECT id, urutan_sesi, nama_sesi, waktu_server, status_ketepatan,
+              jarak_kantor_meter, dalam_geofence, lokasi_alamat, deskripsi_aktivitas, foto_path
+       FROM absensi_sesi
+       WHERE karyawan_id = ? AND tanggal = ?
+       ORDER BY urutan_sesi ASC`
+    );
+    const items = rawItems.map((item) => {
+      if (item.jenis !== 'KERJA_HARI_LIBUR') return item;
+      const proofs = proofStmt.all(item.karyawan_id, item.tanggal_mulai) as {
+        id: number;
+        urutan_sesi: number;
+        nama_sesi: string;
+        waktu_server: string;
+        status_ketepatan: 'TEPAT_WAKTU' | 'TERLAMBAT';
+        jarak_kantor_meter: number | null;
+        dalam_geofence: number;
+        lokasi_alamat: string | null;
+        deskripsi_aktivitas: string;
+        foto_path: string | null;
+      }[];
+      return {
+        ...item,
+        attendanceProofs: proofs.map((p) => ({
+          id: p.id,
+          urutan_sesi: p.urutan_sesi,
+          nama_sesi: p.nama_sesi,
+          waktu_server: p.waktu_server,
+          status_ketepatan: p.status_ketepatan,
+          jarak_kantor_meter: p.jarak_kantor_meter,
+          dalam_geofence: p.dalam_geofence,
+          lokasi_alamat: p.lokasi_alamat,
+          deskripsi_aktivitas: p.deskripsi_aktivitas,
+          has_foto: Boolean(p.foto_path),
+        })),
+      };
+    });
     res.json({ items });
   });
 
@@ -1920,8 +2053,10 @@ export function registerApiRoutes(app: Express) {
       alasan?: string;
       catatan?: string;
     };
-    const nextMulai = tanggalMulai || existing.tanggal_mulai;
-    const nextAkhir = tanggalAkhir || existing.tanggal_akhir;
+    const nextMulai =
+      existing.jenis === 'KERJA_HARI_LIBUR' ? existing.tanggal_mulai : tanggalMulai || existing.tanggal_mulai;
+    const nextAkhir =
+      existing.jenis === 'KERJA_HARI_LIBUR' ? existing.tanggal_akhir : tanggalAkhir || existing.tanggal_akhir;
     const nextAlasan = (alasan ?? existing.alasan).trim();
     const nextCatatan = (catatan ?? existing.catatan).trim();
     const nowIso = getWibIsoString();
@@ -1986,6 +2121,17 @@ export function registerApiRoutes(app: Express) {
         res.status(400).json({ error: 'Pengajuan yang sudah diproses hanya dapat dibatalkan oleh Admin.' });
         return;
       }
+      if (existing.jenis === 'KERJA_HARI_LIBUR') {
+        const recorded = db
+          .prepare(`SELECT COUNT(*) as total FROM absensi_sesi WHERE karyawan_id = ? AND tanggal = ?`)
+          .get(existing.karyawan_id, existing.tanggal_mulai) as { total: number };
+        if (Number(recorded?.total || 0) > 0) {
+          res.status(400).json({
+            error: 'Tidak dapat membatalkan mode kerja hari libur karena bukti absensi sudah tercatat. Hubungi Admin jika perlu penyesuaian.',
+          });
+          return;
+        }
+      }
     }
     if (existing.status === 'CANCELLED') {
       res.status(400).json({ error: 'Pengajuan sudah dibatalkan.' });
@@ -2004,6 +2150,20 @@ export function registerApiRoutes(app: Express) {
       if (existing.hak_off_id) {
         db.prepare(`DELETE FROM penggunaan_off_pengganti WHERE pengajuan_id = ?`).run(reqId);
         db.prepare(`UPDATE hak_off_pengganti SET status = 'TERSEDIA' WHERE id = ?`).run(existing.hak_off_id);
+      }
+
+      if (existing.jenis === 'KERJA_HARI_LIBUR' && existing.status === 'APPROVED') {
+        const linkedKk = db
+          .prepare(
+            `SELECT id FROM penugasan_kerja_khusus WHERE karyawan_id = ? AND tanggal = ? AND status != 'DIBATALKAN'`
+          )
+          .get(existing.karyawan_id, existing.tanggal_mulai) as { id: number } | undefined;
+        if (linkedKk) {
+          db.prepare(`UPDATE penugasan_kerja_khusus SET status = 'DIBATALKAN' WHERE id = ?`).run(linkedKk.id);
+          db.prepare(
+            `UPDATE hak_off_pengganti SET status = 'HANGUS' WHERE kerja_khusus_id = ? AND status = 'TERSEDIA'`
+          ).run(linkedKk.id);
+        }
       }
 
       writeAuditLog(db, {
@@ -2032,9 +2192,10 @@ export function registerApiRoutes(app: Express) {
   app.post('/api/v1/requests/:id/decide', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const user = req.authUser!;
     const reqId = Number(req.params.id);
-    const { decision, alasanKeputusan } = req.body as {
+    const { decision, alasanKeputusan, berhakOffPengganti } = req.body as {
       decision?: 'APPROVED' | 'REJECTED';
       alasanKeputusan?: string;
+      berhakOffPengganti?: boolean;
     };
 
     if (decision !== 'APPROVED' && decision !== 'REJECTED') {
@@ -2057,6 +2218,9 @@ export function registerApiRoutes(app: Express) {
     }
 
     const nowIso = getWibIsoString();
+    let issuedOffRightId: number | null = null;
+    let linkedSpecialWorkId: number | null = null;
+
     db.exec('BEGIN IMMEDIATE');
     try {
       db.prepare(
@@ -2073,6 +2237,73 @@ export function registerApiRoutes(app: Express) {
         }
       }
 
+      if (existing.jenis === 'KERJA_HARI_LIBUR' && decision === 'APPROVED') {
+        const sessRow = db
+          .prepare(`SELECT COUNT(*) as total FROM absensi_sesi WHERE karyawan_id = ? AND tanggal = ?`)
+          .get(existing.karyawan_id, existing.tanggal_mulai) as { total: number };
+        const sessionCount = Number(sessRow?.total || 0);
+        const grantOff = berhakOffPengganti !== false;
+        const projectTitle = existing.alasan.trim().slice(0, 120) || 'Kerja Darurat Hari Libur';
+        const kkKeterangan = existing.catatan
+          ? `Kerja Darurat Hari Libur: ${existing.catatan}`
+          : 'Kerja Darurat Hari Libur (Absen Mandiri Terverifikasi)';
+        const kkStatus = sessionCount >= 1 ? 'SELESAI' : 'AKTIF';
+
+        const existingKk = db
+          .prepare(`SELECT id FROM penugasan_kerja_khusus WHERE karyawan_id = ? AND tanggal = ?`)
+          .get(existing.karyawan_id, existing.tanggal_mulai) as { id: number } | undefined;
+
+        if (existingKk) {
+          db.prepare(
+            `UPDATE penugasan_kerja_khusus
+             SET nama_project = ?, keterangan = ?, jumlah_sesi = 2, min_sesi_hadir = 1,
+                 berhak_off_pengganti = ?, status = ?
+             WHERE id = ?`
+          ).run(projectTitle, kkKeterangan, grantOff ? 1 : 0, kkStatus, existingKk.id);
+          linkedSpecialWorkId = existingKk.id;
+        } else {
+          const kkInfo = db
+            .prepare(
+              `INSERT INTO penugasan_kerja_khusus (
+                karyawan_id, tanggal, nama_project, keterangan, jumlah_sesi, min_sesi_hadir,
+                berhak_off_pengganti, status, created_by, created_at
+              ) VALUES (?, ?, ?, ?, 2, 1, ?, ?, ?, ?)`
+            )
+            .run(
+              existing.karyawan_id,
+              existing.tanggal_mulai,
+              projectTitle,
+              kkKeterangan,
+              grantOff ? 1 : 0,
+              kkStatus,
+              user.id,
+              nowIso
+            );
+          linkedSpecialWorkId = Number(kkInfo.lastInsertRowid);
+        }
+
+        if (grantOff && sessionCount >= 1 && linkedSpecialWorkId) {
+          const existingOff = db
+            .prepare(
+              `SELECT id FROM hak_off_pengganti WHERE kerja_khusus_id = ? AND status IN ('TERSEDIA','DIPAKAI')`
+            )
+            .get(linkedSpecialWorkId) as { id: number } | undefined;
+          if (!existingOff) {
+            const expDate = new Date(`${existing.tanggal_mulai}T00:00:00Z`);
+            expDate.setUTCDate(expDate.getUTCDate() + 60);
+            const kadaluarsa = expDate.toISOString().slice(0, 10);
+            const offInfo = db
+              .prepare(
+                `INSERT INTO hak_off_pengganti (
+                  karyawan_id, kerja_khusus_id, tanggal_kerja_sumber, nama_project, status, kadaluarsa_pada, created_at
+                ) VALUES (?, ?, ?, ?, 'TERSEDIA', ?, ?)`
+              )
+              .run(existing.karyawan_id, linkedSpecialWorkId, existing.tanggal_mulai, projectTitle, kadaluarsa, nowIso);
+            issuedOffRightId = Number(offInfo.lastInsertRowid);
+          }
+        }
+      }
+
       writeAuditLog(db, {
         actor: user,
         req,
@@ -2083,7 +2314,16 @@ export function registerApiRoutes(app: Express) {
         karyawanId: existing.karyawan_id,
         tanggalTerdampak: existing.tanggal_mulai,
         before: { status: existing.status },
-        after: { status: decision },
+        after: {
+          status: decision,
+          ...(existing.jenis === 'KERJA_HARI_LIBUR'
+            ? {
+                berhakOffPengganti: decision === 'APPROVED' ? berhakOffPengganti !== false : false,
+                linkedSpecialWorkId,
+                issuedOffRightId,
+              }
+            : {}),
+        },
         alasan: alasanKeputusan.trim(),
       });
 
@@ -2094,7 +2334,7 @@ export function registerApiRoutes(app: Express) {
     }
 
     broadcastWorkforceUpdate('REQUEST_DECIDED');
-    res.json({ ok: true });
+    res.json({ ok: true, linkedSpecialWorkId, issuedOffRightId });
   });
 
   // 8. Master Data (Kantor, Bidang, Karyawan)

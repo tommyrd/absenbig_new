@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type {
   AbsensiSesiRecord,
+  AttendanceLocationRule,
   DayStatusType,
   HariLibur,
   KalenderKerja,
@@ -61,6 +62,29 @@ function buildDefaultSessionsForCount(count: number): SesiConfig[] {
     { urutan: 2, nama: 'Sesi 2 · Progres Siang', jam_mulai: '11:30', jam_selesai: '13:30', wajib_foto: 1, wajib_aktivitas: 1, aktif: 1 },
     { urutan: 3, nama: 'Sesi 3 · Progres Sore', jam_mulai: '15:00', jam_selesai: '16:30', wajib_foto: 1, wajib_aktivitas: 1, aktif: 1 },
     { urutan: 4, nama: 'Sesi 4 · Pulang Kerja', jam_mulai: '17:00', jam_selesai: '20:00', wajib_foto: 1, wajib_aktivitas: 1, aktif: 1 },
+  ];
+}
+
+function buildHolidayEmergencySessions(): SesiConfig[] {
+  return [
+    {
+      urutan: 1,
+      nama: 'Sesi 1 · Mulai Kerja Darurat',
+      jam_mulai: '00:00',
+      jam_selesai: '23:59',
+      wajib_foto: 1,
+      wajib_aktivitas: 0,
+      aktif: 1,
+    },
+    {
+      urutan: 2,
+      nama: 'Sesi 2 · Selesai Kerja Darurat (Opsional)',
+      jam_mulai: '00:00',
+      jam_selesai: '23:59',
+      wajib_foto: 1,
+      wajib_aktivitas: 1,
+      aktif: 1,
+    },
   ];
 }
 
@@ -147,17 +171,30 @@ export function resolveDayForEmployee(
     )
     .get(tanggal, karyawan.kantor_id) as HariLibur | undefined;
 
-  // Check Approved Request overlapping this date
+  // Check Approved Request overlapping this date (exclude KERJA_HARI_LIBUR which resolves via penugasan_kerja_khusus)
   const approvedRequest = db
     .prepare(
       `SELECT p.*, hop.tanggal_kerja_sumber, hop.nama_project as nama_project_sumber
        FROM pengajuan p
        LEFT JOIN hak_off_pengganti hop ON p.hak_off_id = hop.id
        WHERE p.karyawan_id = ? AND p.status = 'APPROVED'
+         AND p.jenis != 'KERJA_HARI_LIBUR'
          AND p.tanggal_mulai <= ? AND p.tanggal_akhir >= ?
        ORDER BY p.id DESC LIMIT 1`
     )
     .get(karyawan.id, tanggal, tanggal) as Pengajuan | undefined;
+
+  // Check self-initiated holiday emergency work request for this date
+  const holidayEmergencyRequest = db
+    .prepare(
+      `SELECT p.*, proc.username as diproses_oleh_nama
+       FROM pengajuan p
+       LEFT JOIN pengguna proc ON p.diproses_oleh = proc.id
+       WHERE p.karyawan_id = ? AND p.jenis = 'KERJA_HARI_LIBUR'
+         AND p.tanggal_mulai = ? AND p.status IN ('PENDING', 'APPROVED', 'REJECTED')
+       ORDER BY p.id DESC LIMIT 1`
+    )
+    .get(karyawan.id, tanggal) as Pengajuan | undefined;
 
   // Check Active Override
   const override = db
@@ -190,13 +227,23 @@ export function resolveDayForEmployee(
   let policyLevel: PolicyLevel | 'KERJA_KHUSUS' | 'KALENDER_KHUSUS' = basePolicy.level;
   let policyName = basePolicy.nama;
   let sesiList = basePolicy.sesiList;
+  let aturanLokasi: AttendanceLocationRule = basePolicy.aturan_lokasi || 'SESI_PERTAMA_KANTOR';
+  let wajibFotoSemuaSesi = Boolean(basePolicy.wajib_foto_semua_sesi);
+  let wajibAktivitasSesiLanjut = Boolean(basePolicy.wajib_aktivitas_sesi_lanjut);
 
   if (kerjaKhusus) {
     jumlahSesi = kerjaKhusus.jumlah_sesi;
     minSesiHadir = kerjaKhusus.min_sesi_hadir;
     policyLevel = 'KERJA_KHUSUS';
     policyName = `Kerja Khusus: ${kerjaKhusus.nama_project}`;
-    sesiList = buildDefaultSessionsForCount(kerjaKhusus.jumlah_sesi);
+    if (holidayEmergencyRequest?.status === 'APPROVED') {
+      sesiList = buildHolidayEmergencySessions();
+      aturanLokasi = 'BEBAS_LOKASI';
+      wajibFotoSemuaSesi = true;
+      wajibAktivitasSesiLanjut = true;
+    } else {
+      sesiList = buildDefaultSessionsForCount(kerjaKhusus.jumlah_sesi);
+    }
   } else if (calDay?.jumlah_sesi_khusus && calDay.status_hari === 'HARI_KERJA') {
     jumlahSesi = calDay.jumlah_sesi_khusus;
     minSesiHadir = Math.min(minSesiHadir, calDay.jumlah_sesi_khusus);
@@ -214,6 +261,7 @@ export function resolveDayForEmployee(
   let payrollStatus: PayrollStatus = 'TIDAK_DIHITUNG_MASUK';
   let payrollSource: ResolvedDay['payrollSource'] = 'BELUM_SELESAI';
   let mustCheckIn = true;
+  let canStartHolidayWork = false;
 
   if (approvedRequest && approvedRequest.jenis === 'OFF_PENGGANTI') {
     dayType = 'OFF_PENGGANTI';
@@ -254,6 +302,7 @@ export function resolveDayForEmployee(
     operationalStatus = 'HARI_LIBUR';
     mustCheckIn = false;
     // Company holiday pays if configured; weekly Sunday off only pays if explicitly configured or is company holiday
+    // Payroll baseline stays strictly unchanged until Admin approves a KERJA_HARI_LIBUR request.
     if (holiday) {
       if (holiday.dihitung_masuk === 1 && basePolicy.libur_dihitung_masuk === 1) {
         payrollStatus = 'DIHITUNG_MASUK';
@@ -266,6 +315,22 @@ export function resolveDayForEmployee(
       // Weekly calendar day off (e.g. Minggu Kantor A) - never TIDAK HADIR, not counted as workday
       payrollStatus = 'TIDAK_DIHITUNG_MASUK';
       payrollSource = 'LIBUR_TIDAK_DIBAYAR';
+    }
+
+    if (holidayEmergencyRequest?.status === 'PENDING') {
+      dayLabel = 'Kerja Hari Libur (Menunggu Verifikasi Admin)';
+      mustCheckIn = tanggal === today;
+      jumlahSesi = 2;
+      minSesiHadir = 1;
+      policyLevel = 'KERJA_KHUSUS';
+      policyName = `Kerja Darurat: ${holidayEmergencyRequest.alasan.slice(0, 80)}`;
+      aturanLokasi = 'BEBAS_LOKASI';
+      wajibFotoSemuaSesi = true;
+      wajibAktivitasSesiLanjut = true;
+      sesiList = buildHolidayEmergencySessions();
+      canStartHolidayWork = false;
+    } else {
+      canStartHolidayWork = tanggal === today && !holidayEmergencyRequest;
     }
   } else if (approvedRequest) {
     dayType = 'HARI_KERJA';
@@ -344,15 +409,17 @@ export function resolveDayForEmployee(
       jumlahSesi,
       minSesiHadir,
       toleransiTerlambatMenit: basePolicy.toleransi_terlambat_menit,
-      wajibFotoSemuaSesi: Boolean(basePolicy.wajib_foto_semua_sesi),
-      wajibAktivitasSesiLanjut: Boolean(basePolicy.wajib_aktivitas_sesi_lanjut),
-      aturanLokasi: basePolicy.aturan_lokasi || 'SESI_PERTAMA_KANTOR',
+      wajibFotoSemuaSesi,
+      wajibAktivitasSesiLanjut,
+      aturanLokasi,
       sesiList,
     },
     sessionsCompleted,
     sessionsRequired: minSesiHadir,
     sessionRecords,
     mustCheckIn,
+    canStartHolidayWork,
+    holidayEmergencyRequest: holidayEmergencyRequest ?? null,
   };
 }
 
