@@ -571,14 +571,43 @@ export function EmployeeAbsensiPage({
       }
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.78)';
-      ctx.fillRect(0, canvas.height - 46, canvas.width, 46);
+      const nextSesiCfg = data?.day.policySnapshot.sesiList[data.day.sessionsCompleted];
+      const nextSesiLabel = nextSesiCfg?.nama || 'Absensi';
+      const rawLocation = resolvedAddress || user.kantor_nama.split('(')[0].trim();
+      const shortLocation =
+        rawLocation.length > 64 ? `${rawLocation.slice(0, 61).trim()}...` : rawLocation;
+
+      const barHeight = Math.max(60, Math.round(canvas.height * 0.13));
+      const padX = Math.max(14, Math.round(canvas.width * 0.025));
+      const accentW = Math.max(4, Math.round(canvas.width * 0.008));
+      const titleSize = Math.max(13, Math.round(canvas.height * 0.029));
+      const subSize = Math.max(11, Math.round(canvas.height * 0.022));
+
+      const grad = ctx.createLinearGradient(0, canvas.height - barHeight - 16, 0, canvas.height);
+      grad.addColorStop(0, 'rgba(15, 23, 42, 0)');
+      grad.addColorStop(0.28, 'rgba(15, 23, 42, 0.72)');
+      grad.addColorStop(1, 'rgba(15, 23, 42, 0.90)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, canvas.height - barHeight - 16, canvas.width, barHeight + 16);
+
+      ctx.fillStyle = '#c0392b';
+      ctx.fillRect(padX, canvas.height - barHeight + 10, accentW, barHeight - 20);
+
+      const textX = padX + accentW + 10;
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 13px sans-serif';
+      ctx.font = `700 ${titleSize}px sans-serif`;
       ctx.fillText(
-        `${user.nama_lengkap} · ${data?.serverDate || ''} ${liveWibHm} WIB · ${user.kantor_nama.split('(')[0].trim()}`,
-        14,
-        canvas.height - 17
+        `${user.nama_lengkap} · ${nextSesiLabel}`,
+        textX,
+        canvas.height - barHeight + 12 + titleSize
+      );
+
+      ctx.fillStyle = 'rgba(226, 232, 240, 0.95)';
+      ctx.font = `500 ${subSize}px sans-serif`;
+      ctx.fillText(
+        `${data?.serverDate || ''} ${liveWibHm} WIB · ${shortLocation}`,
+        textX,
+        canvas.height - 13
       );
 
       const capturedPhoto = canvas.toDataURL('image/jpeg', 0.86);
@@ -1320,7 +1349,7 @@ export function EmployeeAbsensiPage({
                             {cameraError}
                           </p>
                         )}
-                        <div className="rounded-xl overflow-hidden border border-slate-300 dark:border-slate-700 bg-black aspect-[4/3] max-h-72 mx-auto">
+                        <div className="relative rounded-xl overflow-hidden border border-slate-300 dark:border-slate-700 bg-black aspect-[4/3] max-h-72 mx-auto">
                           <video
                             ref={videoRef}
                             autoPlay
@@ -1328,6 +1357,58 @@ export function EmployeeAbsensiPage({
                             muted
                             className="w-full h-full object-cover"
                           />
+                          {/* Camera Mode Indicator */}
+                          <div className="pointer-events-none absolute top-2.5 left-2.5 px-2.5 py-1 rounded-md bg-slate-950/70 text-white text-[10px] font-semibold tracking-wide backdrop-blur-xs">
+                            {facingMode === 'user'
+                              ? 'Kamera Depan · Posisikan Wajah'
+                              : 'Kamera Belakang · Bidik Aktivitas'}
+                          </div>
+                          {/* Face-Guide Oval (Front) or Viewfinder Frame (Rear) */}
+                          {facingMode === 'user' ? (
+                            <svg
+                              viewBox="0 0 400 300"
+                              className="pointer-events-none absolute inset-0 w-full h-full"
+                              aria-hidden="true"
+                            >
+                              <ellipse
+                                cx="200"
+                                cy="142"
+                                rx="78"
+                                ry="102"
+                                fill="none"
+                                stroke="rgba(255,255,255,0.72)"
+                                strokeWidth="2.5"
+                                strokeDasharray="8 6"
+                              />
+                              <path
+                                d="M126 248 Q200 220 274 248"
+                                fill="none"
+                                stroke="rgba(255,255,255,0.45)"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                              />
+                            </svg>
+                          ) : (
+                            <svg
+                              viewBox="0 0 400 300"
+                              className="pointer-events-none absolute inset-0 w-full h-full"
+                              aria-hidden="true"
+                            >
+                              <path
+                                d="M36 68 V36 H68 M332 36 H364 V68 M36 232 V264 H68 M332 264 H364 V232"
+                                fill="none"
+                                stroke="rgba(255,255,255,0.78)"
+                                strokeWidth="3"
+                                strokeLinecap="round"
+                              />
+                              <circle
+                                cx="200"
+                                cy="150"
+                                r="4"
+                                fill="rgba(255,255,255,0.55)"
+                              />
+                            </svg>
+                          )}
                         </div>
                         <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2">
                           <button

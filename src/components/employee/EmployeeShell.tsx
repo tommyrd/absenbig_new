@@ -13,6 +13,7 @@ import {
 import { apiFetch, buildApiUrl, getStoredToken } from '../../lib/api';
 import { useResetScroll } from '../../lib/scroll';
 import { anchorServerClock, useServerClock } from '../../lib/server-clock-client';
+import { checkAndDispatchSessionReminder } from '../../lib/session-reminder';
 import type { AuthUser, ResolvedDay, SystemSettings } from '../../shared/types';
 import { shouldOpenAttendanceOnEntry } from '../../shared/employee-entry';
 import { ServerClock } from '../ServerClock';
@@ -21,6 +22,7 @@ import { UserAvatar } from '../UserAvatar';
 import { PWAInstallButton } from '../PWAInstallButton';
 import { AttendanceFeedView } from '../AttendanceFeedView';
 import { EmployeeAbsensiPage, type AttendanceSubmitResult } from './EmployeeAbsensiPage';
+import { EmployeeDisciplineStrip } from './EmployeeDisciplineStrip';
 import { EmployeeHistoryPage } from './EmployeeHistoryPage';
 import { EmployeePengajuanPage } from './EmployeePengajuanPage';
 import { EmployeeProfilPage } from './EmployeeProfilPage';
@@ -236,6 +238,16 @@ export function EmployeeShell({
     if (!myDay || !authoritativeTimeWib) return false;
     return shouldOpenAttendanceOnEntry(myDay, authoritativeTimeWib);
   }, [myDay, authoritativeTimeWib]);
+
+  // Dispatch deduplicated browser/PWA notification when a session opens or is closing soon
+  useEffect(() => {
+    if (!initialRouteReady || !myDay || !authoritativeTimeWib) return;
+    checkAndDispatchSessionReminder(
+      myDay,
+      authoritativeTimeWib,
+      settings?.nama_aplikasi || 'Absensi BIGNET'
+    );
+  }, [initialRouteReady, myDay, authoritativeTimeWib, settings?.nama_aplikasi]);
 
   // Clear overlap suppression once the suppressed session is no longer active
   useEffect(() => {
@@ -546,13 +558,19 @@ export function EmployeeShell({
         )}
 
         {tab === 'beranda' && (
-          <AttendanceFeedView
-            user={user}
-            myDay={myDay}
-            focusAttendanceId={focusAttendanceId}
-            onFocusHandled={clearFocusedAttendance}
-            onGoToAbsensi={() => setTab('absensi')}
-          />
+          <>
+            <EmployeeDisciplineStrip
+              onGoToHistory={() => handleSelectTab('history')}
+              onGoToPengajuan={() => handleSelectTab('pengajuan')}
+            />
+            <AttendanceFeedView
+              user={user}
+              myDay={myDay}
+              focusAttendanceId={focusAttendanceId}
+              onFocusHandled={clearFocusedAttendance}
+              onGoToAbsensi={() => setTab('absensi')}
+            />
+          </>
         )}
         {tab === 'absensi' && (
           <EmployeeAbsensiPage

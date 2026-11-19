@@ -3,6 +3,7 @@ import {
   Camera,
   ChevronLeft,
   ChevronRight,
+  Database,
   Download,
   Eye,
   FileSpreadsheet,
@@ -11,6 +12,7 @@ import {
   Image as ImageIcon,
   LogOut,
   Menu,
+  Printer,
   Settings,
   ShieldAlert,
   ShieldCheck,
@@ -18,8 +20,9 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { apiFetch, getAuthorizedPhotoUrl } from '../../lib/api';
+import { apiFetch, buildApiUrl, getAuthorizedPhotoUrl, getStoredToken } from '../../lib/api';
 import { exportPayrollToExcel, exportPayrollToImage } from '../../lib/exportUtils';
+import { printOfficialPayrollReport } from '../../lib/payroll-pdf-print';
 import { useResetScroll } from '../../lib/scroll';
 import { getServerWibYearMonth, useServerClock } from '../../lib/server-clock-client';
 import type {
@@ -31,6 +34,7 @@ import type {
   PeriodePayroll,
   SystemSettings,
 } from '../../shared/types';
+import { AttendanceTrendChart } from '../AttendanceTrendChart';
 import { DataTable, type ColumnDef } from '../DataTable';
 import { AttendanceFeedView } from '../AttendanceFeedView';
 import { ProfileSettingsPanel } from '../ProfileSettingsPanel';
@@ -40,6 +44,7 @@ import { ThemeToggle } from '../ThemeToggle';
 import { UserAvatar } from '../UserAvatar';
 import { PWAInstallButton } from '../PWAInstallButton';
 import { SuperadminAccountsTab } from './SuperadminAccountsTab';
+import { SuperadminBackupTab } from './SuperadminBackupTab';
 import { SuperadminSettingsTab } from './SuperadminSettingsTab';
 
 type SuperTab =
@@ -47,6 +52,7 @@ type SuperTab =
   | 'overview'
   | 'accounts'
   | 'settings'
+  | 'backup'
   | 'audit'
   | 'evidence'
   | 'payroll'
@@ -213,6 +219,53 @@ export function SuperadminConsole({
   useEffect(() => {
     loadAll();
   }, [loadAll]);
+
+  // Live refresh of pending account registration badge via SSE + 60s polling
+  useEffect(() => {
+    const refreshPendingRegs = async () => {
+      try {
+        const regs = await apiFetch<{ items: PendaftaranAkun[] }>(
+          '/api/v1/superadmin/registrations?status=PENDING'
+        );
+        setPendingRegCount(regs.items.length);
+      } catch {
+        // Ignore transient network errors
+      }
+    };
+
+    const timer = window.setInterval(() => {
+      void refreshPendingRegs();
+    }, 60000);
+
+    const token = getStoredToken();
+    const streamUrl = buildApiUrl(
+      token
+        ? `/api/v1/workforce/stream?token=${encodeURIComponent(token)}`
+        : '/api/v1/workforce/stream'
+    );
+    const es = new EventSource(streamUrl);
+    es.addEventListener('workforce', () => {
+      void refreshPendingRegs();
+    });
+
+    return () => {
+      window.clearInterval(timer);
+      es.close();
+    };
+  }, []);
+
+  const handlePrintPdf = () => {
+    if (loading || summaries.length === 0) return;
+    printOfficialPayrollReport({
+      bulan,
+      summaries,
+      period,
+      settings,
+      officeLabel: 'Semua Kantor',
+      bidangLabel: 'Semua Bidang',
+      printedByName: user.nama_lengkap,
+    });
+  };
 
   const overrideCols: ColumnDef<OverrideKehadiran>[] = [
     {
@@ -472,6 +525,7 @@ export function SuperadminConsole({
     { id: 'overview', label: 'Ringkasan & Override', Icon: ShieldAlert },
     { id: 'accounts', label: 'Kelola Akun & ACC', Icon: Users, badge: pendingRegCount },
     { id: 'settings', label: 'Pengaturan Sistem', Icon: Settings },
+    { id: 'backup', label: 'Backup & Penyimpanan', Icon: Database },
     { id: 'audit', label: 'Audit Trail Append-Only', Icon: History },
     { id: 'evidence', label: 'Bukti Foto & GPS', Icon: Camera },
     { id: 'payroll', label: 'Rekap Payroll & Export', Icon: FileSpreadsheet },
@@ -670,7 +724,11 @@ export function SuperadminConsole({
             </span>
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            {tab !== 'beranda' && tab !== 'profile' && tab !== 'accounts' && tab !== 'settings' && (
+            {tab !== 'beranda' &&
+              tab !== 'profile' &&
+              tab !== 'accounts' &&
+              tab !== 'settings' &&
+              tab !== 'backup' && (
               <input
                 type="month"
                 value={bulan}
@@ -731,6 +789,8 @@ export function SuperadminConsole({
             />
           ) : tab === 'settings' ? (
             <SuperadminSettingsTab onSettingsUpdated={onSettingsUpdated} />
+          ) : tab === 'backup' ? (
+            <SuperadminBackupTab />
           ) : (
             <>
               {/* Mobile & Tablet Month Selector */}
@@ -811,25 +871,28 @@ export function SuperadminConsole({
               )}
 
               {tab === 'overview' && (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h2 className="font-display text-base font-bold text-slate-900 dark:text-slate-100">
-                      Daftar Perubahan & Admin Override Terbaru
-                    </h2>
+                <div className="space-y-5">
+                  <AttendanceTrendChart title="Tren Kehadiran & Kedisiplinan Perusahaan" />
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h2 className="font-display text-base font-bold text-slate-900 dark:text-slate-100">
+                        Daftar Perubahan & Admin Override Terbaru
+                      </h2>
+                    </div>
+                    <DataTable
+                      data={overview?.recentOverrides ?? []}
+                      columns={overrideCols}
+                      getRowId={(r) => r.id}
+                      loading={loading}
+                      error={loadError}
+                      onRetry={loadAll}
+                      searchPlaceholder="Cari nama karyawan atau alasan override..."
+                      searchFilter={(r, q) =>
+                        (r.karyawan_nama || '').toLowerCase().includes(q) ||
+                        r.alasan.toLowerCase().includes(q)
+                      }
+                    />
                   </div>
-                  <DataTable
-                    data={overview?.recentOverrides ?? []}
-                    columns={overrideCols}
-                    getRowId={(r) => r.id}
-                    loading={loading}
-                    error={loadError}
-                    onRetry={loadAll}
-                    searchPlaceholder="Cari nama karyawan atau alasan override..."
-                    searchFilter={(r, q) =>
-                      (r.karyawan_nama || '').toLowerCase().includes(q) ||
-                      r.alasan.toLowerCase().includes(q)
-                    }
-                  />
                 </div>
               )}
 
@@ -941,6 +1004,15 @@ export function SuperadminConsole({
                       >
                         <Download className="w-4 h-4" />
                         JPG
+                      </button>
+                      <button
+                        type="button"
+                        disabled={loading || summaries.length === 0}
+                        onClick={handlePrintPdf}
+                        className="min-h-[42px] sm:min-h-[36px] px-3.5 bg-[#c0392b] hover:bg-[#a93226] text-white text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 disabled:opacity-50"
+                      >
+                        <Printer className="w-4 h-4" />
+                        Cetak / PDF
                       </button>
                     </div>
                   </div>

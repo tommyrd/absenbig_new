@@ -4,18 +4,32 @@ import {
   FileSpreadsheet,
   Image as ImageIcon,
   Lock,
+  Printer,
   ShieldAlert,
   SlidersHorizontal,
   X,
 } from 'lucide-react';
 import { apiFetch, getAuthorizedPhotoUrl } from '../../lib/api';
 import { exportPayrollToExcel, exportPayrollToImage } from '../../lib/exportUtils';
+import { printOfficialPayrollReport } from '../../lib/payroll-pdf-print';
 import { getServerWibYearMonth, useServerClock } from '../../lib/server-clock-client';
-import type { BidangKerja, Kantor, MonthlySummary, PeriodePayroll, ResolvedDay } from '../../shared/types';
+import type {
+  BidangKerja,
+  Kantor,
+  MonthlySummary,
+  PeriodePayroll,
+  ResolvedDay,
+  SystemSettings,
+} from '../../shared/types';
 import { DataTable, type ColumnDef } from '../DataTable';
 import { StatusBadge } from '../StatusBadge';
 
-export function AdminPayrollTab() {
+interface AdminPayrollTabProps {
+  settings?: SystemSettings | null;
+  printedByName?: string;
+}
+
+export function AdminPayrollTab({ settings = null, printedByName }: AdminPayrollTabProps) {
   const { yearMonthWib: serverYearMonth } = useServerClock(60000);
   const [bulan, setBulan] = useState(() => getServerWibYearMonth());
 
@@ -66,6 +80,25 @@ export function AdminPayrollTab() {
     } finally {
       setExporting(false);
     }
+  };
+
+  const handlePrintPdf = () => {
+    if (loading || summaries.length === 0) return;
+    const officeLabel = kantorId
+      ? offices.find((o) => String(o.id) === kantorId)?.nama.split('(')[0].trim() || 'Kantor Terpilih'
+      : 'Semua Kantor';
+    const bidangLabel = bidangId
+      ? bidangList.find((b) => String(b.id) === bidangId)?.nama || 'Bidang Terpilih'
+      : 'Semua Bidang';
+    printOfficialPayrollReport({
+      bulan,
+      summaries,
+      period,
+      settings,
+      officeLabel,
+      bidangLabel,
+      printedByName,
+    });
   };
 
   useEffect(() => {
@@ -294,6 +327,15 @@ export function AdminPayrollTab() {
           >
             <Download className="w-4 h-4" />
             JPG
+          </button>
+          <button
+            type="button"
+            disabled={loading || summaries.length === 0}
+            onClick={handlePrintPdf}
+            className="min-h-[44px] sm:h-10 px-3.5 bg-[#c0392b] hover:bg-[#a93226] text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5 flex-1 sm:flex-none disabled:opacity-50"
+          >
+            <Printer className="w-4 h-4" />
+            Cetak / PDF
           </button>
           {period?.status !== 'CLOSED' && (
             <button

@@ -8,6 +8,8 @@ import {
   Download,
   Image as ImageIcon,
   Loader2,
+  MapPin,
+  MessageCircle,
   RefreshCw,
   Share2,
   X,
@@ -21,9 +23,15 @@ import {
   createMonitoringCheckInImage,
   type EarlyReportRow,
 } from '../../lib/monitoring-snapshot';
+import {
+  buildGroupMissingCheckInMessage,
+  buildIndividualWaReminderUrl,
+} from '../../lib/whatsapp-reminder';
 import type { BidangKerja, Kantor, Pengajuan, WorkforceMember } from '../../shared/types';
+import { AttendanceTrendChart } from '../AttendanceTrendChart';
 import { DataTable, type ColumnDef } from '../DataTable';
 import { StatusBadge } from '../StatusBadge';
+import { AdminMonitoringMapModal } from './AdminMonitoringMapModal';
 
 type QuickStatusFilter = 'ALL' | 'CHECKED_IN' | 'LATE' | 'NOT_CHECKED_IN' | 'LEAVE_OR_OFF';
 
@@ -90,6 +98,8 @@ export function AdminDashboardTab({ onNavigateApproval }: { onNavigateApproval: 
   const [imageCopied, setImageCopied] = useState(false);
   const [nativeShareBusy, setNativeShareBusy] = useState(false);
   const supportsImageCopy = canCopyImageToClipboard();
+  const [mapOpen, setMapOpen] = useState(false);
+  const [waListCopied, setWaListCopied] = useState(false);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -227,13 +237,31 @@ export function AdminDashboardTab({ onNavigateApproval }: { onNavigateApproval: 
     return Array.from(map.values()).filter((item) => item.working > 0 || item.checkedIn > 0 || item.missing > 0);
   }, [offices, workforce]);
 
-  const missingCheckInCount = useMemo(
+  const missingMembers = useMemo(
     () =>
       workforce.filter(
         (w) => !w.sesi1Time && (w.isWorkingToday || w.operationalStatus === 'TIDAK_HADIR')
-      ).length,
+      ),
     [workforce]
   );
+
+  const missingCheckInCount = missingMembers.length;
+
+  const handleCopyMissingWaList = async () => {
+    const scoped = kantorFilter
+      ? missingMembers.filter((m) => String(m.kantorId) === kantorFilter)
+      : missingMembers;
+    const msg = buildGroupMissingCheckInMessage(
+      scoped,
+      serverDate || getServerWibDateString(),
+      serverTimeWib
+    );
+    const ok = await copyTextSafe(msg);
+    if (ok) {
+      setWaListCopied(true);
+      window.setTimeout(() => setWaListCopied(false), 2600);
+    }
+  };
 
   const activeFilterLabel = useMemo(() => {
     const kantorName = kantorFilter
@@ -539,17 +567,49 @@ export function AdminDashboardTab({ onNavigateApproval }: { onNavigateApproval: 
             </div>
           );
         }
+        const waUrl =
+          !r.sesi1Time && (r.isWorkingToday || r.operationalStatus === 'TIDAK_HADIR')
+            ? buildIndividualWaReminderUrl(r, serverDate || getServerWibDateString(), serverTimeWib)
+            : null;
         if (r.operationalStatus === 'TIDAK_HADIR') {
           return (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-red-50 dark:bg-red-950/60 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 text-[11px] font-semibold">
-              Tidak masuk
-            </span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-red-50 dark:bg-red-950/60 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 text-[11px] font-semibold">
+                Tidak masuk
+              </span>
+              {waUrl && (
+                <a
+                  href={waUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={`Kirim pengingat WhatsApp ke ${r.namaLengkap}`}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[11px] font-semibold"
+                >
+                  <MessageCircle className="w-3 h-3" />
+                  WA
+                </a>
+              )}
+            </div>
           );
         }
         return r.isWorkingToday ? (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-[11px] font-semibold">
-            Belum absen
-          </span>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-[11px] font-semibold">
+              Belum absen
+            </span>
+            {waUrl && (
+              <a
+                href={waUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={`Kirim pengingat WhatsApp ke ${r.namaLengkap}`}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[11px] font-semibold"
+              >
+                <MessageCircle className="w-3 h-3" />
+                WA
+              </a>
+            )}
+          </div>
         ) : (
           <span className="text-xs text-slate-400 dark:text-slate-500">—</span>
         );
@@ -584,7 +644,15 @@ export function AdminDashboardTab({ onNavigateApproval }: { onNavigateApproval: 
             Pantau jam masuk sesi 1, kehadiran hari ini, dan unduh laporan gambar (PNG) untuk dibagikan.
           </p>
         </div>
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+        <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2 w-full sm:w-auto">
+          <button
+            type="button"
+            onClick={() => setMapOpen(true)}
+            className="min-h-[44px] sm:h-9 px-3.5 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg text-xs font-semibold text-slate-800 dark:text-slate-100 inline-flex items-center justify-center gap-1.5"
+          >
+            <MapPin className="w-3.5 h-3.5 text-[#c0392b] dark:text-brand-400" />
+            Peta Lokasi
+          </button>
           <button
             type="button"
             disabled={loading || generatingPng}
@@ -680,17 +748,27 @@ export function AdminDashboardTab({ onNavigateApproval }: { onNavigateApproval: 
               </button>
             )}
             {missingCheckInCount > 0 && (
-              <button
-                type="button"
-                onClick={() =>
-                  setStatusFilter(statusFilter === 'NOT_CHECKED_IN' ? 'ALL' : 'NOT_CHECKED_IN')
-                }
-                className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-[#c0392b] hover:bg-[#a93226] text-white"
-              >
-                {statusFilter === 'NOT_CHECKED_IN'
-                  ? 'Reset Filter'
-                  : `Belum Absen (${missingCheckInCount})`}
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setStatusFilter(statusFilter === 'NOT_CHECKED_IN' ? 'ALL' : 'NOT_CHECKED_IN')
+                  }
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-[#c0392b] hover:bg-[#a93226] text-white"
+                >
+                  {statusFilter === 'NOT_CHECKED_IN'
+                    ? 'Reset Filter'
+                    : `Belum Absen (${missingCheckInCount})`}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleCopyMissingWaList()}
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-700 hover:bg-emerald-800 text-white inline-flex items-center gap-1"
+                >
+                  {waListCopied ? <Check className="w-3.5 h-3.5" /> : <MessageCircle className="w-3.5 h-3.5" />}
+                  {waListCopied ? 'Daftar WA Tersalin' : 'Salin Daftar WA'}
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -819,6 +897,16 @@ export function AdminDashboardTab({ onNavigateApproval }: { onNavigateApproval: 
           }
         />
       </div>
+
+      {/* Attendance & Lateness Trend Analytics */}
+      <AttendanceTrendChart kantorId={kantorFilter} />
+
+      {/* Daily Attendance Map Modal */}
+      <AdminMonitoringMapModal
+        open={mapOpen}
+        onClose={() => setMapOpen(false)}
+        initialOfficeId={kantorFilter}
+      />
 
       {/* Monitoring Check-In PNG Preview & Share Modal */}
       {snapshotModal && (

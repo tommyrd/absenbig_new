@@ -419,6 +419,7 @@ export interface WorkforceMember {
   isWorkingToday: boolean;
   sesi1Time: string | null;
   sesi1Terlambat: boolean;
+  noHp?: string;
 }
 
 export interface AttendanceFeedPost {

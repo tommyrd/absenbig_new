@@ -825,4 +825,101 @@ test('7. Kebijakan 1 Sesi (Masuk Saja): single check-in completes daily attendan
   assert.equal(kkOne.status, 201);
 });
 
+test('8. Map Sebaran, Tren Kehadiran, Privasi No HP, & Backup Superadmin', async () => {
+  // 8a. Workforce today phone privacy: KARYAWAN must NOT receive noHp; ADMIN receives noHp
+  const wfEmp = await apiJson<{ items: Array<{ karyawanId: number; noHp?: string }> }>(
+    '/api/v1/workforce/today',
+    { token: fajarToken }
+  );
+  assert.equal(wfEmp.status, 200);
+  assert.ok(wfEmp.data.items.length > 0);
+  assert.equal(
+    wfEmp.data.items.some((item) => item.noHp !== undefined),
+    false,
+    'KARYAWAN tidak boleh menerima nomor HP di endpoint workforce/today'
+  );
+
+  const wfAdmin = await apiJson<{ items: Array<{ karyawanId: number; noHp?: string }> }>(
+    '/api/v1/workforce/today',
+    { token: adminToken }
+  );
+  assert.equal(wfAdmin.status, 200);
+  assert.ok(
+    wfAdmin.data.items.some((item) => typeof item.noHp === 'string' && item.noHp.length > 0),
+    'ADMIN harus menerima noHp untuk fitur pengingat WhatsApp'
+  );
+
+  // 8b. Today map endpoint: forbidden for KARYAWAN, accessible for ADMIN with offices & points
+  const mapEmp = await apiJson<{ error: string }>('/api/v1/workforce/today-map', {
+    token: fajarToken,
+  });
+  assert.equal(mapEmp.status, 403);
+
+  const mapAdmin = await apiJson<{
+    tanggal: string;
+    serverTime: string;
+    offices: Array<{ id: number; nama: string; lat: number; lng: number }>;
+    points: Array<{ sessionId: number; lat: number; lng: number; urutanSesi: number }>;
+  }>('/api/v1/workforce/today-map', { token: adminToken });
+  assert.equal(mapAdmin.status, 200);
+  assert.ok(mapAdmin.data.offices.length >= 2);
+  assert.ok(mapAdmin.data.points.length >= 1, 'Minimal ada 1 titik GPS absensi hari ini');
+
+  // 8c. Attendance trend analytics: forbidden for KARYAWAN, 7-day series for ADMIN
+  const trendEmp = await apiJson<{ error: string }>('/api/v1/analytics/attendance-trend?days=7', {
+    token: fajarToken,
+  });
+  assert.equal(trendEmp.status, 403);
+
+  const trendAdmin = await apiJson<{
+    days: number;
+    series: Array<{ tanggal: string; tepatWaktu: number; terlambat: number }>;
+    officeComparison: Array<{ kantorId: number; kantorNama: string; persenHadir: number }>;
+  }>('/api/v1/analytics/attendance-trend?days=7', { token: adminToken });
+  assert.equal(trendAdmin.status, 200);
+  assert.equal(trendAdmin.data.days, 7);
+  assert.equal(trendAdmin.data.series.length, 7);
+  assert.ok(trendAdmin.data.officeComparison.length >= 1);
+
+  // 8d. Superadmin Backup & Storage: forbidden for ADMIN, works end-to-end for SUPERADMIN
+  const bkAdmin = await apiJson<{ error: string }>('/api/v1/superadmin/backups', {
+    token: adminToken,
+  });
+  assert.equal(bkAdmin.status, 403);
+
+  const bkListBefore = await apiJson<{
+    storage: { dbSizeBytes: number; totalDataBytes: number };
+    backups: Array<{ name: string; downloadFile: string }>;
+  }>('/api/v1/superadmin/backups', { token: superToken });
+  assert.equal(bkListBefore.status, 200);
+  assert.ok(bkListBefore.data.storage.dbSizeBytes > 0);
+
+  const bkCreate = await apiJson<{
+    ok: boolean;
+    backup: { name: string; downloadFile: string; sizeBytes: number };
+  }>('/api/v1/superadmin/backups/create', {
+    method: 'POST',
+    token: superToken,
+  });
+  assert.equal(bkCreate.status, 201, `Backup creation failed: ${JSON.stringify(bkCreate.data)}`);
+  assert.ok(bkCreate.data.backup.downloadFile.length > 0);
+  assert.ok(bkCreate.data.backup.sizeBytes > 0);
+
+  // Path traversal attempt must be rejected with 400
+  const badDl = await fetch(`${baseUrl}/api/v1/superadmin/backups/..%2F..%2Fetc%2Fpasswd/download`, {
+    headers: { Authorization: `Bearer ${superToken}` },
+  });
+  assert.equal(badDl.status, 400);
+
+  // Legitimate archive download returns non-empty binary payload
+  const goodDl = await fetch(
+    `${baseUrl}/api/v1/superadmin/backups/${encodeURIComponent(bkCreate.data.backup.downloadFile)}/download`,
+    { headers: { Authorization: `Bearer ${superToken}` } }
+  );
+  assert.equal(goodDl.status, 200);
+  const buf = await goodDl.arrayBuffer();
+  assert.ok(buf.byteLength > 1000, 'File arsip backup tidak boleh kosong');
+});
+
+
 

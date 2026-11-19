@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Building2,
   CalendarDays,
@@ -13,8 +13,9 @@ import {
   UserCog,
   X,
 } from 'lucide-react';
+import { apiFetch, buildApiUrl, getStoredToken } from '../../lib/api';
 import { useResetScroll } from '../../lib/scroll';
-import type { AuthUser, SystemSettings } from '../../shared/types';
+import type { AuthUser, Pengajuan, SystemSettings, WorkforceMember } from '../../shared/types';
 import { AttendanceFeedView } from '../AttendanceFeedView';
 import { ProfileSettingsPanel } from '../ProfileSettingsPanel';
 import { ServerClock } from '../ServerClock';
@@ -67,8 +68,63 @@ export function AdminShell({
 }: AdminShellProps) {
   const [tab, setTab] = useState<AdminTab>('beranda');
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [badges, setBadges] = useState({ pendingRequests: 0, missingCheckIn: 0 });
 
   useResetScroll([tab]);
+
+  const refreshBadges = useCallback(async () => {
+    try {
+      const [reqs, wf] = await Promise.all([
+        apiFetch<{ items: Pengajuan[] }>('/api/v1/requests?status=PENDING'),
+        apiFetch<{ items: WorkforceMember[] }>('/api/v1/workforce/today'),
+      ]);
+      const missingCheckIn = wf.items.filter(
+        (w) => !w.sesi1Time && (w.isWorkingToday || w.operationalStatus === 'TIDAK_HADIR')
+      ).length;
+      setBadges({
+        pendingRequests: reqs.items.length,
+        missingCheckIn,
+      });
+    } catch {
+      // Keep last known badge counts on transient network issues
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshBadges();
+  }, [refreshBadges, tab]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void refreshBadges();
+    }, 60000);
+
+    const token = getStoredToken();
+    const streamUrl = buildApiUrl(
+      token
+        ? `/api/v1/workforce/stream?token=${encodeURIComponent(token)}`
+        : '/api/v1/workforce/stream'
+    );
+    const es = new EventSource(streamUrl);
+    es.addEventListener('workforce', () => {
+      void refreshBadges();
+    });
+
+    return () => {
+      window.clearInterval(timer);
+      es.close();
+    };
+  }, [refreshBadges]);
+
+  const getMenuBadge = (id: AdminTab): { count: number; tone: 'amber' | 'rose' } | null => {
+    if (id === 'approval' && badges.pendingRequests > 0) {
+      return { count: badges.pendingRequests, tone: 'amber' };
+    }
+    if (id === 'dashboard' && badges.missingCheckIn > 0) {
+      return { count: badges.missingCheckIn, tone: 'rose' };
+    }
+    return null;
+  };
 
   const selectTab = (id: AdminTab) => {
     setTab(id);
@@ -117,19 +173,33 @@ export function AdminShell({
           {ADMIN_MENU.map((m) => {
             const Icon = m.Icon;
             const active = tab === m.id;
+            const badge = getMenuBadge(m.id);
             return (
               <button
                 key={m.id}
                 type="button"
                 onClick={() => selectTab(m.id)}
-                className={`w-full px-3 py-2.5 rounded-lg text-xs font-medium flex items-center gap-2.5 transition-colors text-left ${
+                className={`w-full px-3 py-2.5 rounded-lg text-xs font-medium flex items-center justify-between gap-2 transition-colors text-left ${
                   active
                     ? 'bg-[#c0392b] text-white shadow-sm'
                     : 'text-white/75 hover:bg-white/10 hover:text-white'
                 }`}
               >
-                <Icon className="w-4 h-4 shrink-0" />
-                <span>{m.label}</span>
+                <span className="flex items-center gap-2.5 min-w-0">
+                  <Icon className="w-4 h-4 shrink-0" />
+                  <span className="truncate">{m.label}</span>
+                </span>
+                {badge && (
+                  <span
+                    className={`font-mono text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 tabular-nums ${
+                      badge.tone === 'amber'
+                        ? 'bg-amber-400 text-slate-950'
+                        : 'bg-white/20 text-white border border-white/25'
+                    }`}
+                  >
+                    {badge.count}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -197,17 +267,31 @@ export function AdminShell({
               {ADMIN_MENU.map((m) => {
                 const Icon = m.Icon;
                 const active = tab === m.id;
+                const badge = getMenuBadge(m.id);
                 return (
                   <button
                     key={m.id}
                     type="button"
                     onClick={() => selectTab(m.id)}
-                    className={`w-full min-h-[44px] px-3 py-2.5 rounded-lg text-xs font-medium flex items-center gap-2.5 text-left ${
+                    className={`w-full min-h-[44px] px-3 py-2.5 rounded-lg text-xs font-medium flex items-center justify-between gap-2 text-left ${
                       active ? 'bg-[#c0392b] text-white' : 'text-white/75 hover:bg-white/10'
                     }`}
                   >
-                    <Icon className="w-4 h-4 shrink-0" />
-                    <span>{m.label}</span>
+                    <span className="flex items-center gap-2.5 min-w-0">
+                      <Icon className="w-4 h-4 shrink-0" />
+                      <span className="truncate">{m.label}</span>
+                    </span>
+                    {badge && (
+                      <span
+                        className={`font-mono text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 tabular-nums ${
+                          badge.tone === 'amber'
+                            ? 'bg-amber-400 text-slate-950'
+                            : 'bg-white/20 text-white border border-white/25'
+                        }`}
+                      >
+                        {badge.count}
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -290,7 +374,9 @@ export function AdminShell({
           )}
           {tab === 'checkin-override' && <AdminCheckinOverrideTab />}
           {tab === 'approval' && <AdminApprovalTab />}
-          {tab === 'payroll' && <AdminPayrollTab />}
+          {tab === 'payroll' && (
+            <AdminPayrollTab settings={settings} printedByName={user.nama_lengkap} />
+          )}
           {tab === 'calendar' && <AdminCalendarTab />}
           {tab === 'policy' && <AdminPolicyTab />}
           {tab === 'master' && <AdminMasterTab />}

@@ -13,7 +13,8 @@ import {
   type AuthenticatedRequest,
 } from './auth.ts';
 import { getDb } from './db.ts';
-import { getAssetsDir, getAvatarsDir, getPhotosDir } from './paths.ts';
+import { getAssetsDir, getAvatarsDir, getBackupDir, getDbPath, getPhotosDir } from './paths.ts';
+import { runBackup, type BackupManifest } from '../../scripts/backup/backup.ts';
 import {
   attendanceLimiter,
   getClientIp,
@@ -605,13 +606,265 @@ export function registerApiRoutes(app: Express) {
   app.get('/api/v1/workforce/today', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const kantorId = req.query.kantorId ? Number(req.query.kantorId) : undefined;
     const bidangId = req.query.bidangId ? Number(req.query.bidangId) : undefined;
-    const list = getWorkforceToday(db, kantorId, bidangId);
+    const rawList = getWorkforceToday(db, kantorId, bidangId);
+    let list = rawList;
+    if (req.authUser && req.authUser.role !== 'KARYAWAN') {
+      const phoneRows = db
+        .prepare(`SELECT id, no_hp FROM karyawan WHERE aktif = 1`)
+        .all() as { id: number; no_hp: string }[];
+      const phoneMap = new Map(phoneRows.map((p) => [p.id, p.no_hp || '']));
+      list = rawList.map((w) => ({
+        ...w,
+        noHp: phoneMap.get(w.karyawanId) || '',
+      }));
+    }
     res.json({
       tanggal: getWibDateString(),
       serverTime: getWibTimeString(),
       totalBekerja: list.filter((w) => w.isWorkingToday).length,
       totalHadirSelesai: list.filter((w) => w.operationalStatus === 'HADIR').length,
       items: list,
+    });
+  });
+
+  // 3a. Daily Attendance Map (ADMIN & SUPERADMIN only — preserves GPS privacy from KARYAWAN)
+  app.get('/api/v1/workforce/today-map', requireRole('ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const today = getWibDateString();
+    const kantorId = req.query.kantorId ? Number(req.query.kantorId) : undefined;
+    const offices = db
+      .prepare(`SELECT id, kode, nama, alamat, lat, lng, radius_meter FROM kantor WHERE aktif = 1 ORDER BY id ASC`)
+      .all() as {
+        id: number;
+        kode: string;
+        nama: string;
+        alamat: string;
+        lat: number;
+        lng: number;
+        radius_meter: number;
+      }[];
+
+    let sql = `
+      SELECT s.id, s.karyawan_id, s.urutan_sesi, s.nama_sesi, s.waktu_server,
+             s.status_ketepatan, s.keterlambatan_menit, s.lat, s.lng, s.accuracy_meter,
+             s.jarak_kantor_meter, s.dalam_geofence, s.tipe_aktivitas, s.deskripsi_aktivitas,
+             COALESCE(NULLIF(s.lokasi_alamat, ''), alc.alamat) as lokasi_alamat,
+             k.nik, k.nama_lengkap, k.jabatan, k.kantor_id, k.bidang_id,
+             kt.nama as kantor_nama, b.nama as bidang_nama
+      FROM absensi_sesi s
+      LEFT JOIN absensi_lokasi_cache alc ON alc.absensi_sesi_id = s.id
+      JOIN karyawan k ON s.karyawan_id = k.id
+      JOIN kantor kt ON k.kantor_id = kt.id
+      JOIN bidang_kerja b ON k.bidang_id = b.id
+      WHERE s.tanggal = ?
+        AND s.lat IS NOT NULL AND s.lng IS NOT NULL
+        AND k.aktif = 1
+        AND COALESCE(k.is_system_archive, 0) = 0
+        AND ${KARYAWAN_ONLY_SQL}
+    `;
+    const params: (string | number)[] = [today];
+    if (kantorId) {
+      sql += ` AND k.kantor_id = ?`;
+      params.push(kantorId);
+    }
+    sql += ` ORDER BY s.waktu_server DESC`;
+
+    const rows = db.prepare(sql).all(...params) as Array<{
+      id: number;
+      karyawan_id: number;
+      urutan_sesi: number;
+      nama_sesi: string;
+      waktu_server: string;
+      status_ketepatan: 'TEPAT_WAKTU' | 'TERLAMBAT';
+      keterlambatan_menit: number;
+      lat: number;
+      lng: number;
+      accuracy_meter: number | null;
+      jarak_kantor_meter: number | null;
+      dalam_geofence: number;
+      tipe_aktivitas: string;
+      deskripsi_aktivitas: string;
+      lokasi_alamat: string | null;
+      nik: string;
+      nama_lengkap: string;
+      jabatan: string;
+      kantor_id: number;
+      bidang_id: number;
+      kantor_nama: string;
+      bidang_nama: string;
+    }>;
+
+    res.json({
+      tanggal: today,
+      serverTime: getWibTimeString(),
+      offices: offices.map((o) => ({
+        id: o.id,
+        kode: o.kode,
+        nama: o.nama,
+        alamat: o.alamat,
+        lat: o.lat,
+        lng: o.lng,
+        radiusMeter: o.radius_meter,
+      })),
+      points: rows.map((r) => ({
+        sessionId: r.id,
+        karyawanId: r.karyawan_id,
+        nik: r.nik,
+        namaLengkap: r.nama_lengkap,
+        jabatan: r.jabatan,
+        kantorId: r.kantor_id,
+        kantorNama: r.kantor_nama,
+        bidangNama: r.bidang_nama,
+        urutanSesi: r.urutan_sesi,
+        namaSesi: r.nama_sesi,
+        jamWib: r.waktu_server.slice(11, 16),
+        statusKetepatan: r.status_ketepatan,
+        keterlambatanMenit: r.keterlambatan_menit,
+        lat: r.lat,
+        lng: r.lng,
+        accuracyMeter: r.accuracy_meter,
+        jarakKantorMeter: r.jarak_kantor_meter,
+        dalamGeofence: Boolean(r.dalam_geofence),
+        tipeAktivitas: r.tipe_aktivitas,
+        deskripsiAktivitas: r.deskripsi_aktivitas,
+        lokasiAlamat: r.lokasi_alamat,
+      })),
+    });
+  });
+
+  // 3b-analytics. Attendance & Lateness Trend Analytics (ADMIN & SUPERADMIN)
+  app.get('/api/v1/analytics/attendance-trend', requireRole('ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const rawDays = Number(req.query.days) || 14;
+    const windowDays = rawDays <= 7 ? 7 : rawDays <= 14 ? 14 : 30;
+    const kantorId = req.query.kantorId ? Number(req.query.kantorId) : undefined;
+    const today = getWibDateString();
+
+    let empSql = `
+      SELECT k.*, kt.nama as kantor_nama, b.nama as bidang_nama
+      FROM karyawan k
+      JOIN kantor kt ON k.kantor_id = kt.id
+      JOIN bidang_kerja b ON k.bidang_id = b.id
+      WHERE k.aktif = 1
+        AND COALESCE(k.is_system_archive, 0) = 0
+        AND ${KARYAWAN_ONLY_SQL}
+    `;
+    const empParams: number[] = [];
+    if (kantorId) {
+      empSql += ` AND k.kantor_id = ?`;
+      empParams.push(kantorId);
+    }
+    const employees = db.prepare(empSql).all(...empParams) as unknown as Karyawan[];
+
+    // Build chronological date list ending on WIB today
+    const dates: string[] = [];
+    const baseDate = new Date(`${today}T00:00:00Z`);
+    for (let offset = windowDays - 1; offset >= 0; offset--) {
+      const d = new Date(baseDate.getTime() - offset * 86_400_000);
+      dates.push(d.toISOString().slice(0, 10));
+    }
+
+    const dayNamesShort = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+    const officeTotals = new Map<
+      number,
+      { kantorId: number; kantorNama: string; tepatWaktu: number; terlambat: number; izinSakitCuti: number; tidakHadir: number; totalKerja: number }
+    >();
+
+    const series = dates.map((tanggal) => {
+      let tepatWaktu = 0;
+      let terlambat = 0;
+      let izinSakitCuti = 0;
+      let tidakHadir = 0;
+      let belumSelesai = 0;
+      let libur = 0;
+
+      for (const emp of employees) {
+        const resolved = resolveDayForEmployee(db, emp, tanggal);
+        const officeEntry = officeTotals.get(emp.kantor_id) || {
+          kantorId: emp.kantor_id,
+          kantorNama: (emp.kantor_nama || 'Kantor').split('(')[0].trim(),
+          tepatWaktu: 0,
+          terlambat: 0,
+          izinSakitCuti: 0,
+          tidakHadir: 0,
+          totalKerja: 0,
+        };
+
+        const sesi1 = resolved.sessionRecords.find((s) => s.urutan_sesi === 1);
+        if (resolved.operationalStatus === 'HARI_LIBUR' || resolved.operationalStatus === 'OFF_PENGGANTI' || resolved.operationalStatus === 'OFF') {
+          libur += 1;
+        } else if (
+          resolved.operationalStatus === 'CUTI' ||
+          resolved.operationalStatus === 'SAKIT' ||
+          resolved.operationalStatus === 'IZIN'
+        ) {
+          izinSakitCuti += 1;
+          officeEntry.izinSakitCuti += 1;
+          officeEntry.totalKerja += 1;
+        } else if (sesi1) {
+          officeEntry.totalKerja += 1;
+          if (sesi1.status_ketepatan === 'TERLAMBAT') {
+            terlambat += 1;
+            officeEntry.terlambat += 1;
+          } else {
+            tepatWaktu += 1;
+            officeEntry.tepatWaktu += 1;
+          }
+        } else if (resolved.operationalStatus === 'HADIR') {
+          tepatWaktu += 1;
+          officeEntry.tepatWaktu += 1;
+          officeEntry.totalKerja += 1;
+        } else if (resolved.operationalStatus === 'TIDAK_HADIR') {
+          tidakHadir += 1;
+          officeEntry.tidakHadir += 1;
+          officeEntry.totalKerja += 1;
+        } else {
+          belumSelesai += 1;
+          officeEntry.totalKerja += 1;
+        }
+        officeTotals.set(emp.kantor_id, officeEntry);
+      }
+
+      const dObj = new Date(`${tanggal}T00:00:00Z`);
+      const label = `${dayNamesShort[dObj.getUTCDay()]} ${tanggal.slice(8, 10)}/${tanggal.slice(5, 7)}`;
+      return {
+        tanggal,
+        label,
+        tepatWaktu,
+        terlambat,
+        izinSakitCuti,
+        tidakHadir,
+        belumSelesai,
+        libur,
+        totalWajibKerja: tepatWaktu + terlambat + izinSakitCuti + tidakHadir + belumSelesai,
+      };
+    });
+
+    const officeComparison = Array.from(officeTotals.values()).map((o) => {
+      const hadirTotal = o.tepatWaktu + o.terlambat;
+      const denom = Math.max(1, hadirTotal + o.tidakHadir);
+      return {
+        ...o,
+        hadirTotal,
+        persenHadir: Math.round((hadirTotal / denom) * 100),
+        persenTepatWaktu: hadirTotal > 0 ? Math.round((o.tepatWaktu / hadirTotal) * 100) : 100,
+      };
+    });
+
+    const totals = series.reduce(
+      (acc, d) => ({
+        tepatWaktu: acc.tepatWaktu + d.tepatWaktu,
+        terlambat: acc.terlambat + d.terlambat,
+        izinSakitCuti: acc.izinSakitCuti + d.izinSakitCuti,
+        tidakHadir: acc.tidakHadir + d.tidakHadir,
+      }),
+      { tepatWaktu: 0, terlambat: 0, izinSakitCuti: 0, tidakHadir: 0 }
+    );
+
+    res.json({
+      days: windowDays,
+      today,
+      totals,
+      series,
+      officeComparison,
     });
   });
 
@@ -3306,6 +3559,218 @@ export function registerApiRoutes(app: Express) {
       recentOverrides,
       recentEvidence,
     });
+  });
+
+  // 12b. Superadmin Storage Stats, Backup Creation & Archive Download
+  function getDirectoryStats(dirPath: string): { sizeBytes: number; fileCount: number } {
+    if (!fs.existsSync(dirPath)) return { sizeBytes: 0, fileCount: 0 };
+    let sizeBytes = 0;
+    let fileCount = 0;
+    const walk = (current: string) => {
+      for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+        const full = path.join(current, entry.name);
+        if (entry.isDirectory()) {
+          walk(full);
+        } else if (entry.isFile()) {
+          try {
+            sizeBytes += fs.statSync(full).size;
+            fileCount += 1;
+          } catch {
+            // Skip unreadable transient files
+          }
+        }
+      }
+    };
+    walk(dirPath);
+    return { sizeBytes, fileCount };
+  }
+
+  function listAvailableBackups() {
+    const backupRoot = getBackupDir();
+    if (!fs.existsSync(backupRoot)) return [];
+    const entries = fs.readdirSync(backupRoot, { withFileTypes: true });
+    const items: Array<{
+      name: string;
+      createdAtWib: string;
+      downloadFile: string;
+      downloadType: 'tar.gz' | 'db';
+      sizeBytes: number;
+      dbSizeBytes: number;
+      dbSha256: string | null;
+      mediaCounts: { photos: number; avatars: number; assets: number } | null;
+      tableCounts: Record<string, number> | null;
+    }> = [];
+
+    const seenNames = new Set<string>();
+    for (const entry of entries) {
+      if (!entry.name.startsWith('bignet_backup_')) continue;
+      if (entry.isDirectory()) {
+        const name = entry.name;
+        seenNames.add(name);
+        const dirFull = path.join(backupRoot, name);
+        const tarName = `${name}.tar.gz`;
+        const tarFull = path.join(backupRoot, tarName);
+        const dbFull = path.join(dirFull, 'bignet_absensi.db');
+        const manifestFull = path.join(dirFull, 'manifest.json');
+
+        let manifest: BackupManifest | null = null;
+        if (fs.existsSync(manifestFull)) {
+          try {
+            manifest = JSON.parse(fs.readFileSync(manifestFull, 'utf8')) as BackupManifest;
+          } catch {
+            manifest = null;
+          }
+        }
+
+        const hasTar = fs.existsSync(tarFull);
+        const hasDb = fs.existsSync(dbFull);
+        if (!hasTar && !hasDb) continue;
+
+        const downloadFile = hasTar ? tarName : `${name}.db`;
+        const stat = fs.statSync(hasTar ? tarFull : dbFull);
+        items.push({
+          name,
+          createdAtWib: manifest?.createdAtWib || stat.mtime.toISOString(),
+          downloadFile,
+          downloadType: hasTar ? 'tar.gz' : 'db',
+          sizeBytes: stat.size,
+          dbSizeBytes: manifest?.dbSizeBytes ?? (hasDb ? fs.statSync(dbFull).size : stat.size),
+          dbSha256: manifest?.dbSha256 || null,
+          mediaCounts: manifest?.mediaCounts || null,
+          tableCounts: manifest?.tableCounts || null,
+        });
+      }
+    }
+
+    // Also surface standalone .tar.gz archives if directory was cleaned up
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.startsWith('bignet_backup_') || !entry.name.endsWith('.tar.gz')) continue;
+      const baseName = entry.name.slice(0, -'.tar.gz'.length);
+      if (seenNames.has(baseName)) continue;
+      const full = path.join(backupRoot, entry.name);
+      const stat = fs.statSync(full);
+      items.push({
+        name: baseName,
+        createdAtWib: stat.mtime.toISOString(),
+        downloadFile: entry.name,
+        downloadType: 'tar.gz',
+        sizeBytes: stat.size,
+        dbSizeBytes: stat.size,
+        dbSha256: null,
+        mediaCounts: null,
+        tableCounts: null,
+      });
+    }
+
+    items.sort((a, b) => b.createdAtWib.localeCompare(a.createdAtWib));
+    return items;
+  }
+
+  app.get('/api/v1/superadmin/backups', requireRole('SUPERADMIN'), (_req: Request, res: Response) => {
+    const dbPath = getDbPath();
+    const dbSizeBytes = fs.existsSync(dbPath) ? fs.statSync(dbPath).size : 0;
+    const photos = getDirectoryStats(getPhotosDir());
+    const avatars = getDirectoryStats(getAvatarsDir());
+    const assets = getDirectoryStats(getAssetsDir());
+    const backups = listAvailableBackups();
+
+    res.json({
+      storage: {
+        dbSizeBytes,
+        photosSizeBytes: photos.sizeBytes,
+        photosCount: photos.fileCount,
+        avatarsSizeBytes: avatars.sizeBytes,
+        avatarsCount: avatars.fileCount,
+        assetsSizeBytes: assets.sizeBytes,
+        assetsCount: assets.fileCount,
+        totalDataBytes: dbSizeBytes + photos.sizeBytes + avatars.sizeBytes + assets.sizeBytes,
+      },
+      items: backups,
+    });
+  });
+
+  app.post('/api/v1/superadmin/backups/create', requireRole('SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const result = runBackup({ compressTarGz: true });
+      writeAuditLog(db, {
+        actor: req.authUser!,
+        req,
+        modul: 'BACKUP_SYSTEM',
+        aksi: 'CREATE_BACKUP',
+        targetEntity: 'backup',
+        targetId: result.manifest.backupName,
+        after: {
+          backupName: result.manifest.backupName,
+          dbSizeBytes: result.manifest.dbSizeBytes,
+          dbSha256: result.manifest.dbSha256,
+          mediaCounts: result.manifest.mediaCounts,
+        },
+        alasan: 'Pembuatan backup manual dari Konsol Superadmin',
+      });
+
+      const tarName = `${result.manifest.backupName}.tar.gz`;
+      const hasTar = Boolean(result.manifest.archivePath && fs.existsSync(result.manifest.archivePath));
+      const downloadFile = hasTar ? tarName : `${result.manifest.backupName}.db`;
+      const sizeBytes = hasTar && result.manifest.archivePath
+        ? fs.statSync(result.manifest.archivePath).size
+        : result.manifest.dbSizeBytes;
+
+      res.status(201).json({
+        backup: {
+          name: result.manifest.backupName,
+          createdAtWib: result.manifest.createdAtWib,
+          downloadFile,
+          downloadType: hasTar ? 'tar.gz' : 'db',
+          sizeBytes,
+          dbSizeBytes: result.manifest.dbSizeBytes,
+          dbSha256: result.manifest.dbSha256,
+          mediaCounts: result.manifest.mediaCounts,
+          tableCounts: result.manifest.tableCounts,
+        },
+      });
+    } catch (err) {
+      res.status(500).json({
+        error: 'Gagal membuat arsip backup sistem.',
+        detail: safeErrorDetail(err),
+      });
+    }
+  });
+
+  app.get('/api/v1/superadmin/backups/:filename/download', requireRole('SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const filename = String(req.params.filename || '');
+    if (!/^bignet_backup_[0-9T-]+_[a-f0-9]+\.(tar\.gz|db)$/.test(filename)) {
+      res.status(400).json({ error: 'Nama file backup tidak valid.' });
+      return;
+    }
+
+    const backupRoot = path.resolve(getBackupDir());
+    let filePath: string;
+    if (filename.endsWith('.tar.gz')) {
+      filePath = path.resolve(backupRoot, filename);
+    } else {
+      const baseName = filename.slice(0, -'.db'.length);
+      filePath = path.resolve(backupRoot, baseName, 'bignet_absensi.db');
+    }
+
+    if (!filePath.startsWith(backupRoot + path.sep) || !fs.existsSync(filePath)) {
+      res.status(404).json({ error: 'File backup tidak ditemukan.' });
+      return;
+    }
+
+    writeAuditLog(db, {
+      actor: req.authUser!,
+      req,
+      modul: 'BACKUP_SYSTEM',
+      aksi: 'DOWNLOAD_BACKUP',
+      targetEntity: 'backup',
+      targetId: filename,
+      alasan: 'Unduhan arsip backup dari Konsol Superadmin',
+    });
+
+    res.setHeader('Content-Type', filename.endsWith('.tar.gz') ? 'application/gzip' : 'application/x-sqlite3');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Cache-Control', 'no-store');
+    fs.createReadStream(filePath).pipe(res);
   });
 
   // 13. System Settings, Custom Logo & Website Favicon
