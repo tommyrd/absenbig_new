@@ -257,10 +257,8 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
           </div>
         </div>
 
-        {/* Bottom Footer */}
-        <div className="relative z-10 text-xs text-white/75">
-          {footerText}
-        </div>
+        {/* Bottom Spacer to keep Hero vertically balanced */}
+        <div className="relative z-10 h-4" aria-hidden="true" />
       </aside>
 
       {/* Right Authentication Area (Full Canvas on Mobile) */}
@@ -382,7 +380,7 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
                     <div className="mt-2 flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-[11px] leading-relaxed text-slate-600 dark:border-slate-700 dark:bg-slate-800/70 dark:text-slate-300">
                       <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#c0392b] dark:text-brand-400" />
                       <span>
-                        Silakan hubungi Admin Operasional atau Superadmin PT. BIG untuk mereset kata sandi akun Anda.
+                        Silakan hubungi Admin Operasional atau Superadmin {appName} untuk mereset kata sandi akun Anda.
                       </span>
                     </div>
                   )}
@@ -444,11 +442,6 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
                   </div>
                 </div>
               )}
-
-              {/* Mobile & Tablet Card Footer */}
-              <p className="mt-7 text-center text-[11px] tracking-wide text-slate-400 dark:text-slate-500 lg:hidden">
-                {footerText}
-              </p>
             </div>
           ) : (
             <div className="mt-6 space-y-4">
@@ -743,6 +736,15 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
             </div>
           )}
         </section>
+
+        {/* Unified Footer — identical placement, typography, and content across Desktop, Tablet, and Mobile */}
+        <footer
+          className={`mt-6 w-full text-center text-xs leading-relaxed text-slate-500 dark:text-slate-400 ${
+            mode === 'register' ? 'max-w-[520px]' : 'max-w-[420px]'
+          }`}
+        >
+          {footerText}
+        </footer>
       </main>
     </div>
   );

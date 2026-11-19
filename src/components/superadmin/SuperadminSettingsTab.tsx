@@ -277,11 +277,8 @@ export function SuperadminSettingsTab({ onSettingsUpdated }: SuperadminSettingsT
                 </p>
                 <p className="text-[11px] text-white/80 line-clamp-2">{deskripsiLogin}</p>
               </div>
-              {footerLogin && (
-                <p className="text-[10px] text-white/65 pt-1">{footerLogin}</p>
-              )}
             </div>
-            <div className="p-4 bg-slate-50 dark:bg-slate-800/80 space-y-2">
+            <div className="p-4 bg-slate-50 dark:bg-slate-800/80 space-y-2.5">
               <p className="font-display text-xs font-bold text-slate-900 dark:text-slate-100">
                 {judulFormLogin || 'Selamat Datang Kembali'}
               </p>
@@ -291,6 +288,9 @@ export function SuperadminSettingsTab({ onSettingsUpdated }: SuperadminSettingsT
                   <span>{pengumumanLogin}</span>
                 </div>
               )}
+              <p className="pt-2 border-t border-slate-200/80 dark:border-slate-700 text-center text-[11px] text-slate-500 dark:text-slate-400">
+                {footerLogin.trim() || `© 2026 ${(namaAplikasi || 'Absensi BIGNET').toUpperCase()} · Sistem Kehadiran & Payroll`}
+              </p>
             </div>
           </div>
 

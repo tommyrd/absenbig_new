@@ -71,6 +71,13 @@ export default function App() {
   const handleLogout = async () => {
     await logoutApi();
     setUser(null);
+    apiFetch<{ settings: SystemSettings | null }>('/api/v1/settings/public')
+      .then((res) => {
+        if (res.settings) {
+          handleSettingsUpdated(res.settings);
+        }
+      })
+      .catch(() => {});
   };
 
   if (checking) {
