@@ -130,7 +130,7 @@ function stripInternalAuthFields(user: AuthUser & { tokenVersion?: number }): Au
 
 function saveAvatarBase64(base64Input: string, prefix: string): string {
   const { ext, buf } = validateRasterImageBase64(base64Input, {
-    maxBytes: 2 * 1024 * 1024,
+    maxBytes: 10 * 1024 * 1024,
     label: 'foto profil',
   });
   const avatarsDir = getAvatarsDir();

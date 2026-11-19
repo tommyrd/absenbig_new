@@ -235,8 +235,8 @@ export function SuperadminAccountsTab({
 
   const handleAccountPhotoFile = (file: File | undefined) => {
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) {
-      setModalErr('Ukuran foto profil maksimal 2 MB.');
+    if (file.size > 10 * 1024 * 1024) {
+      setModalErr('Ukuran foto profil maksimal 10 MB.');
       return;
     }
     const reader = new FileReader();
@@ -973,13 +973,16 @@ export function SuperadminAccountsTab({
                   <p className="text-xs font-semibold text-slate-800 dark:text-slate-200">
                     Foto Profil Akun
                   </p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    PNG, JPG, atau WEBP maksimal 10 MB.
+                  </p>
                   <div className="flex flex-wrap items-center gap-2">
                     <label className="min-h-[38px] px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-100 inline-flex items-center gap-1.5 cursor-pointer">
                       <Camera className="w-3.5 h-3.5" />
                       <span>Unggah Foto</span>
                       <input
                         type="file"
-                        accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                        accept="image/png,image/jpeg,image/webp"
                         className="hidden"
                         onChange={(e) => {
                           handleAccountPhotoFile(e.target.files?.[0]);

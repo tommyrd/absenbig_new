@@ -55,8 +55,8 @@ export function ProfileSettingsPanel({
 
   const handleUploadPhoto = (file: File | undefined) => {
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) {
-      setPhotoMsg({ type: 'err', text: 'Ukuran foto profil maksimal 2 MB.' });
+    if (file.size > 10 * 1024 * 1024) {
+      setPhotoMsg({ type: 'err', text: 'Ukuran foto profil maksimal 10 MB.' });
       return;
     }
     const reader = new FileReader();
@@ -228,6 +228,9 @@ export function ProfileSettingsPanel({
                   </button>
                 )}
               </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                PNG, JPG, atau WEBP maksimal 10 MB.
+              </p>
             </div>
           </div>
           <button

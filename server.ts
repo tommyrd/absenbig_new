@@ -67,8 +67,8 @@ async function startServer() {
     next();
   });
 
-  app.use(express.json({ limit: '10mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+  app.use(express.json({ limit: '16mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '16mb' }));
 
   // Initialize database & apply migrations
   getDb();
@@ -132,6 +132,11 @@ async function startServer() {
 
   // Global safe error handler (prevents leaking stack traces in production)
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    const errObj = err as { type?: string; status?: number; statusCode?: number } | null;
+    if (errObj?.type === 'entity.too.large' || errObj?.status === 413 || errObj?.statusCode === 413) {
+      res.status(413).json({ error: 'Ukuran berkas atau data yang dikirim melebihi batas maksimal server.' });
+      return;
+    }
     if (err instanceof SyntaxError && 'body' in err) {
       res.status(400).json({ error: 'Format payload JSON tidak valid.' });
       return;
