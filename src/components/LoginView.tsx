@@ -167,7 +167,7 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
           role_diminta: regRole,
           jabatan: regJabatan,
           kantor_id: regKantorId,
-          bidang_id: regBidangId,
+          bidang_id: regRole === 'KARYAWAN' ? regBidangId : null,
           catatan_pendaftar: regCatatan,
           fotoBase64: regFotoBase64,
         }),
@@ -631,7 +631,11 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div
+                    className={`grid grid-cols-1 gap-3 ${
+                      regRole === 'KARYAWAN' ? 'sm:grid-cols-2' : ''
+                    }`}
+                  >
                     <div className="min-w-0">
                       <label htmlFor="register-office" className={labelClass}>
                         Penempatan Kantor
@@ -649,23 +653,25 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
                         ))}
                       </select>
                     </div>
-                    <div className="min-w-0">
-                      <label htmlFor="register-department" className={labelClass}>
-                        Bidang Kerja
-                      </label>
-                      <select
-                        id="register-department"
-                        value={regBidangId}
-                        onChange={(e) => setRegBidangId(Number(e.target.value))}
-                        className={regInputClass}
-                      >
-                        {bidangList.map((b) => (
-                          <option key={b.id} value={b.id}>
-                            {b.nama}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    {regRole === 'KARYAWAN' && (
+                      <div className="min-w-0">
+                        <label htmlFor="register-department" className={labelClass}>
+                          Bidang Kerja
+                        </label>
+                        <select
+                          id="register-department"
+                          value={regBidangId}
+                          onChange={(e) => setRegBidangId(Number(e.target.value))}
+                          className={regInputClass}
+                        >
+                          {bidangList.map((b) => (
+                            <option key={b.id} value={b.id}>
+                              {b.nama}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                   </div>
 
                   <div>

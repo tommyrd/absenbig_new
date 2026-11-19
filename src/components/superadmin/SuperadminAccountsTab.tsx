@@ -362,7 +362,11 @@ export function SuperadminAccountsTab({
       render: (r) => (
         <div className="text-xs">
           <p className="font-medium text-slate-800 dark:text-slate-200">{r.kantor_nama}</p>
-          <p className="text-slate-500 dark:text-slate-400">{r.bidang_nama}</p>
+          {r.role_diminta === 'KARYAWAN' ? (
+            <p className="text-slate-500 dark:text-slate-400">{r.bidang_nama}</p>
+          ) : (
+            <p className="text-slate-400 dark:text-slate-500 italic">Tanpa bidang kerja</p>
+          )}
         </div>
       ),
     },
@@ -779,7 +783,11 @@ export function SuperadminAccountsTab({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div
+                className={`grid grid-cols-1 gap-3 ${
+                  approveForm.role === 'KARYAWAN' ? 'sm:grid-cols-2' : ''
+                }`}
+              >
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                     Penempatan Kantor
@@ -798,24 +806,26 @@ export function SuperadminAccountsTab({
                     ))}
                   </select>
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Bidang Kerja
-                  </label>
-                  <select
-                    value={approveForm.bidang_id}
-                    onChange={(e) =>
-                      setApproveForm({ ...approveForm, bidang_id: Number(e.target.value) })
-                    }
-                    className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
-                  >
-                    {bidangList.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.nama}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {approveForm.role === 'KARYAWAN' && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Bidang Kerja
+                    </label>
+                    <select
+                      value={approveForm.bidang_id}
+                      onChange={(e) =>
+                        setApproveForm({ ...approveForm, bidang_id: Number(e.target.value) })
+                      }
+                      className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
+                    >
+                      {bidangList.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.nama}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
 
               <div>

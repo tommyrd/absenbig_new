@@ -472,7 +472,7 @@ export function registerApiRoutes(app: Express) {
       role_diminta?: 'KARYAWAN' | 'ADMIN';
       jabatan?: string;
       kantor_id?: number;
-      bidang_id?: number;
+      bidang_id?: number | null;
       catatan_pendaftar?: string;
       fotoBase64?: string | null;
     };
@@ -504,11 +504,32 @@ export function registerApiRoutes(app: Express) {
 
     const officeRow = db
       .prepare(`SELECT id FROM kantor WHERE id = ? AND aktif = 1`)
-      .get(Number(kantor_id));
-    const bidangRow = db.prepare(`SELECT id FROM bidang_kerja WHERE id = ?`).get(Number(bidang_id));
-    if (!officeRow || !bidangRow) {
-      res.status(400).json({ error: 'Pilihan kantor dan bidang kerja wajib valid.' });
+      .get(Number(kantor_id)) as { id: number } | undefined;
+    if (!officeRow) {
+      res.status(400).json({ error: 'Pilihan penempatan kantor wajib valid.' });
       return;
+    }
+
+    let resolvedBidangId: number | null = null;
+    if (requestedRole === 'KARYAWAN') {
+      const bidangRow = db
+        .prepare(`SELECT id FROM bidang_kerja WHERE id = ?`)
+        .get(Number(bidang_id)) as { id: number } | undefined;
+      if (!bidangRow) {
+        res.status(400).json({ error: 'Pilihan bidang kerja wajib valid untuk Karyawan.' });
+        return;
+      }
+      resolvedBidangId = bidangRow.id;
+    } else {
+      // Operator (ADMIN) does not select a bidang kerja on the form; assign internal fallback FK
+      const fallbackBidang = db
+        .prepare(`SELECT id FROM bidang_kerja ORDER BY CASE WHEN UPPER(kode) = 'ADM' THEN 0 ELSE 1 END, id ASC LIMIT 1`)
+        .get() as { id: number } | undefined;
+      if (!fallbackBidang) {
+        res.status(500).json({ error: 'Konfigurasi master bidang kerja belum tersedia.' });
+        return;
+      }
+      resolvedBidangId = fallbackBidang.id;
     }
 
     const existingUser = db
@@ -551,7 +572,7 @@ export function registerApiRoutes(app: Express) {
     const nowIso = getWibIsoString();
     const defaultJabatan =
       (jabatan || '').trim() ||
-      (requestedRole === 'ADMIN' ? 'Admin Operasional' : 'Teknisi Lapangan');
+      (requestedRole === 'ADMIN' ? 'Operator' : 'Teknisi Lapangan');
 
     const info = db
       .prepare(
@@ -569,7 +590,7 @@ export function registerApiRoutes(app: Express) {
         requestedRole,
         defaultJabatan,
         Number(kantor_id),
-        Number(bidang_id),
+        resolvedBidangId,
         savedFoto,
         (catatan_pendaftar || '').trim(),
         nowIso
