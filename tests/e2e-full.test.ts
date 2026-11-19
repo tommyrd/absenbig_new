@@ -612,3 +612,94 @@ test('5. Pengajuan, Approval, Holidays, Kerja Khusus, Payroll Summary, Override,
   assert.equal(accounts.status, 200);
   assert.ok(accounts.data.items.some((a) => a.username === 'superadmin'));
 });
+
+test('6. Strict Role Separation: SUPERADMIN vs ADMIN Operasional vs KARYAWAN (only KARYAWAN does attendance)', async () => {
+  const superToken = (await loginAs('superadmin', 'bignet123')).token;
+  const adminToken = (await loginAs('admin', 'bignet123')).token;
+  const today = getWibDateString();
+  const ym = today.slice(0, 7);
+
+  // Neither ADMIN nor SUPERADMIN can access personal attendance check-in endpoints
+  const adminAttToday = await apiJson('/api/v1/attendance/today', { token: adminToken });
+  assert.equal(adminAttToday.status, 403);
+
+  const superAttToday = await apiJson('/api/v1/attendance/today', { token: superToken });
+  assert.equal(superAttToday.status, 403);
+
+  const adminAttPost = await apiJson('/api/v1/attendance/session', {
+    method: 'POST',
+    token: adminToken,
+    body: { urutanSesi: 1 },
+  });
+  assert.equal(adminAttPost.status, 403);
+
+  const superAttPost = await apiJson('/api/v1/attendance/session', {
+    method: 'POST',
+    token: superToken,
+    body: { urutanSesi: 1 },
+  });
+  assert.equal(superAttPost.status, 403);
+
+  // ADMIN cannot access Superadmin overview
+  const adminSuperOverview = await apiJson(`/api/v1/superadmin/overview?bulan=${ym}`, {
+    token: adminToken,
+  });
+  assert.equal(adminSuperOverview.status, 403);
+
+  // ADMIN Operasional (Siti Rahmawati / BG-002 / karyawan_id = 1) must NOT appear in employee rosters or payroll
+  const workforce = await apiJson<{ items: Array<{ nik: string; namaLengkap: string }> }>(
+    '/api/v1/workforce/today',
+    { token: adminToken }
+  );
+  assert.equal(workforce.status, 200);
+  assert.ok(!workforce.data.items.some((w) => w.nik === 'BG-002'));
+  assert.equal(workforce.data.items.length, 6);
+
+  const feed = await apiJson<{ roster: Array<{ nik: string }> }>(
+    '/api/v1/feed/today',
+    { token: adminToken }
+  );
+  assert.equal(feed.status, 200);
+  assert.ok(!feed.data.roster.some((r) => r.nik === 'BG-002'));
+
+  const employees = await apiJson<{ items: Array<{ nik: string; role?: string }> }>(
+    '/api/v1/master/employees',
+    { token: adminToken }
+  );
+  assert.equal(employees.status, 200);
+  assert.ok(!employees.data.items.some((e) => e.nik === 'BG-002'));
+
+  const payroll = await apiJson<{ items: Array<{ nik: string }> }>(
+    `/api/v1/payroll/summary?bulan=${ym}`,
+    { token: adminToken }
+  );
+  assert.equal(payroll.status, 200);
+  assert.ok(!payroll.data.items.some((p) => p.nik === 'BG-002'));
+
+  // ADMIN cannot submit a personal request without selecting a KARYAWAN or targeting an ADMIN
+  const adminSelfReq = await apiJson('/api/v1/requests', {
+    method: 'POST',
+    token: adminToken,
+    body: {
+      jenis: 'CUTI',
+      tanggalMulai: today,
+      tanggalAkhir: today,
+      alasan: 'Coba cuti pribadi admin',
+    },
+  });
+  assert.equal(adminSelfReq.status, 400);
+
+  const adminTargetSelfReq = await apiJson('/api/v1/requests', {
+    method: 'POST',
+    token: adminToken,
+    body: {
+      karyawanId: 1,
+      jenis: 'CUTI',
+      tanggalMulai: today,
+      tanggalAkhir: today,
+      alasan: 'Coba cuti untuk akun admin',
+    },
+  });
+  assert.equal(adminTargetSelfReq.status, 403);
+});
+

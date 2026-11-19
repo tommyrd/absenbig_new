@@ -474,7 +474,13 @@ export function getWorkforceToday(
     FROM karyawan k
     JOIN kantor kt ON k.kantor_id = kt.id
     JOIN bidang_kerja b ON k.bidang_id = b.id
-    WHERE k.aktif = 1 AND COALESCE(k.is_system_archive, 0) = 0
+    WHERE k.aktif = 1
+      AND COALESCE(k.is_system_archive, 0) = 0
+      AND NOT EXISTS (
+        SELECT 1 FROM pengguna u_role
+        WHERE u_role.karyawan_id = k.id
+          AND u_role.role IN ('ADMIN', 'SUPERADMIN')
+      )
   `;
   const params: (number | string)[] = [];
   if (kantorId) {

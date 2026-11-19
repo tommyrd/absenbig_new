@@ -43,9 +43,19 @@ interface TodayResponse {
   day: ResolvedDay;
 }
 
+export interface AttendanceSubmitResult {
+  sessionId: number;
+  title: string;
+  message: string;
+  updatedDay?: ResolvedDay;
+  serverTime?: string;
+  serverEpochMs?: number;
+}
+
 interface EmployeeAbsensiPageProps {
   user: AuthUser;
-  onSessionSubmitted: (message: string, sessionId: number) => void;
+  onSessionSubmitted: (result: AttendanceSubmitResult) => void;
+  onSessionFailed?: (message: string) => void;
 }
 
 function haversineClient(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -96,7 +106,11 @@ function isFreshServerWindowSnapshot(
   return ageMs >= 0 && ageMs <= 10000;
 }
 
-export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsensiPageProps) {
+export function EmployeeAbsensiPage({
+  user,
+  onSessionSubmitted,
+  onSessionFailed,
+}: EmployeeAbsensiPageProps) {
   const [data, setData] = useState<TodayResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -557,6 +571,11 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
     const nextUrutan = data.day.sessionsCompleted + 1;
     const nextSesiCfg = data.day.policySnapshot.sesiList[data.day.sessionsCompleted];
 
+    const failSubmit = (message: string) => {
+      setSubmitMsg({ type: 'err', text: message });
+      onSessionFailed?.(message);
+    };
+
     const requirePhoto = Boolean(
       nextSesiCfg &&
         (data.day.policySnapshot.wajibFotoSemuaSesi || nextSesiCfg.wajib_foto === 1)
@@ -567,11 +586,11 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
         (data.day.policySnapshot.wajibAktivitasSesiLanjut || nextSesiCfg.wajib_aktivitas === 1)
     );
     if (requirePhoto && !photoDataUrl) {
-      setSubmitMsg({ type: 'err', text: 'Ambil foto melalui kamera terlebih dahulu.' });
+      failSubmit('Ambil foto melalui kamera terlebih dahulu.');
       return;
     }
     if (requireActivity && !deskripsiAktivitas.trim()) {
-      setSubmitMsg({ type: 'err', text: 'Isi keterangan aktivitas atau standby terlebih dahulu.' });
+      failSubmit('Isi keterangan aktivitas atau standby terlebih dahulu.');
       return;
     }
 
@@ -592,7 +611,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
         setCoords(null);
         setGpsStatus('error');
         setGpsError(message);
-        setSubmitMsg({ type: 'err', text: message });
+        failSubmit(message);
         return;
       }
       setCoords(freshCoords);
@@ -606,10 +625,9 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
       if (mustBeAtOffice) {
         if (!isGpsAccuracyAcceptable(freshCoords.accuracy)) {
           stopCamera();
-          setSubmitMsg({
-            type: 'err',
-            text: `Akurasi GPS ±${freshCoords.accuracy}m belum memenuhi batas maksimal ±${MAX_GPS_ACCURACY_METERS}m.`,
-          });
+          failSubmit(
+            `Akurasi GPS ±${freshCoords.accuracy}m belum memenuhi batas maksimal ±${MAX_GPS_ACCURACY_METERS}m.`
+          );
           return;
         }
 
@@ -621,10 +639,9 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
         );
         if (!isWithinVerifiedGeofence(freshDistance, freshCoords.accuracy, user.kantor_radius)) {
           stopCamera();
-          setSubmitMsg({
-            type: 'err',
-            text: `Posisi Anda (${formatDistance(freshDistance)}, akurasi ±${freshCoords.accuracy}m) belum berada di dalam radius kantor ${user.kantor_radius}m.`,
-          });
+          failSubmit(
+            `Posisi Anda (${formatDistance(freshDistance)}, akurasi ±${freshCoords.accuracy}m) belum berada di dalam radius kantor ${user.kantor_radius}m.`
+          );
           return;
         }
       }
@@ -635,7 +652,17 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
           ? 'Mengunggah foto dan menyimpan absensi...'
           : 'Menyimpan absensi ke server...',
       });
-      const submitted = await apiFetch<{ sessionId: number }>('/api/v1/attendance/session', {
+      const submitted = await apiFetch<{
+        sessionId: number;
+        day?: ResolvedDay;
+        urutanSesi?: number;
+        namaSesi?: string;
+        waktuServer?: string;
+        serverTime?: string;
+        serverEpochMs?: number;
+        statusKetepatan?: 'TEPAT_WAKTU' | 'TERLAMBAT';
+        keterlambatanMenit?: number;
+      }>('/api/v1/attendance/session', {
         method: 'POST',
         body: JSON.stringify({
           urutanSesi: nextUrutan,
@@ -648,16 +675,36 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
           fotoSource: photoDataUrl ? 'BROWSER_CAMERA' : undefined,
         }),
       });
-      const successMessage = `Absensi Sesi ${nextUrutan} berhasil tercatat dan tampil di Beranda.`;
+
+      const namaSesi = submitted.namaSesi || nextSesiCfg?.nama || `Sesi ${nextUrutan}`;
+      const waktuHm = submitted.waktuServer
+        ? submitted.waktuServer.slice(11, 16)
+        : submitted.serverTime
+          ? submitted.serverTime.slice(0, 5)
+          : liveWibHm;
+      const ketepatanLabel =
+        submitted.statusKetepatan === 'TERLAMBAT' && (submitted.keterlambatanMenit ?? 0) > 0
+          ? `Terlambat ${submitted.keterlambatanMenit} menit`
+          : 'Tepat waktu';
+      const successTitle = `Absensi ${namaSesi} Berhasil!`;
+      const successMessage = `Tercatat pukul ${waktuHm} WIB (${ketepatanLabel}). Kehadiran Anda sudah tampil di Beranda.`;
+
       stopCamera();
       setPhotoDataUrl(null);
       setDeskripsiAktivitas('');
-      onSessionSubmitted(successMessage, submitted.sessionId);
-    } catch (err) {
-      setSubmitMsg({
-        type: 'err',
-        text: err instanceof Error ? err.message : 'Gagal mengirim absensi sesi.',
+      setSubmitMsg(null);
+      onSessionSubmitted({
+        sessionId: submitted.sessionId,
+        title: successTitle,
+        message: successMessage,
+        updatedDay: submitted.day,
+        serverTime: submitted.serverTime,
+        serverEpochMs: submitted.serverEpochMs,
       });
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error ? err.message : 'Gagal mengirim absensi sesi. Silakan coba lagi.';
+      failSubmit(errorMessage);
       void loadToday(true);
     } finally {
       setSubmitting(false);
@@ -1315,6 +1362,20 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                         className="w-full p-3 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-600 disabled:opacity-60"
                       />
                     </div>
+
+                    {submitMsg?.type === 'err' && (
+                      <div
+                        role="alert"
+                        aria-live="assertive"
+                        className="flex items-start gap-2.5 p-3.5 rounded-xl border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/60 text-red-800 dark:text-red-200 text-xs font-medium"
+                      >
+                        <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+                        <div className="min-w-0 flex-1">
+                          <p className="font-bold text-red-900 dark:text-red-100">Absensi Gagal</p>
+                          <p className="mt-0.5 leading-relaxed">{submitMsg.text}</p>
+                        </div>
+                      </div>
+                    )}
 
                     <button
                       type="button"

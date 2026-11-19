@@ -192,6 +192,23 @@ function attachUser(req: AuthenticatedRequest, _res: Response, next: () => void)
   next();
 }
 
+const KARYAWAN_ONLY_SQL = `NOT EXISTS (SELECT 1 FROM pengguna u_role WHERE u_role.karyawan_id = k.id AND u_role.role IN ('ADMIN', 'SUPERADMIN'))`;
+
+function isAttendanceEligibleEmployee(karyawanId: number): boolean {
+  const db = getDb();
+  const row = db
+    .prepare(
+      `SELECT k.id
+       FROM karyawan k
+       WHERE k.id = ?
+         AND COALESCE(k.is_system_archive, 0) = 0
+         AND ${KARYAWAN_ONLY_SQL}
+       LIMIT 1`
+    )
+    .get(karyawanId);
+  return Boolean(row);
+}
+
 function getKaryawanById(id: number): Karyawan | undefined {
   const db = getDb();
   return db
@@ -621,7 +638,9 @@ export function registerApiRoutes(app: Express) {
         `SELECT k.id as karyawan_id, k.foto_profil_updated_at, COALESCE(u.role, 'KARYAWAN') as role
          FROM karyawan k
          LEFT JOIN pengguna u ON u.karyawan_id = k.id AND u.aktif = 1
-         WHERE k.aktif = 1 AND COALESCE(k.is_system_archive, 0) = 0`
+         WHERE k.aktif = 1
+           AND COALESCE(k.is_system_archive, 0) = 0
+           AND ${KARYAWAN_ONLY_SQL}`
       )
       .all() as { karyawan_id: number; foto_profil_updated_at: string | null; role: Role }[];
 
@@ -651,7 +670,9 @@ export function registerApiRoutes(app: Express) {
       JOIN bidang_kerja b ON k.bidang_id = b.id
       LEFT JOIN absensi_lokasi_cache alc ON alc.absensi_sesi_id = s.id
       LEFT JOIN pengguna u ON u.karyawan_id = k.id AND u.aktif = 1
-      WHERE k.aktif = 1 AND COALESCE(k.is_system_archive, 0) = 0
+      WHERE k.aktif = 1
+        AND COALESCE(k.is_system_archive, 0) = 0
+        AND ${KARYAWAN_ONLY_SQL}
     `;
     const postParams: (string | number)[] = [];
     if (scope === 'today') {
@@ -744,10 +765,10 @@ export function registerApiRoutes(app: Express) {
     });
   });
 
-  // 4. Employee Today Status & Session Check-in
-  app.get('/api/v1/attendance/today', requireRole('KARYAWAN', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  // 4. Employee Today Status & Session Check-in (Strictly KARYAWAN only)
+  app.get('/api/v1/attendance/today', requireRole('KARYAWAN'), (req: AuthenticatedRequest, res: Response) => {
     if (req.authUser!.karyawan_id === null) {
-      res.status(403).json({ error: 'Akun Superadmin tidak memiliki profil pegawai atau absensi pribadi.' });
+      res.status(403).json({ error: 'Hanya akun Karyawan yang memiliki jadwal absensi pribadi.' });
       return;
     }
     const emp = getKaryawanById(req.authUser!.karyawan_id);
@@ -826,7 +847,9 @@ export function registerApiRoutes(app: Express) {
          FROM karyawan k
          JOIN kantor kt ON k.kantor_id = kt.id
          JOIN bidang_kerja b ON k.bidang_id = b.id
-         WHERE k.aktif = 1 AND COALESCE(k.is_system_archive, 0) = 0
+         WHERE k.aktif = 1
+           AND COALESCE(k.is_system_archive, 0) = 0
+           AND ${KARYAWAN_ONLY_SQL}
          ORDER BY k.nama_lengkap ASC`
       )
       .all() as unknown as Karyawan[];
@@ -883,8 +906,8 @@ export function registerApiRoutes(app: Express) {
     }
 
     const employee = getKaryawanById(Number(karyawanId));
-    if (!employee || employee.aktif !== 1) {
-      res.status(404).json({ error: 'Karyawan aktif tidak ditemukan.' });
+    if (!employee || employee.aktif !== 1 || !isAttendanceEligibleEmployee(employee.id)) {
+      res.status(404).json({ error: 'Karyawan aktif (role KARYAWAN) tidak ditemukan.' });
       return;
     }
 
@@ -1015,7 +1038,7 @@ export function registerApiRoutes(app: Express) {
     });
   }));
 
-  app.post('/api/v1/attendance/session', requireRole('KARYAWAN', 'ADMIN'), asyncRoute(async (req, res) => {
+  app.post('/api/v1/attendance/session', requireRole('KARYAWAN'), asyncRoute(async (req, res) => {
     const user = req.authUser!;
     const attLimit = attendanceLimiter.consume(`att:${user.id}`);
     if (!attLimit.allowed) {
@@ -1026,7 +1049,7 @@ export function registerApiRoutes(app: Express) {
       return;
     }
     if (user.karyawan_id === null) {
-      res.status(403).json({ error: 'Akun Superadmin tidak memiliki profil pegawai atau absensi pribadi.' });
+      res.status(403).json({ error: 'Hanya akun Karyawan yang dapat melakukan absensi sesi.' });
       return;
     }
     const emp = getKaryawanById(user.karyawan_id);
@@ -1349,7 +1372,19 @@ export function registerApiRoutes(app: Express) {
 
     broadcastWorkforceUpdate('SESSION_SUBMITTED');
     const updatedDay = resolveDayForEmployee(db, emp, today);
-    res.status(201).json({ ok: true, sessionId: createdSessionId, day: updatedDay });
+    const responseNow = new Date();
+    res.status(201).json({
+      ok: true,
+      sessionId: createdSessionId,
+      day: updatedDay,
+      urutanSesi: expectedNext,
+      namaSesi: targetSesiConfig.nama,
+      waktuServer: nowIso,
+      serverTime: getWibTimeString(responseNow),
+      serverEpochMs: responseNow.getTime(),
+      statusKetepatan: isLate ? 'TERLAMBAT' : 'TEPAT_WAKTU',
+      keterlambatanMenit,
+    });
   }));
 
   // 5. Attendance Photo Access (own history + today's shared Beranda feed; Admin/Superadmin all)
@@ -1403,13 +1438,13 @@ export function registerApiRoutes(app: Express) {
       ? req.query.bulan
       : getWibDateString().slice(0, 7);
 
-    let targetEmpId: number | null = user.karyawan_id;
+    let targetEmpId: number | null = user.role === 'KARYAWAN' ? user.karyawan_id : null;
     if (req.query.karyawanId && (user.role === 'ADMIN' || user.role === 'SUPERADMIN')) {
       targetEmpId = Number(req.query.karyawanId);
     }
 
-    if (targetEmpId === null) {
-      res.status(400).json({ error: 'Akun Superadmin tidak memiliki riwayat absensi pribadi. Pilih karyawan yang ingin dipantau.' });
+    if (targetEmpId === null || !isAttendanceEligibleEmployee(targetEmpId)) {
+      res.status(400).json({ error: 'Akun Admin Operasional dan Superadmin tidak memiliki riwayat absensi pribadi. Pilih karyawan yang ingin dipantau.' });
       return;
     }
     const summary = computeMonthlySummary(db, targetEmpId, bulan);
@@ -1519,9 +1554,13 @@ export function registerApiRoutes(app: Express) {
       return;
     }
 
-    const targetEmpId = user.role === 'ADMIN' && karyawanId ? Number(karyawanId) : user.karyawan_id;
-    if (targetEmpId === null) {
-      res.status(403).json({ error: 'Akun Superadmin tidak dapat membuat pengajuan sebagai pegawai.' });
+    if (user.role === 'ADMIN' && !karyawanId) {
+      res.status(400).json({ error: 'Admin Operasional wajib memilih karyawan tujuan pengajuan.' });
+      return;
+    }
+    const targetEmpId = user.role === 'ADMIN' ? Number(karyawanId) : user.karyawan_id;
+    if (targetEmpId === null || !isAttendanceEligibleEmployee(targetEmpId)) {
+      res.status(403).json({ error: 'Pengajuan kehadiran hanya berlaku untuk akun Karyawan.' });
       return;
     }
     const nowIso = getWibIsoString();
@@ -2118,6 +2157,7 @@ export function registerApiRoutes(app: Express) {
          JOIN bidang_kerja b ON k.bidang_id = b.id
          LEFT JOIN pengguna u ON u.karyawan_id = k.id
          WHERE COALESCE(k.is_system_archive, 0) = 0
+           AND ${KARYAWAN_ONLY_SQL}
          ORDER BY k.nik ASC`
       )
       .all();
@@ -2193,6 +2233,10 @@ export function registerApiRoutes(app: Express) {
 
   app.put('/api/v1/master/employees/:id', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const id = Number(req.params.id);
+    if (!isAttendanceEligibleEmployee(id)) {
+      res.status(403).json({ error: 'Admin Operasional hanya dapat mengubah data Karyawan. Pengelolaan akun Admin/Superadmin dilakukan oleh Superadmin.' });
+      return;
+    }
     const before = db.prepare(`SELECT * FROM karyawan WHERE id = ? AND COALESCE(is_system_archive, 0) = 0`).get(id);
     if (!before) {
       res.status(404).json({ error: 'Karyawan tidak ditemukan.' });
@@ -2346,8 +2390,8 @@ export function registerApiRoutes(app: Express) {
       }
     } else if (level === 'KARYAWAN') {
       karyawanId = Number(body.karyawan_id);
-      if (!Number.isInteger(karyawanId) || !db.prepare(`SELECT id FROM karyawan WHERE id = ? AND COALESCE(is_system_archive, 0) = 0`).get(karyawanId)) {
-        res.status(400).json({ error: 'Karyawan target wajib dipilih dan valid.' });
+      if (!Number.isInteger(karyawanId) || !isAttendanceEligibleEmployee(karyawanId)) {
+        res.status(400).json({ error: 'Karyawan target (role KARYAWAN) wajib dipilih dan valid.' });
         return;
       }
     }
@@ -2426,6 +2470,7 @@ export function registerApiRoutes(app: Express) {
         after: { ...body, level, bidang_id: bidangId, karyawan_id: karyawanId, berlaku_mulai: berlakuMulai },
       });
       db.exec('COMMIT');
+      broadcastWorkforceUpdate('POLICY_UPDATED');
       res.status(201).json({ id: policyId });
     } catch (e) {
       db.exec('ROLLBACK');
@@ -2559,6 +2604,7 @@ export function registerApiRoutes(app: Express) {
         after,
       });
       db.exec('COMMIT');
+      broadcastWorkforceUpdate('POLICY_UPDATED');
       res.json({ ok: true });
     } catch (e) {
       db.exec('ROLLBACK');
@@ -2601,6 +2647,7 @@ export function registerApiRoutes(app: Express) {
         after: null,
       });
       db.exec('COMMIT');
+      broadcastWorkforceUpdate('POLICY_UPDATED');
       res.json({ ok: true });
     } catch (e) {
       db.exec('ROLLBACK');
@@ -2765,6 +2812,10 @@ export function registerApiRoutes(app: Express) {
       res.status(400).json({ error: 'Karyawan, tanggal, dan nama project wajib diisi.' });
       return;
     }
+    if (!isAttendanceEligibleEmployee(Number(karyawan_id))) {
+      res.status(400).json({ error: 'Penugasan kerja khusus hanya berlaku untuk akun Karyawan.' });
+      return;
+    }
 
     const nowIso = getWibIsoString();
     const sessions = [2, 3, 4].includes(Number(jumlah_sesi)) ? Number(jumlah_sesi) : 3;
@@ -2870,17 +2921,17 @@ export function registerApiRoutes(app: Express) {
     const kantorId = req.query.kantorId ? Number(req.query.kantorId) : undefined;
     const bidangId = req.query.bidangId ? Number(req.query.bidangId) : undefined;
 
-    let sql = `SELECT id FROM karyawan WHERE aktif = 1 AND COALESCE(is_system_archive, 0) = 0`;
+    let sql = `SELECT k.id FROM karyawan k WHERE k.aktif = 1 AND COALESCE(k.is_system_archive, 0) = 0 AND ${KARYAWAN_ONLY_SQL}`;
     const params: number[] = [];
     if (kantorId) {
-      sql += ` AND kantor_id = ?`;
+      sql += ` AND k.kantor_id = ?`;
       params.push(kantorId);
     }
     if (bidangId) {
-      sql += ` AND bidang_id = ?`;
+      sql += ` AND k.bidang_id = ?`;
       params.push(bidangId);
     }
-    sql += ` ORDER BY nik ASC`;
+    sql += ` ORDER BY k.nik ASC`;
 
     const empRows = db.prepare(sql).all(...params) as { id: number }[];
     const items = empRows.map((e) => computeMonthlySummary(db, e.id, bulan)).filter(Boolean);
@@ -2905,7 +2956,7 @@ export function registerApiRoutes(app: Express) {
          JOIN kantor kt ON k.kantor_id = kt.id
          JOIN bidang_kerja b ON k.bidang_id = b.id
          LEFT JOIN absensi_sesi a ON a.karyawan_id = k.id AND a.tanggal = ? AND a.urutan_sesi = 1
-         WHERE k.aktif = 1 AND COALESCE(k.is_system_archive, 0) = 0
+         WHERE k.aktif = 1 AND COALESCE(k.is_system_archive, 0) = 0 AND ${KARYAWAN_ONLY_SQL}
          ORDER BY a.waktu_server ASC NULLS LAST, k.nama_lengkap ASC`
       )
       .all(tanggal);
@@ -2925,6 +2976,10 @@ export function registerApiRoutes(app: Express) {
 
     if (!karyawanId || !tanggal || !['DIHITUNG_MASUK', 'TIDAK_DIHITUNG_MASUK'].includes(hasilOverride || '')) {
       res.status(400).json({ error: 'Karyawan, tanggal, dan hasil override wajib valid.' });
+      return;
+    }
+    if (!isAttendanceEligibleEmployee(Number(karyawanId))) {
+      res.status(400).json({ error: 'Override kehadiran hanya berlaku untuk akun Karyawan.' });
       return;
     }
     if (!alasan || alasan.trim().length < 5) {
@@ -3133,14 +3188,16 @@ export function registerApiRoutes(app: Express) {
     res.json({ items });
   });
 
-  // Superadmin Overview Metrics
-  app.get('/api/v1/superadmin/overview', requireRole('SUPERADMIN', 'ADMIN'), (req: Request, res: Response) => {
+  // Superadmin Overview Metrics (Strictly SUPERADMIN only, aggregating KARYAWAN attendance)
+  app.get('/api/v1/superadmin/overview', requireRole('SUPERADMIN'), (req: Request, res: Response) => {
     const bulan =
       typeof req.query.bulan === 'string' && /^\d{4}-\d{2}$/.test(req.query.bulan)
         ? req.query.bulan
         : getWibDateString().slice(0, 7);
 
-    const empRows = db.prepare(`SELECT id FROM karyawan WHERE aktif = 1 AND COALESCE(is_system_archive, 0) = 0`).all() as { id: number }[];
+    const empRows = db
+      .prepare(`SELECT k.id FROM karyawan k WHERE k.aktif = 1 AND COALESCE(k.is_system_archive, 0) = 0 AND ${KARYAWAN_ONLY_SQL}`)
+      .all() as { id: number }[];
     const summaries = empRows.map((e) => computeMonthlySummary(db, e.id, bulan)).filter(Boolean);
 
     const totalHariMasuk = summaries.reduce((acc, s) => acc + (s?.hariMasuk ?? 0), 0);

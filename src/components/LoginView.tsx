@@ -26,11 +26,12 @@ interface LoginViewProps {
 }
 
 const DEMO_ACCOUNTS = [
-  { username: 'superadmin', label: 'Superadmin', role: 'Owner' },
-  { username: 'admin', label: 'Admin', role: 'Operasional' },
-  { username: 'andi', label: 'Andi', role: 'Teknisi 3 Sesi' },
-  { username: 'rina', label: 'Rina', role: 'Admin Kantor' },
-  { username: 'dimas', label: 'Dimas', role: 'Lead 4 Sesi' },
+  { username: 'superadmin', label: 'Superadmin', role: 'Owner · Sistem' },
+  { username: 'admin', label: 'Admin', role: 'Admin Operasional' },
+  { username: 'andi', label: 'Andi', role: 'Karyawan · Teknisi' },
+  { username: 'rina', label: 'Rina', role: 'Karyawan · Finance' },
+  { username: 'dimas', label: 'Dimas', role: 'Karyawan · Lead' },
+  { username: 'dewi', label: 'Dewi', role: 'Karyawan · NOC' },
 ];
 
 const inputBaseClass =
