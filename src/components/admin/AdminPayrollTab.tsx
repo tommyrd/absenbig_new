@@ -48,6 +48,25 @@ export function AdminPayrollTab() {
   const [closeNote, setCloseNote] = useState('Rekap kehadiran dan override telah divalidasi.');
   const [closing, setClosing] = useState(false);
   const [closeErr, setCloseErr] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportErr, setExportErr] = useState<string | null>(null);
+
+  const handleExport = async (kind: 'excel' | 'png' | 'jpeg') => {
+    if (exporting || loading || summaries.length === 0) return;
+    setExporting(true);
+    setExportErr(null);
+    try {
+      if (kind === 'excel') {
+        await exportPayrollToExcel(bulan, summaries);
+      } else {
+        await exportPayrollToImage(bulan, summaries, kind);
+      }
+    } catch (err) {
+      setExportErr(err instanceof Error ? err.message : 'Gagal mengekspor laporan payroll.');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   useEffect(() => {
     if (!bulan && serverYearMonth) {
@@ -251,24 +270,27 @@ export function AdminPayrollTab() {
           />
           <button
             type="button"
-            onClick={() => exportPayrollToExcel(bulan, summaries)}
-            className="min-h-[44px] sm:h-10 px-3.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5 flex-1 sm:flex-none"
+            disabled={loading || exporting || summaries.length === 0}
+            onClick={() => void handleExport('excel')}
+            className="min-h-[44px] sm:h-10 px-3.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5 flex-1 sm:flex-none disabled:opacity-50"
           >
             <FileSpreadsheet className="w-4 h-4" />
             Excel
           </button>
           <button
             type="button"
-            onClick={() => exportPayrollToImage(bulan, summaries, 'png')}
-            className="min-h-[44px] sm:h-10 px-3.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5 flex-1 sm:flex-none"
+            disabled={loading || exporting || summaries.length === 0}
+            onClick={() => void handleExport('png')}
+            className="min-h-[44px] sm:h-10 px-3.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5 flex-1 sm:flex-none disabled:opacity-50"
           >
             <ImageIcon className="w-4 h-4" />
             PNG
           </button>
           <button
             type="button"
-            onClick={() => exportPayrollToImage(bulan, summaries, 'jpeg')}
-            className="min-h-[44px] sm:h-10 px-3.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5 flex-1 sm:flex-none"
+            disabled={loading || exporting || summaries.length === 0}
+            onClick={() => void handleExport('jpeg')}
+            className="min-h-[44px] sm:h-10 px-3.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5 flex-1 sm:flex-none disabled:opacity-50"
           >
             <Download className="w-4 h-4" />
             JPG
@@ -276,7 +298,10 @@ export function AdminPayrollTab() {
           {period?.status !== 'CLOSED' && (
             <button
               type="button"
-              onClick={() => setCloseModal(true)}
+              onClick={() => {
+                setCloseErr(null);
+                setCloseModal(true);
+              }}
               className="min-h-[44px] sm:h-10 px-4 bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5 w-full sm:w-auto"
             >
               <Lock className="w-4 h-4" />
@@ -285,6 +310,12 @@ export function AdminPayrollTab() {
           )}
         </div>
       </div>
+
+      {exportErr && (
+        <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800/70 text-xs text-red-800 dark:text-red-300">
+          {exportErr}
+        </div>
+      )}
 
       {/* Prominent Top Payroll Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
@@ -349,8 +380,14 @@ export function AdminPayrollTab() {
 
       {/* Employee Day Inspector & Admin Override Drawer */}
       {inspectSummary && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex justify-end">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-2xl h-full flex flex-col border-l border-slate-200 dark:border-slate-800">
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex justify-end"
+          onClick={() => setInspectSummary(null)}
+        >
+          <div
+            className="bg-white dark:bg-slate-900 w-full max-w-2xl h-full flex flex-col border-l border-slate-200 dark:border-slate-800"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="px-4 sm:px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-navy-900 dark:bg-slate-950 text-white">
               <div className="min-w-0">
                 <h2 className="font-display text-base font-bold truncate">
@@ -408,6 +445,7 @@ export function AdminPayrollTab() {
                             : 'DIHITUNG_MASUK'
                         );
                         setOverrideAlasan('');
+                        setPostClosingConfirm(false);
                         setOverrideErr(null);
                       }}
                       className="min-h-[36px] text-xs font-semibold text-brand-600 dark:text-brand-400 hover:underline"
@@ -459,8 +497,14 @@ export function AdminPayrollTab() {
 
       {/* Admin Override Modal (Bottom Sheet on Mobile) */}
       {overrideTarget && (
-        <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[92vh] flex flex-col">
+        <div
+          className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={() => setOverrideTarget(null)}
+        >
+          <div
+            className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[92vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
               <h2 className="font-display text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <ShieldAlert className="w-4 h-4 text-amber-600 dark:text-amber-400" />
@@ -563,8 +607,14 @@ export function AdminPayrollTab() {
 
       {/* Monthly Closing Modal (Bottom Sheet on Mobile) */}
       {closeModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[92vh] flex flex-col">
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={() => setCloseModal(false)}
+        >
+          <div
+            className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[92vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
               <h2 className="font-display text-base font-bold text-slate-900 dark:text-slate-100">
                 Tutup Periode Payroll ({bulan})

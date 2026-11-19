@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { getAuthorizedAvatarUrl, getAuthorizedUserAvatarUrl } from '../lib/api';
 
 interface UserAvatarProps {
@@ -43,6 +43,10 @@ export function UserAvatar({
   const imgSrc =
     srcOverride ||
     (karyawanId ? getAuthorizedAvatarUrl(karyawanId, version) : userId ? getAuthorizedUserAvatarUrl(userId, version) : null);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [imgSrc]);
 
   const fallbackBg =
     role === 'SUPERADMIN'

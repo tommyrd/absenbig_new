@@ -33,6 +33,7 @@ export function AdminApprovalTab() {
     catatan: '',
   });
   const [createErr, setCreateErr] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const [decisionErr, setDecisionErr] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
@@ -97,7 +98,9 @@ export function AdminApprovalTab() {
 
   const submitCreate = async (e: FormEvent) => {
     e.preventDefault();
+    if (creating) return;
     setCreateErr(null);
+    setCreating(true);
     try {
       await apiFetch('/api/v1/requests', {
         method: 'POST',
@@ -107,6 +110,8 @@ export function AdminApprovalTab() {
       await loadData();
     } catch (err) {
       setCreateErr(err instanceof Error ? err.message : 'Gagal membuat pengajuan.');
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -172,6 +177,7 @@ export function AdminApprovalTab() {
             <button
               type="button"
               onClick={() => {
+                setDecisionErr(null);
                 setDecisionTarget({ req: r, mode: 'APPROVED' });
                 setDecisionReason('Disetujui sesuai jadwal operasional');
               }}
@@ -183,6 +189,7 @@ export function AdminApprovalTab() {
             <button
               type="button"
               onClick={() => {
+                setDecisionErr(null);
                 setDecisionTarget({ req: r, mode: 'REJECTED' });
                 setDecisionReason('');
               }}
@@ -239,12 +246,6 @@ export function AdminApprovalTab() {
         </button>
       </div>
 
-      {decisionErr && (
-        <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800/70 text-xs text-red-800 dark:text-red-300">
-          {decisionErr}
-        </div>
-      )}
-
       <DataTable
         data={requests}
         columns={columns}
@@ -289,8 +290,14 @@ export function AdminApprovalTab() {
 
       {/* Approve / Reject Modal (Bottom Sheet on Mobile) */}
       {decisionTarget && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[92vh] flex flex-col">
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={() => setDecisionTarget(null)}
+        >
+          <div
+            className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[92vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
               <h2 className="font-display text-base font-bold text-slate-900 dark:text-slate-100">
                 {decisionTarget.mode === 'APPROVED' ? 'Setujui Pengajuan' : 'Tolak Pengajuan'}
@@ -304,6 +311,11 @@ export function AdminApprovalTab() {
               </button>
             </div>
             <form onSubmit={submitDecision} className="p-5 space-y-4 overflow-y-auto">
+              {decisionErr && (
+                <div className="p-3 rounded-lg bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 text-xs text-red-800 dark:text-red-200">
+                  {decisionErr}
+                </div>
+              )}
               <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 text-xs">
                 <p className="font-bold text-slate-900 dark:text-slate-100">{decisionTarget.req.karyawan_nama}</p>
                 <p className="text-slate-600 dark:text-slate-400 mt-0.5">
@@ -356,8 +368,14 @@ export function AdminApprovalTab() {
 
       {/* Admin Create On Behalf Modal (Bottom Sheet on Mobile) */}
       {createModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[92vh] flex flex-col">
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={() => setCreateModal(false)}
+        >
+          <div
+            className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[92vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
               <h2 className="font-display text-base font-bold text-slate-900 dark:text-slate-100">
                 Buat Pengajuan Atas Nama Karyawan
@@ -409,7 +427,14 @@ export function AdminApprovalTab() {
                   <input
                     type="date"
                     value={createForm.tanggalMulai}
-                    onChange={(e) => setCreateForm({ ...createForm, tanggalMulai: e.target.value })}
+                    onChange={(e) => {
+                      const nextStart = e.target.value;
+                      setCreateForm((prev) => ({
+                        ...prev,
+                        tanggalMulai: nextStart,
+                        tanggalAkhir: prev.tanggalAkhir < nextStart ? nextStart : prev.tanggalAkhir,
+                      }));
+                    }}
                     className="w-full min-h-[44px] sm:h-10 px-3 text-sm font-mono bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
                   />
                 </div>
@@ -444,9 +469,10 @@ export function AdminApprovalTab() {
                 </button>
                 <button
                   type="submit"
-                  className="min-h-[44px] sm:h-10 px-5 text-xs font-semibold bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white rounded-lg"
+                  disabled={creating}
+                  className="min-h-[44px] sm:h-10 px-5 text-xs font-semibold bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white rounded-lg disabled:opacity-60"
                 >
-                  Simpan Pengajuan
+                  {creating ? 'Menyimpan...' : 'Simpan Pengajuan'}
                 </button>
               </div>
             </form>

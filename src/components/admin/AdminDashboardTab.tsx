@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import { apiFetch } from '../../lib/api';
+import { getServerWibDateString } from '../../lib/server-clock-client';
 import {
   buildMonitoringCheckInCaption,
   buildMonitoringCheckInRows,
@@ -175,7 +176,7 @@ export function AdminDashboardTab({ onNavigateApproval }: { onNavigateApproval: 
 
       const rows = buildMonitoringCheckInRows(targetList, freshEarly);
       const snapshotInput = {
-        tanggal: tanggal || new Date().toISOString().slice(0, 10),
+        tanggal: tanggal || getServerWibDateString(),
         serverTimeWib: timeWib || '--:--',
         filterLabel: label,
         rows,
@@ -293,7 +294,7 @@ export function AdminDashboardTab({ onNavigateApproval }: { onNavigateApproval: 
       setModalNotice('Caption laporan jam masuk berhasil disalin ke clipboard.');
       window.setTimeout(() => setCaptionCopied(false), 2500);
     } else {
-      setModalNotice('Salin manual teks caption di kotak sebelah kiri.');
+      setModalNotice('Salin manual teks caption di kotak caption.');
     }
   };
 
@@ -395,6 +396,13 @@ export function AdminDashboardTab({ onNavigateApproval }: { onNavigateApproval: 
                 </span>
               )}
             </div>
+          );
+        }
+        if (r.operationalStatus === 'TIDAK_HADIR') {
+          return (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-red-50 dark:bg-red-950/60 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 text-[11px] font-semibold">
+              Tidak masuk
+            </span>
           );
         }
         return r.isWorkingToday ? (

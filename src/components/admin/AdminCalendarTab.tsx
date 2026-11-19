@@ -47,9 +47,11 @@ export function AdminCalendarTab() {
   });
   const [formErr, setFormErr] = useState<string | null>(null);
   const [actionErr, setActionErr] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
+    setActionErr(null);
     try {
       const [c, h, kk, hr, o, e] = await Promise.all([
         apiFetch<{ items: KalenderKerja[] }>('/api/v1/calendars'),
@@ -65,6 +67,8 @@ export function AdminCalendarTab() {
       setOffRights(hr.items);
       setOffices(o.items);
       setEmployees(e.items);
+    } catch (err) {
+      setActionErr(err instanceof Error ? err.message : 'Gagal memuat data kalender kerja.');
     } finally {
       setLoading(false);
     }
@@ -112,7 +116,9 @@ export function AdminCalendarTab() {
 
   const submitHoliday = async (e: FormEvent) => {
     e.preventDefault();
+    if (saving) return;
     setFormErr(null);
+    setSaving(true);
     try {
       await apiFetch('/api/v1/holidays', {
         method: 'POST',
@@ -125,6 +131,8 @@ export function AdminCalendarTab() {
       await loadAll();
     } catch (err) {
       setFormErr(err instanceof Error ? err.message : 'Gagal menambah hari libur.');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -140,7 +148,9 @@ export function AdminCalendarTab() {
 
   const submitSpecialWork = async (e: FormEvent) => {
     e.preventDefault();
+    if (saving) return;
     setFormErr(null);
+    setSaving(true);
     try {
       await apiFetch('/api/v1/special-work', {
         method: 'POST',
@@ -150,6 +160,8 @@ export function AdminCalendarTab() {
       await loadAll();
     } catch (err) {
       setFormErr(err instanceof Error ? err.message : 'Gagal menetapkan kerja khusus.');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -387,46 +399,52 @@ export function AdminCalendarTab() {
                     Penugasan Kerja Khusus
                   </h2>
                 </div>
-                {specialWorks.map((kk) => (
-                  <div
-                    key={kk.id}
-                    className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
-                  >
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-100">
-                          {kk.tanggal}
-                        </span>
-                        <span className="text-slate-300 dark:text-slate-700">·</span>
-                        <span className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                          {kk.karyawan_nama}
-                        </span>
-                        <span className="text-xs text-slate-500 dark:text-slate-400">({kk.kantor_nama})</span>
+                {specialWorks.length === 0 ? (
+                  <p className="p-6 text-center text-xs text-slate-500 dark:text-slate-400">
+                    Belum ada penugasan kerja khusus tercatat.
+                  </p>
+                ) : (
+                  specialWorks.map((kk) => (
+                    <div
+                      key={kk.id}
+                      className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+                    >
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-100">
+                            {kk.tanggal}
+                          </span>
+                          <span className="text-slate-300 dark:text-slate-700">·</span>
+                          <span className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                            {kk.karyawan_nama}
+                          </span>
+                          <span className="text-xs text-slate-500 dark:text-slate-400">({kk.kantor_nama})</span>
+                        </div>
+                        <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 mt-1">
+                          Project: {kk.nama_project}
+                        </p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                          Target: {kk.min_sesi_hadir}/{kk.jumlah_sesi} sesi ·{' '}
+                          {kk.berhak_off_pengganti
+                            ? 'Menghasilkan 1 hak Off Pengganti'
+                            : 'Tanpa hak Off Pengganti'}
+                        </p>
                       </div>
-                      <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 mt-1">
-                        Project: {kk.nama_project}
-                      </p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                        Target: {kk.min_sesi_hadir}/{kk.jumlah_sesi} sesi ·{' '}
-                        {kk.berhak_off_pengganti
-                          ? 'Menghasilkan 1 hak Off Pengganti'
-                          : 'Tanpa hak Off Pengganti'}
-                      </p>
+                      <div className="flex items-center gap-3">
+                        <StatusBadge status={kk.status === 'AKTIF' ? 'KERJA_KHUSUS' : kk.status} />
+                        {kk.status === 'AKTIF' && (
+                          <button
+                            type="button"
+                            onClick={() => cancelSpecialWork(kk.id)}
+                            className="min-h-[36px] text-xs font-semibold text-red-700 dark:text-red-400 hover:underline"
+                          >
+                            Batalkan
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <StatusBadge status={kk.status === 'AKTIF' ? 'KERJA_KHUSUS' : kk.status} />
-                      {kk.status === 'AKTIF' && (
-                        <button
-                          type="button"
-                          onClick={() => cancelSpecialWork(kk.id)}
-                          className="min-h-[36px] text-xs font-semibold text-red-700 dark:text-red-400 hover:underline"
-                        >
-                          Batalkan
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
 
               {/* Hak Off Pengganti Tracking */}
@@ -436,22 +454,28 @@ export function AdminCalendarTab() {
                     Monitoring Hak Off Pengganti (1x Pakai)
                   </h2>
                 </div>
-                {offRights.map((r) => (
-                  <div
-                    key={r.id}
-                    className="px-4 sm:px-5 py-3.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs"
-                  >
-                    <div>
-                      <p className="font-bold text-slate-900 dark:text-slate-100">
-                        {r.karyawan_nama} — {r.nama_project}
-                      </p>
-                      <p className="text-slate-500 dark:text-slate-400 font-mono mt-0.5">
-                        Kerja sumber: {r.tanggal_kerja_sumber} · Kadaluarsa: {r.kadaluarsa_pada}
-                      </p>
+                {offRights.length === 0 ? (
+                  <p className="p-6 text-center text-xs text-slate-500 dark:text-slate-400">
+                    Belum ada hak Off Pengganti yang diterbitkan.
+                  </p>
+                ) : (
+                  offRights.map((r) => (
+                    <div
+                      key={r.id}
+                      className="px-4 sm:px-5 py-3.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs"
+                    >
+                      <div>
+                        <p className="font-bold text-slate-900 dark:text-slate-100">
+                          {r.karyawan_nama} — {r.nama_project}
+                        </p>
+                        <p className="text-slate-500 dark:text-slate-400 font-mono mt-0.5">
+                          Kerja sumber: {r.tanggal_kerja_sumber} · Kadaluarsa: {r.kadaluarsa_pada}
+                        </p>
+                      </div>
+                      <StatusBadge status={r.status} />
                     </div>
-                    <StatusBadge status={r.status} />
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
           )}
@@ -460,8 +484,14 @@ export function AdminCalendarTab() {
 
       {/* Add Holiday Modal (Bottom Sheet on Mobile) */}
       {holModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[92vh] flex flex-col">
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={() => setHolModal(false)}
+        >
+          <div
+            className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[92vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
               <h2 className="font-display text-base font-bold text-slate-900 dark:text-slate-100">
                 Tetapkan Hari Libur Perusahaan
@@ -539,9 +569,10 @@ export function AdminCalendarTab() {
                 </button>
                 <button
                   type="submit"
-                  className="min-h-[44px] sm:h-10 px-5 text-xs font-semibold bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white rounded-lg"
+                  disabled={saving}
+                  className="min-h-[44px] sm:h-10 px-5 text-xs font-semibold bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white rounded-lg disabled:opacity-60"
                 >
-                  Simpan Hari Libur
+                  {saving ? 'Menyimpan...' : 'Simpan Hari Libur'}
                 </button>
               </div>
             </form>
@@ -551,8 +582,14 @@ export function AdminCalendarTab() {
 
       {/* Add Special Work Modal (Bottom Sheet on Mobile) */}
       {kkModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[92vh] flex flex-col">
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={() => setKkModal(false)}
+        >
+          <div
+            className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[92vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
               <h2 className="font-display text-base font-bold text-slate-900 dark:text-slate-100">
                 Tetapkan Penugasan Kerja Khusus
@@ -670,9 +707,10 @@ export function AdminCalendarTab() {
                 </button>
                 <button
                   type="submit"
-                  className="min-h-[44px] sm:h-10 px-5 text-xs font-semibold bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white rounded-lg"
+                  disabled={saving}
+                  className="min-h-[44px] sm:h-10 px-5 text-xs font-semibold bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white rounded-lg disabled:opacity-60"
                 >
-                  Tetapkan Penugasan
+                  {saving ? 'Menyimpan...' : 'Tetapkan Penugasan'}
                 </button>
               </div>
             </form>

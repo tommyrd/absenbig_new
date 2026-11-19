@@ -36,9 +36,9 @@ export function AdminMasterTab() {
     kode: '',
     nama: '',
     alamat: '',
-    lat: -6.2088,
-    lng: 106.8456,
-    radius_meter: 250,
+    lat: '-6.2088',
+    lng: '106.8456',
+    radius_meter: '250',
   });
 
   // Bidang Modal
@@ -120,18 +120,44 @@ export function AdminMasterTab() {
 
   const submitOffice = async (e: FormEvent) => {
     e.preventDefault();
+    const parsedLat = Number(officeForm.lat);
+    const parsedLng = Number(officeForm.lng);
+    const parsedRadius = Number(officeForm.radius_meter);
+    if (
+      !Number.isFinite(parsedLat) ||
+      parsedLat < -90 ||
+      parsedLat > 90 ||
+      !Number.isFinite(parsedLng) ||
+      parsedLng < -180 ||
+      parsedLng > 180
+    ) {
+      setFormErr('Koordinat latitude (-90 s.d. 90) dan longitude (-180 s.d. 180) harus berupa angka valid.');
+      return;
+    }
+    if (!Number.isFinite(parsedRadius) || parsedRadius < 20 || parsedRadius > 50000) {
+      setFormErr('Radius geofence harus antara 20 hingga 50.000 meter.');
+      return;
+    }
     setSaving(true);
     setFormErr(null);
+    const payload = {
+      kode: officeForm.kode,
+      nama: officeForm.nama,
+      alamat: officeForm.alamat,
+      lat: parsedLat,
+      lng: parsedLng,
+      radius_meter: Math.round(parsedRadius),
+    };
     try {
       if (editingOffice) {
         await apiFetch(`/api/v1/master/offices/${editingOffice.id}`, {
           method: 'PUT',
-          body: JSON.stringify({ ...officeForm, geofence_mode: 'TOLAK_LUAR_RADIUS' }),
+          body: JSON.stringify({ ...payload, geofence_mode: 'TOLAK_LUAR_RADIUS' }),
         });
       } else {
         await apiFetch('/api/v1/master/offices', {
           method: 'POST',
-          body: JSON.stringify(officeForm),
+          body: JSON.stringify(payload),
         });
       }
       setOfficeModal(false);
@@ -357,9 +383,9 @@ export function AdminMasterTab() {
                   kode: '',
                   nama: '',
                   alamat: '',
-                  lat: -6.2088,
-                  lng: 106.8456,
-                  radius_meter: 250,
+                  lat: '-6.2088',
+                  lng: '106.8456',
+                  radius_meter: '250',
                 });
                 setFormErr(null);
                 setOfficeModal(true);
@@ -489,9 +515,9 @@ export function AdminMasterTab() {
                         kode: o.kode,
                         nama: o.nama,
                         alamat: o.alamat,
-                        lat: o.lat,
-                        lng: o.lng,
-                        radius_meter: o.radius_meter,
+                        lat: String(o.lat),
+                        lng: String(o.lng),
+                        radius_meter: String(o.radius_meter),
                       });
                       setFormErr(null);
                       setOfficeModal(true);
@@ -768,8 +794,14 @@ export function AdminMasterTab() {
 
       {/* Office Modal */}
       {officeModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[92vh] flex flex-col">
+        <div
+          className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={() => setOfficeModal(false)}
+        >
+          <div
+            className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[92vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
               <h2 className="font-display text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <Building2 className="w-4 h-4" />
@@ -833,11 +865,12 @@ export function AdminMasterTab() {
                     Latitude
                   </label>
                   <input
-                    type="number"
-                    step="0.000001"
+                    type="text"
+                    inputMode="decimal"
                     required
                     value={officeForm.lat}
-                    onChange={(e) => setOfficeForm({ ...officeForm, lat: Number(e.target.value) })}
+                    onChange={(e) => setOfficeForm({ ...officeForm, lat: e.target.value })}
+                    placeholder="-6.2088"
                     className="w-full h-11 sm:h-10 px-3 text-sm font-mono border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg"
                   />
                 </div>
@@ -846,11 +879,12 @@ export function AdminMasterTab() {
                     Longitude
                   </label>
                   <input
-                    type="number"
-                    step="0.000001"
+                    type="text"
+                    inputMode="decimal"
                     required
                     value={officeForm.lng}
-                    onChange={(e) => setOfficeForm({ ...officeForm, lng: Number(e.target.value) })}
+                    onChange={(e) => setOfficeForm({ ...officeForm, lng: e.target.value })}
+                    placeholder="106.8456"
                     className="w-full h-11 sm:h-10 px-3 text-sm font-mono border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg"
                   />
                 </div>
@@ -863,9 +897,10 @@ export function AdminMasterTab() {
                   <input
                     type="number"
                     min={20}
+                    max={50000}
                     required
                     value={officeForm.radius_meter}
-                    onChange={(e) => setOfficeForm({ ...officeForm, radius_meter: Number(e.target.value) })}
+                    onChange={(e) => setOfficeForm({ ...officeForm, radius_meter: e.target.value })}
                     className="w-full h-11 sm:h-10 px-3 text-sm font-mono border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg"
                   />
                 </div>

@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import {
   Camera,
   CheckCircle2,
@@ -12,7 +12,7 @@ import {
   Trash2,
   User,
 } from 'lucide-react';
-import { apiFetch } from '../lib/api';
+import { apiFetch, setStoredToken } from '../lib/api';
 import { useTheme, type ThemeMode } from '../lib/theme';
 import type { AuthUser } from '../shared/types';
 import { UserAvatar } from './UserAvatar';
@@ -46,6 +46,12 @@ export function ProfileSettingsPanel({
   const [savingPass, setSavingPass] = useState(false);
   const [passMsg, setPassMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const isStandaloneSuperadmin = user.role === 'SUPERADMIN' && user.karyawan_id === null;
+
+  useEffect(() => {
+    setNamaLengkap(user.nama_lengkap);
+    setEmail(user.email);
+    setNoHp(user.no_hp || '');
+  }, [user.nama_lengkap, user.email, user.no_hp]);
 
   const handleUploadPhoto = (file: File | undefined) => {
     if (!file) return;
@@ -131,14 +137,17 @@ export function ProfileSettingsPanel({
     }
     setSavingPass(true);
     try {
-      await apiFetch('/api/v1/profile/password', {
+      const res = await apiFetch<{ ok: boolean; token?: string }>('/api/v1/profile/password', {
         method: 'PUT',
         body: JSON.stringify({ currentPassword, newPassword }),
       });
+      if (res.token) {
+        setStoredToken(res.token);
+      }
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
-      setPassMsg({ type: 'ok', text: 'Kata sandi berhasil diganti.' });
+      setPassMsg({ type: 'ok', text: 'Kata sandi berhasil diganti. Sesi Anda tetap aktif.' });
     } catch (err) {
       setPassMsg({
         type: 'err',
@@ -349,7 +358,13 @@ export function ProfileSettingsPanel({
           <div className="pt-1 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
               <MapPin className="w-3.5 h-3.5 text-slate-400" />
-              Geofence kantor: <strong className="font-mono">{user.kantor_radius}m</strong>
+              {isStandaloneSuperadmin ? (
+                <span>Akun pemilik sistem (non-karyawan)</span>
+              ) : (
+                <>
+                  Geofence kantor: <strong className="font-mono">{user.kantor_radius}m</strong>
+                </>
+              )}
             </span>
             <button
               type="submit"

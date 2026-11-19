@@ -26,6 +26,7 @@ export function EmployeePengajuanPage() {
 
   const loadData = useCallback(async () => {
     setLoading(true);
+    setActionError(null);
     try {
       const [reqRes, offRes] = await Promise.all([
         apiFetch<{ items: Pengajuan[] }>('/api/v1/requests'),
@@ -33,6 +34,8 @@ export function EmployeePengajuanPage() {
       ]);
       setRequests(reqRes.items);
       setOffRights(offRes.items);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Gagal memuat data pengajuan.');
     } finally {
       setLoading(false);
     }
@@ -278,8 +281,14 @@ export function EmployeePengajuanPage() {
 
       {/* Create / Edit Modal (Bottom Sheet on Mobile) */}
       {modalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[92vh] flex flex-col">
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={() => setModalOpen(false)}
+        >
+          <div
+            className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[92vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
               <h2 className="font-display text-base font-bold text-slate-900 dark:text-slate-100">
                 {editing ? 'Edit Pengajuan' : 'Buat Pengajuan Baru'}
@@ -306,7 +315,16 @@ export function EmployeePengajuanPage() {
                   </label>
                   <select
                     value={jenis}
-                    onChange={(e) => setJenis(e.target.value as RequestType)}
+                    onChange={(e) => {
+                      const nextJenis = e.target.value as RequestType;
+                      setJenis(nextJenis);
+                      if (nextJenis === 'OFF_PENGGANTI') {
+                        setTanggalAkhir(tanggalMulai);
+                        if (!hakOffId && availableRights[0]) {
+                          setHakOffId(String(availableRights[0].id));
+                        }
+                      }
+                    }}
                     className="w-full min-h-[44px] sm:h-10 px-3 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
                   >
                     <option value="CUTI">CUTI</option>

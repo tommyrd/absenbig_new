@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { useEffect, useState } from 'react';
-import { apiFetch, getStoredToken, logoutApi } from './lib/api';
+import { apiFetch, logoutApi } from './lib/api';
 import { useResetScroll } from './lib/scroll';
 import { initServerClock } from './lib/server-clock-client';
 import { useTheme } from './lib/theme';
@@ -39,12 +39,9 @@ export default function App() {
       })
       .catch(() => {});
 
-    const token = getStoredToken();
-    const authPromise = token
-      ? apiFetch<{ user: AuthUser }>('/api/v1/auth/me')
-          .then((res) => setUser(res.user))
-          .catch(() => setUser(null))
-      : Promise.resolve();
+    const authPromise = apiFetch<{ user: AuthUser }>('/api/v1/auth/me')
+      .then((res) => setUser(res.user))
+      .catch(() => setUser(null));
 
     void Promise.all([clockPromise, settingsPromise, authPromise]).finally(() => {
       setChecking(false);

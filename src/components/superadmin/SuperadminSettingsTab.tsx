@@ -66,6 +66,11 @@ export function SuperadminSettingsTab({ onSettingsUpdated }: SuperadminSettingsT
       setLogoPreview(`/api/v1/assets/logo?v=${encodeURIComponent(s.logo_updated_at || '1')}`);
       setHasCustomFavicon(s.has_custom_favicon);
       setFaviconPreview(`/api/v1/assets/favicon?v=${encodeURIComponent(s.favicon_updated_at || '1')}`);
+    } catch (err) {
+      setMsg({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Gagal memuat pengaturan sistem.',
+      });
     } finally {
       setLoading(false);
     }

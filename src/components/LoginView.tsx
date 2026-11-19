@@ -119,6 +119,9 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
 
   const appName = settings?.nama_aplikasi || 'Absensi BIGNET';
   const subtitle = settings?.subjudul_login || 'Sistem Absensi';
+  const heroHeadline = (settings?.judul_hero_login || '').trim();
+  const heroDesc = (settings?.deskripsi_login || '').trim() || 'APLIKASI INTERNAL BIGNET';
+  const formHeading = (settings?.judul_form_login || '').trim() || 'Selamat Datang Kembali';
   const loginAnnouncement = (settings?.pengumuman_login || '').trim();
   const footerText = settings?.footer_login || 'Sistem Kehadiran & Payroll';
   const showDemo = Boolean(settings?.izin_demo_login);
@@ -239,13 +242,19 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
         {/* Center Hero Headline */}
         <div className="relative z-10 my-auto max-w-lg py-10">
           <h1 className="font-display text-4xl font-extrabold leading-[1.12] tracking-tight text-white xl:text-[46px]">
-            Selamat Datang di
-            <span className="mt-1 block text-[#ffb8b0]">
-              {appName.toUpperCase()}
-            </span>
+            {heroHeadline ? (
+              heroHeadline
+            ) : (
+              <>
+                Selamat Datang di
+                <span className="mt-1 block text-[#ffb8b0]">
+                  {appName.toUpperCase()}
+                </span>
+              </>
+            )}
           </h1>
-          <p className="mt-5 text-sm font-medium uppercase tracking-[0.12em] text-white/85">
-            APLIKASI INTERNAL BIGNET
+          <p className="mt-5 text-sm font-medium leading-relaxed text-white/85">
+            {heroDesc}
           </p>
 
           <div className="mt-7">
@@ -291,7 +300,7 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
             </p>
 
             <h2 className="mt-1.5 font-display text-[22px] font-extrabold tracking-tight text-slate-900 dark:text-white sm:text-2xl">
-              {mode === 'login' ? 'Selamat Datang Kembali' : 'Buat Akun Baru'}
+              {mode === 'login' ? formHeading : 'Buat Akun Baru'}
             </h2>
 
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 sm:text-[13px]">

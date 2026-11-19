@@ -121,6 +121,9 @@ export function SuperadminConsole({
   const [period, setPeriod] = useState<PeriodePayroll | null>(null);
   const [pendingRegCount, setPendingRegCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportErr, setExportErr] = useState<string | null>(null);
 
   const [selectedAudit, setSelectedAudit] = useState<AuditLog | null>(null);
   const [selectedEvidence, setSelectedEvidence] = useState<EvidenceRow | null>(null);
@@ -134,6 +137,7 @@ export function SuperadminConsole({
   const loadAll = useCallback(async () => {
     if (!bulan) return;
     setLoading(true);
+    setLoadError(null);
     try {
       const auditQs = new URLSearchParams();
       if (modulFilter) auditQs.set('modul', modulFilter);
@@ -152,10 +156,29 @@ export function SuperadminConsole({
       setSummaries(pay.items);
       setPeriod(pay.period);
       setPendingRegCount(regs.items.length);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Gagal memuat data konsol Superadmin.');
     } finally {
       setLoading(false);
     }
   }, [bulan, modulFilter, roleFilter]);
+
+  const handleExport = async (kind: 'excel' | 'png' | 'jpeg') => {
+    if (exporting || loading || summaries.length === 0) return;
+    setExporting(true);
+    setExportErr(null);
+    try {
+      if (kind === 'excel') {
+        await exportPayrollToExcel(bulan, summaries);
+      } else {
+        await exportPayrollToImage(bulan, summaries, kind);
+      }
+    } catch (err) {
+      setExportErr(err instanceof Error ? err.message : 'Gagal mengekspor laporan.');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   useEffect(() => {
     loadAll();
@@ -622,7 +645,7 @@ export function SuperadminConsole({
                 type="month"
                 value={bulan}
                 onChange={(e) => setBulan(e.target.value)}
-                className="h-9 px-2.5 text-xs font-mono border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 hidden md:block"
+                className="h-9 px-2.5 text-xs font-mono border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 hidden xl:block"
               />
             )}
             <ServerClock compact />
@@ -642,7 +665,7 @@ export function SuperadminConsole({
                 version={user.foto_profil_updated_at}
                 size="xs"
               />
-              <span className="hidden sm:inline">Profil</span>
+              <span className="hidden xl:inline">Profil</span>
             </button>
             <button
               type="button"
@@ -679,8 +702,8 @@ export function SuperadminConsole({
             <SuperadminSettingsTab onSettingsUpdated={onSettingsUpdated} />
           ) : (
             <>
-              {/* Mobile & Small Tablet Month Selector */}
-              <div className="md:hidden flex items-center justify-between gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5">
+              {/* Mobile & Tablet Month Selector */}
+              <div className="xl:hidden flex items-center justify-between gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5">
                 <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
                   Periode Data
                 </span>
@@ -691,6 +714,19 @@ export function SuperadminConsole({
                   className="h-10 px-2.5 text-xs font-mono border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100"
                 />
               </div>
+
+              {loadError && (
+                <div className="p-3.5 rounded-xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800/70 text-xs text-red-800 dark:text-red-300 flex items-center justify-between gap-3">
+                  <span>{loadError}</span>
+                  <button
+                    type="button"
+                    onClick={() => void loadAll()}
+                    className="px-3 py-1.5 rounded-lg bg-red-700 text-white font-semibold shrink-0"
+                  >
+                    Coba Lagi
+                  </button>
+                </div>
+              )}
 
               {/* Executive Metrics Strip */}
               {overview && (
@@ -743,7 +779,7 @@ export function SuperadminConsole({
                 </div>
               )}
 
-              {tab === 'overview' && overview && (
+              {tab === 'overview' && (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <h2 className="font-display text-base font-bold text-slate-900 dark:text-slate-100">
@@ -751,10 +787,12 @@ export function SuperadminConsole({
                     </h2>
                   </div>
                   <DataTable
-                    data={overview.recentOverrides}
+                    data={overview?.recentOverrides ?? []}
                     columns={overrideCols}
                     getRowId={(r) => r.id}
                     loading={loading}
+                    error={loadError}
+                    onRetry={loadAll}
                     searchPlaceholder="Cari nama karyawan atau alasan override..."
                     searchFilter={(r, q) =>
                       (r.karyawan_nama || '').toLowerCase().includes(q) ||
@@ -822,12 +860,14 @@ export function SuperadminConsole({
                 </div>
               )}
 
-              {tab === 'evidence' && overview && (
+              {tab === 'evidence' && (
                 <DataTable
-                  data={overview.recentEvidence}
+                  data={overview?.recentEvidence ?? []}
                   columns={evidenceCols}
                   getRowId={(r) => r.id}
                   loading={loading}
+                  error={loadError}
+                  onRetry={loadAll}
                   searchPlaceholder="Cari nama, NIK, atau aktivitas..."
                   searchFilter={(r, q) =>
                     r.nama_lengkap.toLowerCase().includes(q) ||
@@ -846,30 +886,38 @@ export function SuperadminConsole({
                     <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => exportPayrollToExcel(bulan, summaries)}
-                        className="min-h-[42px] sm:min-h-[36px] px-3.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg inline-flex items-center gap-1.5"
+                        disabled={loading || exporting || summaries.length === 0}
+                        onClick={() => void handleExport('excel')}
+                        className="min-h-[42px] sm:min-h-[36px] px-3.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 disabled:opacity-50"
                       >
                         <FileSpreadsheet className="w-4 h-4" />
                         Excel
                       </button>
                       <button
                         type="button"
-                        onClick={() => exportPayrollToImage(bulan, summaries, 'png')}
-                        className="min-h-[42px] sm:min-h-[36px] px-3.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 text-xs font-semibold rounded-lg inline-flex items-center gap-1.5"
+                        disabled={loading || exporting || summaries.length === 0}
+                        onClick={() => void handleExport('png')}
+                        className="min-h-[42px] sm:min-h-[36px] px-3.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 disabled:opacity-50"
                       >
                         <ImageIcon className="w-4 h-4" />
                         PNG
                       </button>
                       <button
                         type="button"
-                        onClick={() => exportPayrollToImage(bulan, summaries, 'jpeg')}
-                        className="min-h-[42px] sm:min-h-[36px] px-3.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 text-xs font-semibold rounded-lg inline-flex items-center gap-1.5"
+                        disabled={loading || exporting || summaries.length === 0}
+                        onClick={() => void handleExport('jpeg')}
+                        className="min-h-[42px] sm:min-h-[36px] px-3.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 disabled:opacity-50"
                       >
                         <Download className="w-4 h-4" />
                         JPG
                       </button>
                     </div>
                   </div>
+                  {exportErr && (
+                    <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800/70 text-xs text-red-800 dark:text-red-300">
+                      {exportErr}
+                    </div>
+                  )}
                   <DataTable
                     data={summaries}
                     columns={payrollCols}

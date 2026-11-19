@@ -1897,45 +1897,68 @@ export function registerApiRoutes(app: Express) {
 
   app.post('/api/v1/master/offices', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const { kode, nama, alamat, lat, lng, radius_meter } = req.body as {
-      kode: string;
-      nama: string;
-      alamat: string;
-      lat: number;
-      lng: number;
-      radius_meter: number;
+      kode?: string;
+      nama?: string;
+      alamat?: string;
+      lat?: number;
+      lng?: number;
+      radius_meter?: number;
     };
-    if (!kode || !nama) {
+    const cleanKode = (kode || '').trim().toUpperCase();
+    const cleanNama = (nama || '').trim();
+    const parsedLat = lat !== undefined && lat !== null && String(lat) !== '' ? Number(lat) : -6.2088;
+    const parsedLng = lng !== undefined && lng !== null && String(lng) !== '' ? Number(lng) : 106.8456;
+    const parsedRadius = radius_meter !== undefined && radius_meter !== null && String(radius_meter) !== '' ? Number(radius_meter) : 250;
+    if (!cleanKode || !cleanNama) {
       res.status(400).json({ error: 'Kode dan nama kantor wajib diisi.' });
       return;
     }
-    const info = db
-      .prepare(
-        `INSERT INTO kantor (kode, nama, alamat, lat, lng, radius_meter, geofence_mode) VALUES (?, ?, ?, ?, ?, ?, 'TOLAK_LUAR_RADIUS')`
-      )
-      .run(
-        kode.trim().toUpperCase(),
-        nama.trim(),
-        (alamat || '').trim(),
-        Number.isFinite(Number(lat)) ? Number(lat) : -6.2088,
-        Number.isFinite(Number(lng)) ? Number(lng) : 106.8456,
-        Number(radius_meter) > 0 ? Number(radius_meter) : 250
-      );
-    const officeId = Number(info.lastInsertRowid);
-    for (let d = 0; d <= 6; d++) {
-      db.prepare(
-        `INSERT INTO kalender_kerja (kantor_id, hari_minggu, status_hari, jumlah_sesi_khusus, keterangan) VALUES (?, ?, ?, NULL, ?)`
-      ).run(officeId, d, d === 0 ? 'HARI_LIBUR' : 'HARI_KERJA', d === 0 ? 'Minggu Libur' : 'Hari Kerja Reguler');
+    if (!Number.isFinite(parsedLat) || parsedLat < -90 || parsedLat > 90 || !Number.isFinite(parsedLng) || parsedLng < -180 || parsedLng > 180) {
+      res.status(400).json({ error: 'Koordinat latitude (-90 s.d. 90) dan longitude (-180 s.d. 180) wajib valid.' });
+      return;
     }
-    writeAuditLog(db, {
-      actor: req.authUser!,
-      req,
-      modul: 'MASTER_KANTOR',
-      aksi: 'CREATE_KANTOR',
-      targetEntity: 'kantor',
-      targetId: officeId,
-      after: req.body,
-    });
-    res.status(201).json({ id: officeId });
+    if (!Number.isFinite(parsedRadius) || parsedRadius < 10 || parsedRadius > 50000) {
+      res.status(400).json({ error: 'Radius geofence kantor harus antara 10 hingga 50.000 meter.' });
+      return;
+    }
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const info = db
+        .prepare(
+          `INSERT INTO kantor (kode, nama, alamat, lat, lng, radius_meter, geofence_mode) VALUES (?, ?, ?, ?, ?, ?, 'TOLAK_LUAR_RADIUS')`
+        )
+        .run(
+          cleanKode,
+          cleanNama,
+          (alamat || '').trim(),
+          parsedLat,
+          parsedLng,
+          Math.round(parsedRadius)
+        );
+      const officeId = Number(info.lastInsertRowid);
+      for (let d = 0; d <= 6; d++) {
+        db.prepare(
+          `INSERT INTO kalender_kerja (kantor_id, hari_minggu, status_hari, jumlah_sesi_khusus, keterangan) VALUES (?, ?, ?, NULL, ?)`
+        ).run(officeId, d, d === 0 ? 'HARI_LIBUR' : 'HARI_KERJA', d === 0 ? 'Minggu Libur' : 'Hari Kerja Reguler');
+      }
+      writeAuditLog(db, {
+        actor: req.authUser!,
+        req,
+        modul: 'MASTER_KANTOR',
+        aksi: 'CREATE_KANTOR',
+        targetEntity: 'kantor',
+        targetId: officeId,
+        after: { kode: cleanKode, nama: cleanNama, alamat: (alamat || '').trim(), lat: parsedLat, lng: parsedLng, radius_meter: Math.round(parsedRadius) },
+      });
+      db.exec('COMMIT');
+      res.status(201).json({ id: officeId });
+    } catch (err) {
+      try { db.exec('ROLLBACK'); } catch { /* ignore */ }
+      res.status(400).json({
+        error: 'Gagal menambah kantor (kode kantor mungkin sudah digunakan).',
+        detail: safeErrorDetail(err),
+      });
+    }
   });
 
   app.put('/api/v1/master/offices/:id', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
@@ -1946,15 +1969,31 @@ export function registerApiRoutes(app: Express) {
       return;
     }
     const { nama, alamat, lat, lng, radius_meter } = req.body as {
-      nama: string;
-      alamat: string;
-      lat: number;
-      lng: number;
-      radius_meter: number;
+      nama?: string;
+      alamat?: string;
+      lat?: number;
+      lng?: number;
+      radius_meter?: number;
     };
+    const cleanNama = (nama || '').trim();
+    const parsedLat = Number(lat);
+    const parsedLng = Number(lng);
+    const parsedRadius = Number(radius_meter);
+    if (!cleanNama) {
+      res.status(400).json({ error: 'Nama kantor wajib diisi.' });
+      return;
+    }
+    if (!Number.isFinite(parsedLat) || parsedLat < -90 || parsedLat > 90 || !Number.isFinite(parsedLng) || parsedLng < -180 || parsedLng > 180) {
+      res.status(400).json({ error: 'Koordinat latitude (-90 s.d. 90) dan longitude (-180 s.d. 180) wajib valid.' });
+      return;
+    }
+    if (!Number.isFinite(parsedRadius) || parsedRadius < 10 || parsedRadius > 50000) {
+      res.status(400).json({ error: 'Radius geofence kantor harus antara 10 hingga 50.000 meter.' });
+      return;
+    }
     db.prepare(
       `UPDATE kantor SET nama = ?, alamat = ?, lat = ?, lng = ?, radius_meter = ?, geofence_mode = 'TOLAK_LUAR_RADIUS' WHERE id = ?`
-    ).run(nama, alamat, Number(lat), Number(lng), Number(radius_meter), id);
+    ).run(cleanNama, (alamat || '').trim(), parsedLat, parsedLng, Math.round(parsedRadius), id);
     const after = db.prepare(`SELECT * FROM kantor WHERE id = ?`).get(id);
     writeAuditLog(db, {
       actor: req.authUser!,
@@ -2032,24 +2071,34 @@ export function registerApiRoutes(app: Express) {
   });
 
   app.post('/api/v1/master/bidang', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
-    const { kode, nama, deskripsi } = req.body as { kode: string; nama: string; deskripsi: string };
-    if (!kode || !nama) {
+    const { kode, nama, deskripsi } = req.body as { kode?: string; nama?: string; deskripsi?: string };
+    const cleanKode = (kode || '').trim().toUpperCase();
+    const cleanNama = (nama || '').trim();
+    const cleanDesc = (deskripsi || '').trim();
+    if (!cleanKode || !cleanNama) {
       res.status(400).json({ error: 'Kode dan nama bidang wajib diisi.' });
       return;
     }
-    const info = db
-      .prepare(`INSERT INTO bidang_kerja (kode, nama, deskripsi) VALUES (?, ?, ?)`)
-      .run(kode.trim().toUpperCase(), nama.trim(), (deskripsi || '').trim());
-    writeAuditLog(db, {
-      actor: req.authUser!,
-      req,
-      modul: 'MASTER_BIDANG',
-      aksi: 'CREATE_BIDANG',
-      targetEntity: 'bidang_kerja',
-      targetId: Number(info.lastInsertRowid),
-      after: { kode, nama, deskripsi },
-    });
-    res.status(201).json({ id: Number(info.lastInsertRowid) });
+    try {
+      const info = db
+        .prepare(`INSERT INTO bidang_kerja (kode, nama, deskripsi) VALUES (?, ?, ?)`)
+        .run(cleanKode, cleanNama, cleanDesc);
+      writeAuditLog(db, {
+        actor: req.authUser!,
+        req,
+        modul: 'MASTER_BIDANG',
+        aksi: 'CREATE_BIDANG',
+        targetEntity: 'bidang_kerja',
+        targetId: Number(info.lastInsertRowid),
+        after: { kode: cleanKode, nama: cleanNama, deskripsi: cleanDesc },
+      });
+      res.status(201).json({ id: Number(info.lastInsertRowid) });
+    } catch (err) {
+      res.status(400).json({
+        error: 'Gagal menambah bidang kerja (kode bidang mungkin sudah digunakan).',
+        detail: safeErrorDetail(err),
+      });
+    }
   });
 
   app.put('/api/v1/master/bidang/:id', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
@@ -2273,10 +2322,16 @@ export function registerApiRoutes(app: Express) {
     }
 
     try {
+      db.exec('BEGIN IMMEDIATE');
       db.prepare(
         `UPDATE karyawan SET nama_lengkap = ?, no_hp = ?, kantor_id = ?, bidang_id = ?, jabatan = ?, aktif = ? WHERE id = ? AND COALESCE(is_system_archive, 0) = 0`
       ).run(nama_lengkap.trim(), (no_hp || '').trim(), nextKantorId, nextBidangId, jabatan.trim(), Number(aktif), id);
+      db.prepare(
+        `UPDATE pengguna SET nama_tampilan = ?, no_hp = ? WHERE karyawan_id = ?`
+      ).run(nama_lengkap.trim(), (no_hp || '').trim(), id);
+      db.exec('COMMIT');
     } catch (err) {
+      try { db.exec('ROLLBACK'); } catch { /* ignore */ }
       res.status(400).json({
         error: 'Perubahan data karyawan tidak dapat disimpan.',
         detail: safeErrorDetail(err),
@@ -3086,7 +3141,9 @@ export function registerApiRoutes(app: Express) {
       return;
     }
 
-    const empRows = db.prepare(`SELECT id FROM karyawan WHERE aktif = 1 AND COALESCE(is_system_archive, 0) = 0 ORDER BY nik ASC`).all() as { id: number }[];
+    const empRows = db
+      .prepare(`SELECT k.id FROM karyawan k WHERE k.aktif = 1 AND COALESCE(k.is_system_archive, 0) = 0 AND ${KARYAWAN_ONLY_SQL} ORDER BY k.nik ASC`)
+      .all() as { id: number }[];
     const summaries = empRows.map((e) => computeMonthlySummary(db, e.id, bulan)).filter(Boolean);
     const totalHariMasuk = summaries.reduce((acc, s) => acc + (s?.hariMasuk ?? 0), 0);
     const totalTidakHadir = summaries.reduce((acc, s) => acc + (s?.tidakHadir ?? 0), 0);
@@ -4423,6 +4480,29 @@ export function registerApiRoutes(app: Express) {
           res.status(400).json({ error: 'Anda tidak dapat menonaktifkan akun Superadmin Anda sendiri.' });
           return;
         }
+
+        const existingUserPhoto = db
+          .prepare(`SELECT foto_profil_path FROM pengguna WHERE id = ?`)
+          .get(targetUserId) as { foto_profil_path: string | null } | undefined;
+        let nextUserFoto = existingUserPhoto?.foto_profil_path ?? null;
+        let userFotoChanged = false;
+        const nowIso = getWibIsoString();
+        if (body.removePhoto) {
+          deleteAvatarFile(nextUserFoto);
+          nextUserFoto = null;
+          userFotoChanged = true;
+        } else if (body.fotoBase64) {
+          try {
+            const saved = saveAvatarBase64(body.fotoBase64, `user_${targetUserId}`);
+            deleteAvatarFile(nextUserFoto);
+            nextUserFoto = saved;
+            userFotoChanged = true;
+          } catch (err) {
+            res.status(400).json({ error: err instanceof Error ? err.message : 'Foto profil tidak valid.' });
+            return;
+          }
+        }
+
         db.exec('BEGIN IMMEDIATE');
         try {
           if (nextAktif === 0 && existing.user_aktif === 1) {
@@ -4438,9 +4518,20 @@ export function registerApiRoutes(app: Express) {
           db.prepare(
             `UPDATE pengguna
              SET username = ?, email = ?, nama_tampilan = ?, no_hp = ?, aktif = ?,
+                 foto_profil_path = ?, foto_profil_updated_at = COALESCE(?, foto_profil_updated_at),
                  token_version = CASE WHEN ? = 1 THEN COALESCE(token_version, 1) + 1 ELSE COALESCE(token_version, 1) END
              WHERE id = ?`
-          ).run(cleanUser, cleanEmail, cleanName, cleanHp, nextAktif, nextAktif === 0 ? 1 : 0, targetUserId);
+          ).run(
+            cleanUser,
+            cleanEmail,
+            cleanName,
+            cleanHp,
+            nextAktif,
+            nextUserFoto,
+            userFotoChanged ? nowIso : null,
+            nextAktif === 0 ? 1 : 0,
+            targetUserId
+          );
 
           writeAuditLog(db, {
             actor: req.authUser!,
@@ -4491,6 +4582,11 @@ export function registerApiRoutes(app: Express) {
       const nextBidang = Number(body.bidang_id ?? existing.bidang_id);
       const nowIso = getWibIsoString();
 
+      if (cleanName.length < 2 || !/^[a-z0-9._-]{3,30}$/.test(cleanUser) || !cleanEmail.includes('@')) {
+        res.status(400).json({ error: 'Nama lengkap (min. 2 karakter), username (3–30 karakter), dan email wajib valid.' });
+        return;
+      }
+
       let nextFoto = existing.foto_profil_path;
       let fotoChanged = false;
       if (body.removePhoto) {
@@ -4514,10 +4610,10 @@ export function registerApiRoutes(app: Express) {
         const shouldBumpTokenVersion = nextRole !== existing.role || nextAktif === 0;
         db.prepare(
           `UPDATE pengguna
-           SET username = ?, email = ?, role = ?, aktif = ?,
+           SET username = ?, email = ?, nama_tampilan = ?, no_hp = ?, role = ?, aktif = ?,
                token_version = CASE WHEN ? = 1 THEN COALESCE(token_version, 1) + 1 ELSE COALESCE(token_version, 1) END
            WHERE id = ?`
-        ).run(cleanUser, cleanEmail, nextRole, nextAktif, shouldBumpTokenVersion ? 1 : 0, targetUserId);
+        ).run(cleanUser, cleanEmail, cleanName, cleanHp, nextRole, nextAktif, shouldBumpTokenVersion ? 1 : 0, targetUserId);
 
         db.prepare(
           `UPDATE karyawan

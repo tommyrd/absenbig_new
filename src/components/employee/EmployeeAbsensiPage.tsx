@@ -391,7 +391,10 @@ export function EmployeeAbsensiPage({
       });
   }, [readCurrentGps, stopCamera, loadToday, fetchAddressPreview]);
 
-  const startCamera = async (requestedFacing: 'user' | 'environment' = facingMode) => {
+  const startCamera = async (
+    requestedFacing: 'user' | 'environment' = facingMode,
+    isExplicitSwitch = false
+  ) => {
     setCameraError(null);
     stopCamera();
     const requestId = ++cameraRequestIdRef.current;
@@ -469,7 +472,7 @@ export function EmployeeAbsensiPage({
       }
 
       const actualFacing = stream.getVideoTracks()[0]?.getSettings().facingMode;
-      if (actualFacing && actualFacing !== requestedFacing) {
+      if (isExplicitSwitch && actualFacing && actualFacing !== requestedFacing) {
         stream.getTracks().forEach((track) => track.stop());
         setCameraError(
           requestedFacing === 'environment'
@@ -479,8 +482,12 @@ export function EmployeeAbsensiPage({
         return;
       }
 
+      const resolvedFacing: 'user' | 'environment' =
+        actualFacing === 'environment' || actualFacing === 'user'
+          ? actualFacing
+          : requestedFacing;
       streamRef.current = stream;
-      setFacingMode(requestedFacing);
+      setFacingMode(resolvedFacing);
       setCameraActive(true);
     } catch (err) {
       if (requestId !== cameraRequestIdRef.current) return;
@@ -505,7 +512,7 @@ export function EmployeeAbsensiPage({
     const nextMode = facingMode === 'user' ? 'environment' : 'user';
     setCameraError(null);
     if (cameraActive) {
-      void startCamera(nextMode);
+      void startCamera(nextMode, true);
     } else {
       setFacingMode(nextMode);
     }

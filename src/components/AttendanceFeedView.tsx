@@ -1211,7 +1211,11 @@ export function AttendanceFeedView({
                 </h2>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
                   {sharePreview.post.namaLengkap} · {sharePreview.post.namaSesi} ·{' '}
-                  {sharePreview.post.jamWib} WIB
+                  {sharePreview.post.tanggal} ·{' '}
+                  {sharePreview.post.waktuServer.length >= 19
+                    ? sharePreview.post.waktuServer.slice(11, 19)
+                    : sharePreview.post.jamWib}{' '}
+                  WIB
                 </p>
               </div>
               <button
