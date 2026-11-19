@@ -36,7 +36,7 @@ import {
 import { getWibDateString, getWibIsoString, getWibTimeString, parseHmToMinutes } from './time.ts';
 import { isGpsAccuracyAcceptable, isWithinVerifiedGeofence, MAX_GPS_ACCURACY_METERS, requiresOfficeGeofence } from '../shared/geofence.ts';
 import { getSessionWindowState } from '../shared/session-window.ts';
-import { getGeoapifyAddress } from './services/reverse-geocode.ts';
+import { getGeoapifyAddress, reverseGeocodeCoordinates } from './services/reverse-geocode.ts';
 import type {
   AttendanceFeedPost,
   AttendanceFeedRosterItem,
@@ -991,6 +991,29 @@ export function registerApiRoutes(app: Express) {
       throw err;
     }
   });
+
+  app.get('/api/v1/location/reverse', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), asyncRoute(async (req, res) => {
+    const lat = Number(req.query.lat);
+    const lng = Number(req.query.lng);
+    if (
+      !Number.isFinite(lat) ||
+      !Number.isFinite(lng) ||
+      lat < -90 ||
+      lat > 90 ||
+      lng < -180 ||
+      lng > 180
+    ) {
+      res.status(400).json({ error: 'Koordinat lat/lng tidak valid.' });
+      return;
+    }
+    const result = await reverseGeocodeCoordinates(lat, lng);
+    res.json({
+      lat,
+      lng,
+      address: result.address,
+      provider: result.provider,
+    });
+  }));
 
   app.post('/api/v1/attendance/session', requireRole('KARYAWAN', 'ADMIN'), asyncRoute(async (req, res) => {
     const user = req.authUser!;
@@ -2250,14 +2273,101 @@ export function registerApiRoutes(app: Express) {
     res.json({ items });
   });
 
+  function validatePolicySessions(
+    jumlahSesi: number,
+    sesiInput: SesiConfig[] | undefined,
+    wajibFotoGlobal: boolean,
+    wajibAktivitasGlobal: boolean
+  ): { error?: string; sessions: Array<{ urutan: number; nama: string; jam_mulai: string; jam_selesai: string; wajib_foto: number; wajib_aktivitas: number }> } {
+    const hmRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
+    const defaultTimes = [
+      ['08:00', '09:30'],
+      ['12:00', '14:00'],
+      ['15:00', '16:30'],
+      ['17:00', '19:30'],
+    ];
+    const list = sesiInput && sesiInput.length > 0 ? sesiInput : [];
+    if (list.length > 0 && list.length !== jumlahSesi) {
+      return {
+        error: `Jumlah konfigurasi sesi (${list.length}) harus sama dengan jumlah sesi kebijakan (${jumlahSesi}).`,
+        sessions: [],
+      };
+    }
+
+    const normalized: Array<{ urutan: number; nama: string; jam_mulai: string; jam_selesai: string; wajib_foto: number; wajib_aktivitas: number }> = [];
+    for (let i = 1; i <= jumlahSesi; i++) {
+      const s = list[i - 1];
+      const nama = (s?.nama || `Sesi ${i}`).trim();
+      const jamMulai = (s?.jam_mulai || defaultTimes[i - 1]?.[0] || '08:00').trim();
+      const jamSelesai = (s?.jam_selesai || defaultTimes[i - 1]?.[1] || '17:00').trim();
+      if (!nama) {
+        return { error: `Nama Sesi ${i} wajib diisi.`, sessions: [] };
+      }
+      if (!hmRegex.test(jamMulai) || !hmRegex.test(jamSelesai)) {
+        return { error: `Format jam Sesi ${i} harus HH:MM (contoh 08:00).`, sessions: [] };
+      }
+      if (parseHmToMinutes(jamMulai) > parseHmToMinutes(jamSelesai)) {
+        return { error: `Jam mulai Sesi ${i} (${jamMulai}) tidak boleh lebih akhir dari jam selesai (${jamSelesai}).`, sessions: [] };
+      }
+      const wajibFoto = wajibFotoGlobal ? 1 : (s?.wajib_foto ? 1 : 0);
+      const wajibAktivitas = i === 1 ? 0 : (wajibAktivitasGlobal ? 1 : (s?.wajib_aktivitas ? 1 : 0));
+      normalized.push({
+        urutan: i,
+        nama,
+        jam_mulai: jamMulai,
+        jam_selesai: jamSelesai,
+        wajib_foto: wajibFoto,
+        wajib_aktivitas: wajibAktivitas,
+      });
+    }
+    return { sessions: normalized };
+  }
+
   app.post('/api/v1/policies', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const body = req.body as Partial<KebijakanAbsensi> & { sesi?: SesiConfig[] };
-    if (!body.nama || ![2, 3, 4].includes(Number(body.jumlah_sesi))) {
+    const level = body.level || 'BIDANG';
+    if (!['DEFAULT', 'BIDANG', 'KARYAWAN'].includes(level)) {
+      res.status(400).json({ error: 'Level kebijakan harus DEFAULT, BIDANG, atau KARYAWAN.' });
+      return;
+    }
+    const jumlahSesi = Number(body.jumlah_sesi);
+    if (!body.nama || !body.nama.trim() || ![2, 3, 4].includes(jumlahSesi)) {
       res.status(400).json({ error: 'Nama kebijakan dan jumlah sesi (2, 3, atau 4) wajib valid.' });
       return;
     }
+
+    let bidangId: number | null = null;
+    let karyawanId: number | null = null;
+    if (level === 'BIDANG') {
+      bidangId = Number(body.bidang_id);
+      if (!Number.isInteger(bidangId) || !db.prepare(`SELECT id FROM bidang_kerja WHERE id = ?`).get(bidangId)) {
+        res.status(400).json({ error: 'Bidang kerja wajib dipilih dan valid.' });
+        return;
+      }
+    } else if (level === 'KARYAWAN') {
+      karyawanId = Number(body.karyawan_id);
+      if (!Number.isInteger(karyawanId) || !db.prepare(`SELECT id FROM karyawan WHERE id = ? AND COALESCE(is_system_archive, 0) = 0`).get(karyawanId)) {
+        res.status(400).json({ error: 'Karyawan target wajib dipilih dan valid.' });
+        return;
+      }
+    }
+
+    const minSesi = Math.max(1, Math.min(Number(body.min_sesi_hadir) || 1, jumlahSesi));
+    const toleransi = Math.max(0, Math.min(180, Number(body.toleransi_terlambat_menit ?? 15)));
+    const wajibFotoGlobal = body.wajib_foto_semua_sesi !== undefined ? Boolean(body.wajib_foto_semua_sesi) : true;
+    const wajibAktivitasGlobal = body.wajib_aktivitas_sesi_lanjut !== undefined ? Boolean(body.wajib_aktivitas_sesi_lanjut) : true;
+    const sesiValidation = validatePolicySessions(jumlahSesi, body.sesi, wajibFotoGlobal, wajibAktivitasGlobal);
+    if (sesiValidation.error) {
+      res.status(400).json({ error: sesiValidation.error });
+      return;
+    }
+
     const nowIso = getWibIsoString();
     const today = getWibDateString();
+    const berlakuMulai =
+      typeof body.berlaku_mulai === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.berlaku_mulai)
+        ? body.berlaku_mulai
+        : today;
 
     db.exec('BEGIN IMMEDIATE');
     try {
@@ -2271,40 +2381,38 @@ export function registerApiRoutes(app: Express) {
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
         )
         .run(
-          body.level || 'BIDANG',
-          body.level === 'BIDANG' ? Number(body.bidang_id) : null,
-          body.level === 'KARYAWAN' ? Number(body.karyawan_id) : null,
+          level,
+          bidangId,
+          karyawanId,
           body.nama.trim(),
-          Number(body.jumlah_sesi),
-          Math.min(Number(body.min_sesi_hadir) || 1, Number(body.jumlah_sesi)),
-          Number(body.toleransi_terlambat_menit ?? 15),
+          jumlahSesi,
+          minSesi,
+          toleransi,
           body.aturan_lokasi === 'SEMUA_SESI_KANTOR' ? 'SEMUA_SESI_KANTOR' : 'SESI_PERTAMA_KANTOR',
-          body.wajib_foto_semua_sesi ? 1 : 0,
-          body.wajib_aktivitas_sesi_lanjut ? 1 : 0,
+          wajibFotoGlobal ? 1 : 0,
+          wajibAktivitasGlobal ? 1 : 0,
           body.libur_dihitung_masuk ? 1 : 0,
           body.off_pengganti_dihitung_masuk ? 1 : 0,
           body.izin_dihitung_masuk ? 1 : 0,
           body.sakit_dihitung_masuk ? 1 : 0,
           body.cuti_dihitung_masuk ? 1 : 0,
-          body.berlaku_mulai || today,
+          berlakuMulai,
           nowIso
         );
       const policyId = Number(info.lastInsertRowid);
-      const sesiList = body.sesi && body.sesi.length === Number(body.jumlah_sesi) ? body.sesi : [];
       const stmtSesi = db.prepare(
         `INSERT INTO sesi_absensi (kebijakan_id, urutan, nama, jam_mulai, jam_selesai, wajib_foto, wajib_aktivitas, aktif)
          VALUES (?, ?, ?, ?, ?, ?, ?, 1)`
       );
-      for (let i = 1; i <= Number(body.jumlah_sesi); i++) {
-        const s = sesiList[i - 1];
+      for (const s of sesiValidation.sessions) {
         stmtSesi.run(
           policyId,
-          i,
-          s?.nama || `Sesi ${i}`,
-          s?.jam_mulai || '08:00',
-          s?.jam_selesai || '17:00',
-          s?.wajib_foto ?? 1,
-          s?.wajib_aktivitas ?? (i >= 2 ? 1 : 0)
+          s.urutan,
+          s.nama,
+          s.jam_mulai,
+          s.jam_selesai,
+          s.wajib_foto,
+          s.wajib_aktivitas
         );
       }
       writeAuditLog(db, {
@@ -2314,8 +2422,8 @@ export function registerApiRoutes(app: Express) {
         aksi: 'CREATE_POLICY',
         targetEntity: 'kebijakan_absensi',
         targetId: policyId,
-        karyawanId: body.level === 'KARYAWAN' ? Number(body.karyawan_id) : null,
-        after: body,
+        karyawanId,
+        after: { ...body, level, bidang_id: bidangId, karyawan_id: karyawanId, berlaku_mulai: berlakuMulai },
       });
       db.exec('COMMIT');
       res.status(201).json({ id: policyId });
@@ -2327,12 +2435,65 @@ export function registerApiRoutes(app: Express) {
 
   app.put('/api/v1/policies/:id', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const id = Number(req.params.id);
-    const before = db.prepare(`SELECT * FROM kebijakan_absensi WHERE id = ?`).get(id);
+    const before = db.prepare(`SELECT * FROM kebijakan_absensi WHERE id = ?`).get(id) as
+      | KebijakanAbsensi
+      | undefined;
     if (!before) {
       res.status(404).json({ error: 'Kebijakan tidak ditemukan.' });
       return;
     }
     const body = req.body as Partial<KebijakanAbsensi> & { sesi?: SesiConfig[] };
+    const nextNama = (body.nama ?? before.nama).trim();
+    const jumlahSesi = body.jumlah_sesi !== undefined ? Number(body.jumlah_sesi) : before.jumlah_sesi;
+    if (!nextNama || ![2, 3, 4].includes(jumlahSesi)) {
+      res.status(400).json({ error: 'Nama kebijakan dan jumlah sesi (2, 3, atau 4) wajib valid.' });
+      return;
+    }
+    const minSesiRaw = body.min_sesi_hadir !== undefined ? Number(body.min_sesi_hadir) : before.min_sesi_hadir;
+    const minSesi = Math.max(1, Math.min(minSesiRaw || 1, jumlahSesi));
+    const toleransi = Math.max(
+      0,
+      Math.min(
+        180,
+        body.toleransi_terlambat_menit !== undefined
+          ? Number(body.toleransi_terlambat_menit)
+          : before.toleransi_terlambat_menit
+      )
+    );
+    const nextAktif = body.aktif !== undefined ? (body.aktif ? 1 : 0) : before.aktif;
+    if (before.level === 'DEFAULT' && nextAktif === 0) {
+      const otherDefault = db
+        .prepare(`SELECT COUNT(*) as c FROM kebijakan_absensi WHERE level = 'DEFAULT' AND aktif = 1 AND id != ?`)
+        .get(id) as { c: number };
+      if (otherDefault.c === 0) {
+        res.status(400).json({ error: 'Minimal harus ada satu kebijakan DEFAULT yang aktif.' });
+        return;
+      }
+    }
+
+    const wajibFotoGlobal =
+      body.wajib_foto_semua_sesi !== undefined
+        ? Boolean(body.wajib_foto_semua_sesi)
+        : Boolean(before.wajib_foto_semua_sesi);
+    const wajibAktivitasGlobal =
+      body.wajib_aktivitas_sesi_lanjut !== undefined
+        ? Boolean(body.wajib_aktivitas_sesi_lanjut)
+        : Boolean(before.wajib_aktivitas_sesi_lanjut);
+
+    const existingSesi = db
+      .prepare(`SELECT * FROM sesi_absensi WHERE kebijakan_id = ? ORDER BY urutan ASC`)
+      .all(id) as unknown as SesiConfig[];
+    const sesiToValidate = body.sesi && body.sesi.length > 0 ? body.sesi : (existingSesi.length === jumlahSesi ? existingSesi : undefined);
+    const sesiValidation = validatePolicySessions(jumlahSesi, sesiToValidate, wajibFotoGlobal, wajibAktivitasGlobal);
+    if (sesiValidation.error) {
+      res.status(400).json({ error: sesiValidation.error });
+      return;
+    }
+
+    const berlakuMulai =
+      typeof body.berlaku_mulai === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.berlaku_mulai)
+        ? body.berlaku_mulai
+        : before.berlaku_mulai;
 
     db.exec('BEGIN IMMEDIATE');
     try {
@@ -2342,39 +2503,47 @@ export function registerApiRoutes(app: Express) {
           aturan_lokasi = ?, wajib_foto_semua_sesi = ?, wajib_aktivitas_sesi_lanjut = ?,
           libur_dihitung_masuk = ?, off_pengganti_dihitung_masuk = ?,
           izin_dihitung_masuk = ?, sakit_dihitung_masuk = ?, cuti_dihitung_masuk = ?,
-          aktif = ?
+          berlaku_mulai = ?, aktif = ?
          WHERE id = ?`
       ).run(
-        (body.nama ?? (before as { nama: string }).nama).trim(),
-        Number(body.jumlah_sesi),
-        Math.min(Number(body.min_sesi_hadir), Number(body.jumlah_sesi)),
-        Number(body.toleransi_terlambat_menit ?? 15),
+        nextNama,
+        jumlahSesi,
+        minSesi,
+        toleransi,
         body.aturan_lokasi === 'SEMUA_SESI_KANTOR'
           ? 'SEMUA_SESI_KANTOR'
           : body.aturan_lokasi === 'SESI_PERTAMA_KANTOR'
             ? 'SESI_PERTAMA_KANTOR'
-            : (before as { aturan_lokasi?: string }).aturan_lokasi || 'SESI_PERTAMA_KANTOR',
-        body.wajib_foto_semua_sesi ? 1 : 0,
-        body.wajib_aktivitas_sesi_lanjut ? 1 : 0,
-        body.libur_dihitung_masuk ? 1 : 0,
-        body.off_pengganti_dihitung_masuk ? 1 : 0,
-        body.izin_dihitung_masuk ? 1 : 0,
-        body.sakit_dihitung_masuk ? 1 : 0,
-        body.cuti_dihitung_masuk ? 1 : 0,
-        body.aktif !== undefined ? (body.aktif ? 1 : 0) : 1,
+            : before.aturan_lokasi || 'SESI_PERTAMA_KANTOR',
+        wajibFotoGlobal ? 1 : 0,
+        wajibAktivitasGlobal ? 1 : 0,
+        body.libur_dihitung_masuk !== undefined ? (body.libur_dihitung_masuk ? 1 : 0) : before.libur_dihitung_masuk,
+        body.off_pengganti_dihitung_masuk !== undefined
+          ? (body.off_pengganti_dihitung_masuk ? 1 : 0)
+          : before.off_pengganti_dihitung_masuk,
+        body.izin_dihitung_masuk !== undefined ? (body.izin_dihitung_masuk ? 1 : 0) : before.izin_dihitung_masuk,
+        body.sakit_dihitung_masuk !== undefined ? (body.sakit_dihitung_masuk ? 1 : 0) : before.sakit_dihitung_masuk,
+        body.cuti_dihitung_masuk !== undefined ? (body.cuti_dihitung_masuk ? 1 : 0) : before.cuti_dihitung_masuk,
+        berlakuMulai,
+        nextAktif,
         id
       );
 
-      if (body.sesi && body.sesi.length > 0) {
-        db.prepare(`DELETE FROM sesi_absensi WHERE kebijakan_id = ?`).run(id);
-        const stmtSesi = db.prepare(
-          `INSERT INTO sesi_absensi (kebijakan_id, urutan, nama, jam_mulai, jam_selesai, wajib_foto, wajib_aktivitas, aktif)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 1)`
+      db.prepare(`DELETE FROM sesi_absensi WHERE kebijakan_id = ?`).run(id);
+      const stmtSesi = db.prepare(
+        `INSERT INTO sesi_absensi (kebijakan_id, urutan, nama, jam_mulai, jam_selesai, wajib_foto, wajib_aktivitas, aktif)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1)`
+      );
+      for (const s of sesiValidation.sessions) {
+        stmtSesi.run(
+          id,
+          s.urutan,
+          s.nama,
+          s.jam_mulai,
+          s.jam_selesai,
+          s.wajib_foto,
+          s.wajib_aktivitas
         );
-        for (let i = 0; i < body.sesi.length; i++) {
-          const s = body.sesi[i];
-          stmtSesi.run(id, i + 1, s.nama, s.jam_mulai, s.jam_selesai, s.wajib_foto ? 1 : 0, s.wajib_aktivitas ? 1 : 0);
-        }
       }
 
       const after = db.prepare(`SELECT * FROM kebijakan_absensi WHERE id = ?`).get(id);
@@ -2385,8 +2554,51 @@ export function registerApiRoutes(app: Express) {
         aksi: 'UPDATE_POLICY',
         targetEntity: 'kebijakan_absensi',
         targetId: id,
+        karyawanId: before.karyawan_id,
         before,
         after,
+      });
+      db.exec('COMMIT');
+      res.json({ ok: true });
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
+    }
+  });
+
+  app.delete('/api/v1/policies/:id', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const id = Number(req.params.id);
+    const before = db.prepare(`SELECT * FROM kebijakan_absensi WHERE id = ?`).get(id) as
+      | KebijakanAbsensi
+      | undefined;
+    if (!before) {
+      res.status(404).json({ error: 'Kebijakan tidak ditemukan.' });
+      return;
+    }
+    if (before.level === 'DEFAULT') {
+      const otherDefault = db
+        .prepare(`SELECT COUNT(*) as c FROM kebijakan_absensi WHERE level = 'DEFAULT' AND aktif = 1 AND id != ?`)
+        .get(id) as { c: number };
+      if (otherDefault.c === 0) {
+        res.status(400).json({ error: 'Kebijakan DEFAULT utama tidak dapat dihapus agar sistem selalu memiliki aturan dasar.' });
+        return;
+      }
+    }
+
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.prepare(`DELETE FROM sesi_absensi WHERE kebijakan_id = ?`).run(id);
+      db.prepare(`DELETE FROM kebijakan_absensi WHERE id = ?`).run(id);
+      writeAuditLog(db, {
+        actor: req.authUser!,
+        req,
+        modul: 'POLICY_SESI',
+        aksi: 'DELETE_POLICY',
+        targetEntity: 'kebijakan_absensi',
+        targetId: id,
+        karyawanId: before.karyawan_id,
+        before,
+        after: null,
       });
       db.exec('COMMIT');
       res.json({ ok: true });

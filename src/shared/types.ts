@@ -266,6 +266,7 @@ export interface AbsensiSesiRecord {
   accuracy_meter: number | null;
   jarak_kantor_meter: number | null;
   dalam_geofence: number;
+  lokasi_alamat?: string | null;
   ip_address: string | null;
   user_agent: string | null;
   tipe_aktivitas: 'CHECK_IN' | 'AKTIVITAS' | 'STANDBY';

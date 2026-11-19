@@ -76,12 +76,22 @@ export async function syncServerClock(): Promise<boolean> {
       if (!currentSync) {
         syncFailedState = true;
         notifyListeners();
+        if (typeof window !== 'undefined') {
+          window.setTimeout(() => {
+            if (!currentSync) void syncServerClock();
+          }, 3000);
+        }
       }
       return false;
     } catch {
       if (!currentSync) {
         syncFailedState = true;
         notifyListeners();
+        if (typeof window !== 'undefined') {
+          window.setTimeout(() => {
+            if (!currentSync) void syncServerClock();
+          }, 3000);
+        }
       }
       return false;
     } finally {

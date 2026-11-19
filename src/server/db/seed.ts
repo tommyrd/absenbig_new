@@ -369,18 +369,72 @@ export function seedDemoDataset(db: DatabaseSync): boolean {
   const absInsert = db.prepare(`
     INSERT INTO absensi_sesi (
       karyawan_id, tanggal, urutan_sesi, nama_sesi, waktu_server, status_ketepatan, keterlambatan_menit,
-      lat, lng, accuracy_meter, jarak_kantor_meter, dalam_geofence, ip_address, user_agent,
+      lat, lng, accuracy_meter, jarak_kantor_meter, dalam_geofence, lokasi_alamat, ip_address, user_agent,
       tipe_aktivitas, deskripsi_aktivitas, foto_path, foto_checksum, policy_snapshot_json, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const employeesForSeed = [
-    { id: 2, nama: 'Andi Pratama', kantorLat: -6.2088, kantorLng: 106.8456, kantorNama: 'Kantor A', sesi: 3, policyName: 'Kebijakan Teknisi Lapangan (3 Sesi)' },
-    { id: 3, nama: 'Rina Kusuma', kantorLat: -6.2088, kantorLng: 106.8456, kantorNama: 'Kantor A', sesi: 2, policyName: 'Kebijakan Administrasi Kantor (2 Sesi)' },
-    { id: 4, nama: 'Dimas Nugroho', kantorLat: -6.9218, kantorLng: 107.6071, kantorNama: 'Kantor B', sesi: 4, policyName: 'Kebijakan Khusus Lead Teknisi Bandung (4 Sesi)' },
-    { id: 5, nama: 'Fajar Hidayat', kantorLat: -6.9218, kantorLng: 107.6071, kantorNama: 'Kantor B', sesi: 4, policyName: 'Kebijakan Default Perusahaan (4 Sesi)' },
-    { id: 6, nama: 'Dewi Lestari', kantorLat: -6.2088, kantorLng: 106.8456, kantorNama: 'Kantor A', sesi: 4, policyName: 'Kebijakan Default Perusahaan (4 Sesi)' },
-    { id: 7, nama: 'Hendra Wijaya', kantorLat: -6.2088, kantorLng: 106.8456, kantorNama: 'Kantor A', sesi: 3, policyName: 'Kebijakan Teknisi Lapangan (3 Sesi)' },
+    {
+      id: 2,
+      nama: 'Andi Pratama',
+      kantorLat: -6.2088,
+      kantorLng: 106.8456,
+      kantorNama: 'Kantor A',
+      kantorAlamatSingkat: 'Jl. Jend. Sudirman Kav. 52, Setiabudi, Jakarta Selatan',
+      sesi: 3,
+      policyName: 'Kebijakan Teknisi Lapangan (3 Sesi)',
+    },
+    {
+      id: 3,
+      nama: 'Rina Kusuma',
+      kantorLat: -6.2088,
+      kantorLng: 106.8456,
+      kantorNama: 'Kantor A',
+      kantorAlamatSingkat: 'Jl. Jend. Sudirman Kav. 52, Setiabudi, Jakarta Selatan',
+      sesi: 2,
+      policyName: 'Kebijakan Administrasi Kantor (2 Sesi)',
+    },
+    {
+      id: 4,
+      nama: 'Dimas Nugroho',
+      kantorLat: -6.9218,
+      kantorLng: 107.6071,
+      kantorNama: 'Kantor B',
+      kantorAlamatSingkat: 'Jl. Asia Afrika No. 112, Cikawao, Kota Bandung',
+      sesi: 4,
+      policyName: 'Kebijakan Khusus Lead Teknisi Bandung (4 Sesi)',
+    },
+    {
+      id: 5,
+      nama: 'Fajar Hidayat',
+      kantorLat: -6.9218,
+      kantorLng: 107.6071,
+      kantorNama: 'Kantor B',
+      kantorAlamatSingkat: 'Jl. Asia Afrika No. 112, Cikawao, Kota Bandung',
+      sesi: 4,
+      policyName: 'Kebijakan Default Perusahaan (4 Sesi)',
+    },
+    {
+      id: 6,
+      nama: 'Dewi Lestari',
+      kantorLat: -6.2088,
+      kantorLng: 106.8456,
+      kantorNama: 'Kantor A',
+      kantorAlamatSingkat: 'Jl. Jend. Sudirman Kav. 52, Setiabudi, Jakarta Selatan',
+      sesi: 4,
+      policyName: 'Kebijakan Default Perusahaan (4 Sesi)',
+    },
+    {
+      id: 7,
+      nama: 'Hendra Wijaya',
+      kantorLat: -6.2088,
+      kantorLng: 106.8456,
+      kantorNama: 'Kantor A',
+      kantorAlamatSingkat: 'Jl. Jend. Sudirman Kav. 52, Setiabudi, Jakarta Selatan',
+      sesi: 3,
+      policyName: 'Kebijakan Teknisi Lapangan (3 Sesi)',
+    },
   ];
 
   let missedDayForAndi: string | null = null;
@@ -411,7 +465,7 @@ export function seedDemoDataset(db: DatabaseSync): boolean {
         absInsert.run(
           emp.id, d, s, `Sesi ${s}`, `${d}T${t}+07:00`,
           s === 1 && late ? 'TERLAMBAT' : 'TEPAT_WAKTU', s === 1 && late ? 17 : 0,
-          emp.kantorLat + 0.0002, emp.kantorLng - 0.0001, 14, 38, 1,
+          emp.kantorLat + 0.0002, emp.kantorLng - 0.0001, 14, 38, 1, emp.kantorAlamatSingkat,
           '10.10.1.24', 'Mozilla/5.0 (Mobile; BIGNET Web)',
           s === 1 ? 'CHECK_IN' : s === 2 && emp.id === 2 ? 'STANDBY' : 'AKTIVITAS',
           s === 1 ? 'Absensi masuk di area kerja' : isKerjaKhususAndi ? 'Migrasi OLT & terminasi fiber cluster timur' : 'Melaksanakan tugas operasional dan pelaporan rutin',
@@ -434,7 +488,7 @@ export function seedDemoDataset(db: DatabaseSync): boolean {
       const { filePath, checksum } = createSamplePhotoSvgFile(fileName, item.emp.nama, `Sesi ${s}`, today, item.times[s - 1], item.emp.kantorNama);
       absInsert.run(
         item.emp.id, today, s, `Sesi ${s}`, `${today}T${item.times[s - 1]}+07:00`,
-        'TEPAT_WAKTU', 0, item.emp.kantorLat + 0.0001, item.emp.kantorLng + 0.0001, 12, 24, 1,
+        'TEPAT_WAKTU', 0, item.emp.kantorLat + 0.0001, item.emp.kantorLng + 0.0001, 12, 24, 1, item.emp.kantorAlamatSingkat,
         '10.10.2.15', 'Mozilla/5.0 (Mobile; BIGNET Web)',
         s === 1 ? 'CHECK_IN' : 'STANDBY', item.desc[s - 1],
         filePath, checksum, JSON.stringify({ policyName: item.emp.policyName, jumlahSesi: item.emp.sesi }), `${today}T${item.times[s - 1]}+07:00`

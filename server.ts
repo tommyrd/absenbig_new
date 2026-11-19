@@ -33,9 +33,9 @@ async function startServer() {
   const allowedOrigins = parseAllowedOrigins();
   const geoapifyConfigured = Boolean(process.env.GEOAPIFY_API_KEY?.trim());
   if (geoapifyConfigured) {
-    console.info('[Location] Geoapify reverse geocoding: ENABLED');
+    console.info('[Location] Reverse geocoding: Geoapify ENABLED (fallback Nominatim)');
   } else {
-    console.warn('[Location] GEOAPIFY_API_KEY is missing; address lookup is disabled. GPS coordinates and geofence remain available.');
+    console.info('[Location] Reverse geocoding: OpenStreetMap Nominatim ENABLED (set GEOAPIFY_API_KEY opsional untuk Geoapify)');
   }
 
   app.disable('x-powered-by');

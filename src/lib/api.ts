@@ -1,22 +1,64 @@
 import type { AuthUser } from '../shared/types';
 
 const TOKEN_KEY = 'bignet_auth_token';
-const API_BASE = ((import.meta as { env?: Record<string, string | undefined> }).env?.VITE_API_BASE_URL || '').replace(/\/+$/, '');
+let memoryToken: string | null = null;
+
+function isLoopbackHost(hostname: string): boolean {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+}
+
+function resolveApiBase(): string {
+  const configured = (
+    (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_API_BASE_URL || ''
+  )
+    .trim()
+    .replace(/\/+$/, '');
+  if (!configured) return '';
+
+  if (typeof window !== 'undefined') {
+    try {
+      const apiUrl = new URL(configured, window.location.origin);
+      // Never route a remote browser (HTTPS preview, tunnel, LAN, or production)
+      // to a local loopback URL; use same-origin relative /api paths instead.
+      if (isLoopbackHost(apiUrl.hostname) && !isLoopbackHost(window.location.hostname)) {
+        return '';
+      }
+      // Prevent HTTPS pages from making blocked HTTP mixed-content API calls.
+      if (window.location.protocol === 'https:' && apiUrl.protocol === 'http:') {
+        return '';
+      }
+    } catch {
+      return '';
+    }
+  }
+
+  return configured;
+}
 
 export function buildApiUrl(path: string): string {
   if (/^https?:\/\//i.test(path)) return path;
-  return `${API_BASE}${path}`;
+  const base = resolveApiBase();
+  return `${base}${path}`;
 }
 
 export function getStoredToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
+  try {
+    return localStorage.getItem(TOKEN_KEY) || memoryToken;
+  } catch {
+    return memoryToken;
+  }
 }
 
 export function setStoredToken(token: string | null) {
-  if (token) {
-    localStorage.setItem(TOKEN_KEY, token);
-  } else {
-    localStorage.removeItem(TOKEN_KEY);
+  memoryToken = token;
+  try {
+    if (token) {
+      localStorage.setItem(TOKEN_KEY, token);
+    } else {
+      localStorage.removeItem(TOKEN_KEY);
+    }
+  } catch {
+    // Fallback to in-memory token when storage is blocked in embedded contexts
   }
 }
 

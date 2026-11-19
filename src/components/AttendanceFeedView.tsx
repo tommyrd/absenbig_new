@@ -4,11 +4,13 @@ import {
   CheckCircle2,
   Clock,
   ExternalLink,
+  Info,
+  Loader2,
   MapPin,
+  Navigation,
   RefreshCw,
   Search,
   Share2,
-  Loader2,
   SlidersHorizontal,
   Users,
   X,
@@ -55,6 +57,23 @@ function formatDateLabel(ymd: string, todayYmd?: string): string {
     day: 'numeric',
     month: 'short',
   }).format(new Date(Date.UTC(y, m - 1, d)));
+}
+
+function formatDistance(meters: number): string {
+  return meters >= 1000
+    ? `${(meters / 1000).toLocaleString('id-ID', { maximumFractionDigits: 1 })} km`
+    : `${Math.round(meters).toLocaleString('id-ID')} m`;
+}
+
+function getShortLocationLine(post: AttendanceFeedPost): string {
+  if (post.lokasiAktualAlamat && post.lokasiAktualAlamat.trim()) {
+    const parts = post.lokasiAktualAlamat
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return parts.slice(0, 2).join(', ');
+  }
+  return post.kantorNama.split('(')[0].trim();
 }
 
 export function AttendanceFeedView({
@@ -114,7 +133,7 @@ export function AttendanceFeedView({
   }, []);
 
   useEffect(() => {
-    loadFeed();
+    void loadFeed();
   }, [loadFeed]);
 
   // Real-time SSE sync across all roles
@@ -128,7 +147,7 @@ export function AttendanceFeedView({
     const es = new EventSource(url);
     es.addEventListener('connected', () => setLiveConnected(true));
     es.addEventListener('workforce', () => {
-      loadFeed();
+      void loadFeed();
     });
     es.onerror = () => setLiveConnected(false);
     return () => {
@@ -180,8 +199,6 @@ export function AttendanceFeedView({
           return;
         } catch (shareError) {
           if (shareError instanceof Error && shareError.name === 'AbortError') return;
-          // If the browser exposes Web Share but cannot attach files, fall
-          // back to a PNG download so the user can attach it manually.
         }
       }
 
@@ -193,11 +210,11 @@ export function AttendanceFeedView({
       link.click();
       link.remove();
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
-      setShareNotice('Gambar kartu absensi diunduh. Lampirkan file PNG ini ke WhatsApp atau Telegram.');
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') return;
+      setShareNotice('Gambar kartu absensi diunduh. Anda dapat melampirkan file PNG ke WhatsApp atau Telegram.');
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return;
       setShareNotice(
-        error instanceof Error ? error.message : 'Gagal menyiapkan gambar kartu absensi.'
+        err instanceof Error ? err.message : 'Gagal menyiapkan gambar kartu absensi.'
       );
     } finally {
       setSharingPostId(null);
@@ -237,106 +254,124 @@ export function AttendanceFeedView({
     ? sortedRoster.find((r) => r.karyawanId === selectedEmpId) || null
     : null;
 
-  const formatDistance = (meters: number) =>
-    meters >= 1000
-      ? `${(meters / 1000).toLocaleString('id-ID', { maximumFractionDigits: 1 })} km`
-      : `${Math.round(meters).toLocaleString('id-ID')} m`;
-
-  const formatLocationSubtitle = (post: AttendanceFeedPost) => {
-    const officeShort = post.kantorNama.split('(')[0].trim();
-    if (post.jarakKantorMeter !== null) {
-      return `${officeShort} · ${formatDistance(post.jarakKantorMeter)} dari kantor`;
-    }
-    return officeShort;
-  };
-
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-      {/* Main Instagram-Style Home Stream */}
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 xl:gap-8 items-start">
+      {/* Main Instagram-Style Feed Column */}
       <div className="lg:col-span-7 xl:col-span-8">
-        <div className="max-w-[540px] mx-auto w-full space-y-4">
-          {/* 1. Instagram Stories Strip (Circular Colleague Avatars) */}
-          <div className="flex items-start gap-3.5 overflow-x-auto pb-2 pt-0.5 px-0.5">
-            <button
-              type="button"
-              onClick={() => setSelectedEmpId(null)}
-              className="flex flex-col items-center gap-1.5 shrink-0 w-16 text-center"
-            >
-              <div
-                className={`w-16 h-16 rounded-full p-[2.5px] transition-all ${
-                  selectedEmpId === null
-                    ? 'bg-gradient-to-tr from-brand-600 via-indigo-500 to-emerald-500'
-                    : 'bg-slate-200 dark:bg-slate-800'
-                }`}
+        <div className="max-w-[520px] mx-auto w-full space-y-4">
+          {/* 1. Instagram Stories Rail */}
+          <section
+            aria-label="Status kehadiran rekan hari ini"
+            className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl px-3 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+          >
+            <div className="flex items-start gap-3 overflow-x-auto pb-0.5 scrollbar-none">
+              <button
+                type="button"
+                onClick={() => setSelectedEmpId(null)}
+                className="flex flex-col items-center gap-1.5 shrink-0 w-[62px] text-center group"
               >
-                <div className="w-full h-full rounded-full bg-white dark:bg-slate-900 flex items-center justify-center border-2 border-white dark:border-slate-950 text-slate-700 dark:text-slate-200">
-                  <Users className="w-6 h-6" />
-                </div>
-              </div>
-              <span
-                className={`text-[11px] truncate w-full ${
-                  selectedEmpId === null
-                    ? 'font-bold text-slate-900 dark:text-white'
-                    : 'font-medium text-slate-500 dark:text-slate-400'
-                }`}
-              >
-                Semua
-              </span>
-            </button>
-
-            {sortedRoster.map((person) => {
-              const selected = selectedEmpId === person.karyawanId;
-              const hasAbsenToday = person.sessionsCompleted > 0;
-              const ringBg = selected
-                ? 'bg-gradient-to-tr from-amber-500 via-rose-500 to-brand-600'
-                : hasAbsenToday
-                ? 'bg-gradient-to-tr from-brand-600 via-indigo-500 to-emerald-500'
-                : 'bg-slate-200 dark:bg-slate-800';
-
-              return (
-                <button
-                  key={person.karyawanId}
-                  type="button"
-                  onClick={() =>
-                    setSelectedEmpId(selected ? null : person.karyawanId)
-                  }
-                  className="flex flex-col items-center gap-1.5 shrink-0 w-16 text-center"
+                <div
+                  className={`w-[58px] h-[58px] rounded-full p-[2.5px] transition-transform group-active:scale-95 ${
+                    selectedEmpId === null
+                      ? 'bg-gradient-to-tr from-[#f59e0b] via-[#e1306c] to-[#c0392b]'
+                      : 'bg-slate-200 dark:bg-slate-700'
+                  }`}
                 >
-                  <div className="relative">
-                    <div className={`w-16 h-16 rounded-full p-[2.5px] transition-transform ${selected ? 'scale-105' : ''} ${ringBg}`}>
-                      <div className="w-full h-full rounded-full bg-white dark:bg-slate-950 p-[2px]">
-                        <UserAvatar
-                          karyawanId={person.karyawanId}
-                          name={person.namaLengkap}
-                          role={person.role}
-                          version={person.fotoProfilUpdatedAt}
-                          size="lg"
-                          className="!w-full !h-full !rounded-full !border-0"
-                        />
-                      </div>
-                    </div>
-                    {hasAbsenToday && (
-                      <span className="absolute -bottom-0.5 right-0 px-1.5 py-0.5 rounded-full bg-emerald-600 text-white font-mono text-[9px] font-bold border-2 border-slate-50 dark:border-slate-950 tabular-nums">
-                        {person.sessionsCompleted}/{person.sessionsTotal}
-                      </span>
-                    )}
+                  <div className="w-full h-full rounded-full bg-white dark:bg-slate-900 flex items-center justify-center border-2 border-white dark:border-slate-900 text-slate-700 dark:text-slate-200">
+                    <Users className="w-5 h-5" />
                   </div>
-                  <span
-                    className={`text-[11px] truncate w-full ${
-                      selected
-                        ? 'font-bold text-brand-600 dark:text-brand-400'
-                        : 'font-medium text-slate-700 dark:text-slate-300'
-                    }`}
-                  >
-                    {person.namaLengkap.split(' ')[0]}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+                </div>
+                <span
+                  className={`text-[11px] truncate w-full leading-tight ${
+                    selectedEmpId === null
+                      ? 'font-bold text-slate-900 dark:text-white'
+                      : 'font-medium text-slate-500 dark:text-slate-400'
+                  }`}
+                >
+                  Semua
+                </span>
+              </button>
 
-          {/* 2. Compact Toolbar (Scope, Search, Filter Drawer, Mobile Roster Button) */}
-          <div className="space-y-2.5">
+              {sortedRoster.map((person) => {
+                const selected = selectedEmpId === person.karyawanId;
+                const hasAbsenToday = person.sessionsCompleted > 0;
+                const ringBg = selected
+                  ? 'bg-gradient-to-tr from-[#922b21] via-[#c0392b] to-[#f97316]'
+                  : hasAbsenToday
+                    ? 'bg-gradient-to-tr from-[#f59e0b] via-[#e1306c] to-[#c0392b]'
+                    : 'bg-slate-200 dark:bg-slate-700';
+
+                return (
+                  <button
+                    key={person.karyawanId}
+                    type="button"
+                    onClick={() => setSelectedEmpId(selected ? null : person.karyawanId)}
+                    className="flex flex-col items-center gap-1.5 shrink-0 w-[62px] text-center group"
+                  >
+                    <div className="relative">
+                      <div
+                        className={`w-[58px] h-[58px] rounded-full p-[2.5px] transition-transform group-active:scale-95 ${
+                          selected ? 'scale-105' : ''
+                        } ${ringBg}`}
+                      >
+                        <div className="w-full h-full rounded-full bg-white dark:bg-slate-900 p-[2px]">
+                          <UserAvatar
+                            karyawanId={person.karyawanId}
+                            name={person.namaLengkap}
+                            role={person.role}
+                            version={person.fotoProfilUpdatedAt}
+                            size="lg"
+                            className="!w-full !h-full !rounded-full !border-0"
+                          />
+                        </div>
+                      </div>
+                      {hasAbsenToday && (
+                        <span className="absolute -bottom-0.5 right-0 px-1.5 py-[1px] rounded-full bg-brand-600 text-white font-mono text-[9px] font-bold border-2 border-white dark:border-slate-900 tabular-nums leading-tight">
+                          {person.sessionsCompleted}/{person.sessionsTotal}
+                        </span>
+                      )}
+                    </div>
+                    <span
+                      className={`text-[11px] truncate w-full leading-tight ${
+                        selected
+                          ? 'font-bold text-brand-600 dark:text-brand-400'
+                          : 'font-medium text-slate-700 dark:text-slate-300'
+                      }`}
+                    >
+                      {person.namaLengkap.split(' ')[0]}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* 2. Mobile Quick Check-In Action */}
+          {user.role === 'KARYAWAN' &&
+            onGoToAbsensi &&
+            myDay?.mustCheckIn &&
+            myDay.sessionsCompleted < myDay.policySnapshot.jumlahSesi && (
+              <button
+                type="button"
+                onClick={onGoToAbsensi}
+                className="lg:hidden w-full min-h-[46px] px-4 bg-gradient-to-r from-[#c0392b] to-[#a93226] hover:from-[#a93226] hover:to-[#922b21] text-white text-xs font-semibold rounded-2xl flex items-center justify-between gap-3 shadow-sm active:scale-[0.99] transition-transform"
+              >
+                <span className="flex items-center gap-2.5">
+                  <span className="w-7 h-7 rounded-full bg-white/15 flex items-center justify-center">
+                    <Camera className="w-4 h-4" />
+                  </span>
+                  <span>
+                    Absen Sesi {myDay.sessionsCompleted + 1} dari {myDay.policySnapshot.jumlahSesi}
+                  </span>
+                </span>
+                <span className="text-[11px] font-bold bg-white/15 px-2.5 py-1 rounded-full">
+                  Buka Kamera →
+                </span>
+              </button>
+            )}
+
+          {/* 3. Compact Search & Filter Bar */}
+          <div className="space-y-2">
             <div className="flex items-center gap-2">
               <div className="relative flex-1">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -345,17 +380,17 @@ export function AttendanceFeedView({
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Cari nama, lokasi, atau aktivitas..."
-                  className="w-full min-h-[42px] sm:min-h-[38px] pl-9 pr-3 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-slate-100 placeholder:text-slate-400"
+                  className="w-full min-h-[40px] sm:min-h-[38px] pl-9 pr-3 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15"
                 />
               </div>
 
               <button
                 type="button"
                 onClick={() => setShowFilters((v) => !v)}
-                className={`min-w-[42px] min-h-[42px] sm:min-h-[38px] px-3 rounded-xl border text-xs font-semibold inline-flex items-center justify-center gap-1.5 shrink-0 transition-colors ${
+                className={`min-w-[40px] min-h-[40px] sm:min-h-[38px] px-3 rounded-xl border text-xs font-semibold inline-flex items-center justify-center gap-1.5 shrink-0 transition-colors ${
                   showFilters || kantorFilter || bidangFilter || scope === 'today'
                     ? 'bg-brand-50 dark:bg-brand-950/60 border-brand-200 dark:border-brand-700 text-brand-600 dark:text-brand-200'
-                    : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200'
+                    : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800'
                 }`}
                 aria-label="Filter beranda"
               >
@@ -366,39 +401,41 @@ export function AttendanceFeedView({
               <button
                 type="button"
                 onClick={() => setRosterModalOpen(true)}
-                className="lg:hidden min-h-[42px] px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center gap-1.5 shrink-0"
+                className="lg:hidden min-h-[40px] px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center gap-1.5 shrink-0"
               >
                 <Users className="w-4 h-4" />
-                <span>{feed?.totalSudahAbsen ?? 0}/{feed?.totalBekerja ?? 0}</span>
+                <span className="font-mono tabular-nums">
+                  {feed?.totalSudahAbsen ?? 0}/{feed?.totalBekerja ?? 0}
+                </span>
               </button>
 
               <button
                 type="button"
-                onClick={loadFeed}
-                className="min-w-[42px] min-h-[42px] sm:min-w-[38px] sm:min-h-[38px] rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 flex items-center justify-center shrink-0"
+                onClick={() => void loadFeed()}
+                className="min-w-[40px] min-h-[40px] sm:min-w-[38px] sm:min-h-[38px] rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center justify-center shrink-0"
                 aria-label="Muat ulang beranda"
-                title={liveConnected ? 'Sinkronisasi Real-Time Aktif' : 'Muat Ulang'}
+                title={liveConnected ? 'Sinkronisasi real-time aktif' : 'Muat ulang'}
               >
                 <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
               </button>
             </div>
 
             {showFilters && (
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <select
                   value={scope}
                   onChange={(e) => setScope(e.target.value as 'recent' | 'today')}
                   aria-label="Rentang waktu feed"
-                  className="min-h-[40px] sm:min-h-[36px] px-2.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-100"
+                  className="min-h-[38px] px-2.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-100"
                 >
-                  <option value="recent">Linimasa Terbaru (Semua)</option>
-                  <option value="today">Absen Hari Ini Saja</option>
+                  <option value="recent">Linimasa Terbaru</option>
+                  <option value="today">Hari Ini Saja</option>
                 </select>
                 <select
                   value={kantorFilter}
                   onChange={(e) => setKantorFilter(e.target.value)}
                   aria-label="Filter kantor"
-                  className="min-h-[40px] sm:min-h-[36px] px-2.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-100"
+                  className="min-h-[38px] px-2.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-100"
                 >
                   <option value="">Semua Kantor</option>
                   {offices.map((o) => (
@@ -411,7 +448,7 @@ export function AttendanceFeedView({
                   value={bidangFilter}
                   onChange={(e) => setBidangFilter(e.target.value)}
                   aria-label="Filter bidang"
-                  className="min-h-[40px] sm:min-h-[36px] px-2.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-100"
+                  className="min-h-[38px] px-2.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-100"
                 >
                   <option value="">Semua Bidang</option>
                   {bidangList.map((b) => (
@@ -424,33 +461,15 @@ export function AttendanceFeedView({
             )}
           </div>
 
-          {/* Mobile Quick Absensi CTA when employee has pending sessions */}
-          {user.role === 'KARYAWAN' &&
-            onGoToAbsensi &&
-            myDay?.mustCheckIn &&
-            myDay.sessionsCompleted < myDay.policySnapshot.jumlahSesi && (
-              <button
-                type="button"
-                onClick={onGoToAbsensi}
-                className="lg:hidden w-full min-h-[44px] px-4 bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white text-xs font-semibold rounded-xl flex items-center justify-between gap-3"
-              >
-                <span className="flex items-center gap-2">
-                  <Camera className="w-4 h-4" />
-                  Buka Kamera Absensi ({myDay.sessionsCompleted}/{myDay.policySnapshot.jumlahSesi} sesi)
-                </span>
-                <span className="text-[11px] opacity-90">Absen →</span>
-              </button>
-            )}
-
           {selectedPerson && (
-            <div className="bg-brand-50 dark:bg-brand-950/40 border border-brand-200 dark:border-brand-700/70 rounded-xl px-3.5 py-2.5 flex items-center justify-between gap-2">
+            <div className="bg-brand-50 dark:bg-brand-950/40 border border-brand-200 dark:border-brand-800 rounded-xl px-3.5 py-2.5 flex items-center justify-between gap-2">
               <p className="text-xs text-brand-950 dark:text-brand-100 truncate">
-                Menampilkan foto absensi <strong>{selectedPerson.namaLengkap}</strong>
+                Menampilkan postingan <strong>{selectedPerson.namaLengkap}</strong>
               </p>
               <button
                 type="button"
                 onClick={() => setSelectedEmpId(null)}
-                className="text-xs font-semibold text-brand-600 dark:text-brand-200 hover:underline shrink-0"
+                className="text-xs font-semibold text-brand-600 dark:text-brand-300 hover:underline shrink-0"
               >
                 Tampilkan Semua
               </button>
@@ -462,24 +481,33 @@ export function AttendanceFeedView({
               <p className="text-xs font-medium text-red-800 dark:text-red-200">{error}</p>
               <button
                 type="button"
-                onClick={loadFeed}
-                className="min-h-[38px] px-3 rounded-lg bg-red-700 text-white text-xs font-semibold shrink-0"
+                onClick={() => void loadFeed()}
+                className="min-h-[36px] px-3 rounded-lg bg-brand-600 text-white text-xs font-semibold shrink-0"
               >
                 Coba Lagi
               </button>
             </div>
           )}
+
           {shareNotice && (
             <div
               role="status"
               aria-live="polite"
-              className="rounded-lg border border-brand-200 dark:border-brand-700 bg-brand-50 dark:bg-brand-950/40 px-3 py-2.5 text-xs text-brand-700 dark:text-brand-200"
+              className="rounded-xl border border-brand-200 dark:border-brand-800 bg-brand-50 dark:bg-brand-950/40 px-3.5 py-2.5 text-xs text-brand-700 dark:text-brand-200 flex items-center justify-between gap-2"
             >
-              {shareNotice}
+              <span>{shareNotice}</span>
+              <button
+                type="button"
+                onClick={() => setShareNotice(null)}
+                className="text-current opacity-70 hover:opacity-100 shrink-0"
+                aria-label="Tutup notifikasi"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
             </div>
           )}
 
-          {/* 3. Instagram-Style Scroll-Down Stream */}
+          {/* 4. Instagram-Style Post Stream */}
           {loading ? (
             <div className="space-y-5">
               {Array.from({ length: 3 }).map((_, idx) => (
@@ -487,14 +515,18 @@ export function AttendanceFeedView({
                   key={idx}
                   className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden animate-pulse"
                 >
-                  <div className="p-3.5 flex items-center gap-3">
+                  <div className="px-4 py-3 flex items-center gap-3">
                     <div className="w-9 h-9 rounded-full bg-slate-200 dark:bg-slate-800" />
                     <div className="space-y-1.5 flex-1">
-                      <div className="h-3.5 w-36 bg-slate-200 dark:bg-slate-800 rounded" />
-                      <div className="h-3 w-48 bg-slate-100 dark:bg-slate-800/70 rounded" />
+                      <div className="h-3 w-32 bg-slate-200 dark:bg-slate-800 rounded" />
+                      <div className="h-2.5 w-48 bg-slate-100 dark:bg-slate-800/70 rounded" />
                     </div>
                   </div>
-                  <div className="aspect-square bg-slate-200 dark:bg-slate-800" />
+                  <div className="aspect-[4/3] bg-slate-200 dark:bg-slate-800" />
+                  <div className="p-4 space-y-2">
+                    <div className="h-3 w-40 bg-slate-200 dark:bg-slate-800 rounded" />
+                    <div className="h-3 w-full bg-slate-100 dark:bg-slate-800/70 rounded" />
+                  </div>
                 </div>
               ))}
             </div>
@@ -506,14 +538,14 @@ export function AttendanceFeedView({
               </p>
               <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
                 {scope === 'today'
-                  ? 'Belum ada pegawai yang mengirim absensi hari ini. Ubah filter ke Linimasa Terbaru untuk melihat absensi sebelumnya.'
-                  : 'Saat pegawai mengirim absensi dari kamera browser, foto, nama, lokasi, dan aktivitasnya langsung muncul di sini.'}
+                  ? 'Belum ada pegawai yang mengirim absensi hari ini. Ubah filter ke Linimasa Terbaru untuk melihat catatan sebelumnya.'
+                  : 'Saat pegawai melakukan absensi, foto, lokasi, dan aktivitasnya langsung muncul di linimasa ini.'}
               </p>
               {scope === 'today' && (
                 <button
                   type="button"
                   onClick={() => setScope('recent')}
-                  className="min-h-[40px] px-4 rounded-xl bg-navy-900 dark:bg-brand-600 text-white text-xs font-semibold"
+                  className="min-h-[38px] px-4 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold"
                 >
                   Tampilkan Linimasa Terbaru
                 </button>
@@ -524,56 +556,75 @@ export function AttendanceFeedView({
               {filteredPosts.map((post) => {
                 const photoBroken = failedPhotoIds[post.id];
                 const dateLabel = formatDateLabel(post.tanggal, feed?.tanggal);
-                const actualLocationAddress = post.lokasiAktualAlamat;
+                const shortLocation = getShortLocationLine(post);
+                const mapsUrl =
+                  post.lat !== null && post.lng !== null
+                    ? `https://www.google.com/maps/search/?api=1&query=${post.lat},${post.lng}`
+                    : null;
+
                 return (
                   <article
                     key={post.id}
                     id={`attendance-post-${post.id}`}
-                    className={`bg-white dark:bg-slate-900 border rounded-2xl overflow-hidden shadow-sm transition-all ${
+                    className={`bg-white dark:bg-slate-900 border rounded-2xl overflow-hidden shadow-[0_1px_3px_rgba(15,23,42,0.05)] transition-all ${
                       focusAttendanceId === post.id
-                        ? 'border-brand-500 ring-4 ring-brand-500/25 shadow-lg'
-                        : 'border-slate-200 dark:border-slate-800'
+                        ? 'border-brand-500 ring-4 ring-brand-500/20 shadow-lg'
+                        : 'border-slate-200/90 dark:border-slate-800'
                     }`}
                   >
-                    {/* 1. Employee identity and attendance time */}
-                    <header className="px-3.5 sm:px-4 py-3.5 border-b border-slate-100 dark:border-slate-800">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <UserAvatar
-                          karyawanId={post.karyawanId}
-                          name={post.namaLengkap}
-                          role={post.role}
-                          version={post.fotoProfilUpdatedAt}
-                          size="md"
-                          className="!w-10 !h-10 !rounded-full shrink-0"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <h2 className="text-sm font-bold leading-tight text-slate-900 dark:text-slate-100 truncate">
-                            {post.namaLengkap}
-                          </h2>
-                          <p className="mt-1 text-[11px] leading-tight text-slate-500 dark:text-slate-400 truncate">
-                            {post.jabatan} <span aria-hidden="true">·</span> {post.bidangNama}
-                          </p>
-                          <p className="mt-1 flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                            <MapPin className="w-3 h-3 shrink-0 text-slate-400" />
-                            <span className="truncate">{post.kantorNama.split('(')[0].trim()}</span>
-                          </p>
+                    {/* A. Instagram Post Header */}
+                    <header className="px-3.5 sm:px-4 py-3 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="p-[2px] rounded-full bg-gradient-to-tr from-[#f59e0b] via-[#e1306c] to-[#c0392b] shrink-0">
+                          <div className="rounded-full bg-white dark:bg-slate-900 p-[1.5px]">
+                            <UserAvatar
+                              karyawanId={post.karyawanId}
+                              name={post.namaLengkap}
+                              role={post.role}
+                              version={post.fotoProfilUpdatedAt}
+                              size="sm"
+                              className="!w-8 !h-8 !rounded-full !border-0"
+                            />
+                          </div>
                         </div>
-                        <div className="shrink-0 text-right pl-1">
-                          <p className="text-sm font-bold font-mono tabular-nums text-slate-900 dark:text-slate-100">
-                            {post.jamWib}
-                          </p>
-                          <p className="text-[10px] font-medium text-slate-400 dark:text-slate-500">
-                            WIB · {dateLabel}
-                          </p>
+
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <h2 className="text-[13px] sm:text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
+                              {post.namaLengkap}
+                            </h2>
+                            <span className="text-slate-300 dark:text-slate-600 text-xs shrink-0">·</span>
+                            <span className="text-[11px] font-semibold text-brand-600 dark:text-brand-400 shrink-0">
+                              Sesi {post.urutanSesi}/{post.sessionsTotalToday}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setLightboxPost(post)}
+                            className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors max-w-full text-left"
+                            title={post.lokasiAktualAlamat || post.kantorNama}
+                          >
+                            <MapPin className="w-3 h-3 shrink-0 text-brand-500" />
+                            <span className="truncate">{shortLocation}</span>
+                          </button>
                         </div>
+                      </div>
+
+                      <div className="shrink-0 text-right">
+                        <p className="text-xs font-bold font-mono tabular-nums text-slate-800 dark:text-slate-100">
+                          {post.jamWib}
+                        </p>
+                        <p className="text-[10px] text-slate-400 dark:text-slate-500">
+                          {dateLabel}
+                        </p>
                       </div>
                     </header>
 
-                    {/* 2. Photo evidence with a consistent maximum height */}
+                    {/* B. Full-Bleed Instagram Photo Frame */}
                     <button
                       type="button"
                       onClick={() => setLightboxPost(post)}
-                      className="relative w-full h-[min(74vw,320px)] sm:h-[320px] block bg-slate-100 dark:bg-slate-950 overflow-hidden text-left"
+                      className="group relative w-full aspect-[4/3] block bg-slate-100 dark:bg-slate-950 overflow-hidden text-left border-y border-slate-100 dark:border-slate-800/80"
                       aria-label={`Lihat bukti foto absensi ${post.namaLengkap}, ${post.namaSesi}`}
                     >
                       {post.hasFoto && !photoBroken ? (
@@ -584,110 +635,123 @@ export function AttendanceFeedView({
                           onError={() =>
                             setFailedPhotoIds((prev) => ({ ...prev, [post.id]: true }))
                           }
-                          className="w-full h-full object-contain"
+                          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.015]"
                           loading="lazy"
                         />
                       ) : (
-                        <div className="w-full h-full flex flex-col items-center justify-center bg-slate-100 dark:bg-slate-900 text-slate-500 dark:text-slate-400 p-6 text-center">
-                          <Camera className="w-8 h-8 mb-2 opacity-70" />
-                          <p className="text-sm font-semibold">{post.namaLengkap}</p>
-                          <p className="text-xs mt-1">Bukti foto tidak tersedia</p>
+                        <div className="w-full h-full flex flex-col items-center justify-center bg-slate-100 dark:bg-slate-900 text-slate-400 p-6 text-center">
+                          <Camera className="w-8 h-8 mb-2 opacity-60" />
+                          <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                            {post.namaLengkap}
+                          </p>
+                          <p className="text-[11px] mt-0.5">Tanpa lampiran foto</p>
                         </div>
                       )}
-                      <span className="absolute bottom-2 right-2 rounded-md bg-slate-950/70 px-2 py-1 text-[10px] font-medium text-white backdrop-blur-sm">
-                        Lihat foto
-                      </span>
                     </button>
 
-                    {/* 3. Session and location verification status */}
-                    <div className="px-3.5 sm:px-4 pt-3 pb-2.5 space-y-3">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="inline-flex items-center rounded-md bg-brand-50 dark:bg-brand-950/50 px-2.5 py-1 text-[11px] font-bold text-brand-700 dark:text-brand-200">
-                          {post.namaSesi} · {post.sessionsCompletedToday}/{post.sessionsTotalToday} sesi
-                        </span>
-                        <span
-                          className={`inline-flex items-center rounded-md px-2.5 py-1 text-[11px] font-semibold ${
-                            post.statusKetepatan === 'TERLAMBAT'
-                              ? 'bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300'
-                              : 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300'
-                          }`}
-                        >
-                          {post.statusKetepatan === 'TERLAMBAT'
-                            ? `Terlambat ${post.keterlambatanMenit} menit`
-                            : 'Tepat waktu'}
-                        </span>
-                        <span
-                          className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-semibold ${
-                            post.jarakKantorMeter === null
-                              ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
-                              : post.dalamGeofence
-                                ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300'
-                                : 'bg-rose-50 dark:bg-rose-950/50 text-rose-800 dark:text-rose-300'
-                          }`}
-                        >
-                          <MapPin className="w-3 h-3" />
-                          {post.jarakKantorMeter === null
-                            ? 'GPS tidak tersedia'
-                            : post.dalamGeofence
-                              ? 'Dalam radius'
-                              : 'Di luar radius'}
-                        </span>
-                      </div>
+                    {/* C. Instagram Action & Verification Bar */}
+                    <div className="px-3.5 sm:px-4 pt-3 pb-3.5 space-y-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs min-w-0">
+                          <span
+                            className={`inline-flex items-center gap-1 font-semibold ${
+                              post.statusKetepatan === 'TERLAMBAT'
+                                ? 'text-amber-700 dark:text-amber-400'
+                                : 'text-emerald-700 dark:text-emerald-400'
+                            }`}
+                          >
+                            {post.statusKetepatan === 'TERLAMBAT' ? (
+                              <Clock className="w-3.5 h-3.5 shrink-0" />
+                            ) : (
+                              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                            )}
+                            {post.statusKetepatan === 'TERLAMBAT'
+                              ? `Terlambat ${post.keterlambatanMenit}m`
+                              : 'Tepat waktu'}
+                          </span>
 
-                      {/* 4. Activity caption and concise location footer */}
-                      <div className="rounded-lg bg-slate-50 dark:bg-slate-800/60 px-3 py-2.5">
-                        <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                          {post.tipeAktivitas === 'CHECK_IN'
-                            ? 'Absen masuk'
-                            : post.tipeAktivitas === 'STANDBY'
-                              ? 'Status standby'
-                              : 'Aktivitas pekerjaan'}
-                        </p>
-                        <p className="text-sm leading-relaxed text-slate-800 dark:text-slate-200 whitespace-pre-wrap break-words">
-                          {post.deskripsiAktivitas.trim() || 'Tidak ada keterangan aktivitas.'}
-                        </p>
-                      </div>
-
-                      <div className="flex items-center justify-between gap-3 pt-0.5">
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                            Lokasi saat absen
-                          </p>
-                          <p className="mt-0.5 text-[11px] leading-snug text-slate-700 dark:text-slate-200 line-clamp-2">
-                            {actualLocationAddress ||
-                              'Alamat tidak tersimpan pada saat absensi. Koordinat GPS tetap tersedia.'}
-                          </p>
-                          {(actualLocationAddress || post.lat !== null) && (
-                            <p className="mt-1 text-[9px] text-slate-400 dark:text-slate-500">
-                              Powered by <a href="https://www.geoapify.com/" target="_blank" rel="noopener noreferrer" className="underline">Geoapify</a>
-                              {' · '}© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer" className="underline">OpenStreetMap contributors</a>
-                            </p>
-                          )}
-                          {post.lat !== null && post.lng !== null && (
-                            <p className="mt-1 text-[10px] font-mono tabular-nums text-slate-400 dark:text-slate-500">
-                              GPS {post.lat.toFixed(5)}, {post.lng.toFixed(5)}
-                            </p>
-                          )}
                           {post.jarakKantorMeter !== null && (
-                            <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
-                              Jarak aktual ke kantor: {formatDistance(post.jarakKantorMeter)}
-                            </p>
+                            <span
+                              className={`inline-flex items-center gap-1 font-medium ${
+                                post.dalamGeofence
+                                  ? 'text-slate-600 dark:text-slate-300'
+                                  : 'text-rose-600 dark:text-rose-400'
+                              }`}
+                            >
+                              <MapPin className="w-3.5 h-3.5 shrink-0" />
+                              {post.dalamGeofence ? 'Dalam radius' : 'Luar radius'} ·{' '}
+                              <span className="font-mono tabular-nums">
+                                {formatDistance(post.jarakKantorMeter)}
+                              </span>
+                            </span>
                           )}
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => void handleSharePost(post)}
-                          disabled={sharingPostId !== null}
-                          className="min-h-[42px] shrink-0 inline-flex items-center justify-center gap-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-60 disabled:cursor-wait px-4 text-xs font-bold text-white shadow-sm focus:outline-none focus:ring-4 focus:ring-brand-500/20"
-                          aria-label={`Bagikan kartu absensi ${post.namaLengkap}`}
-                        >
-                          {sharingPostId === post.id ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <Share2 className="w-4 h-4" />
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          {mapsUrl && (
+                            <a
+                              href={mapsUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="h-8 w-8 rounded-full text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-brand-600 dark:hover:text-brand-400 flex items-center justify-center transition-colors"
+                              title="Buka lokasi di Google Maps"
+                              aria-label="Buka lokasi di Google Maps"
+                            >
+                              <Navigation className="w-4 h-4" />
+                            </a>
                           )}
-                          {sharingPostId === post.id ? 'Menyiapkan...' : 'Bagikan'}
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => setLightboxPost(post)}
+                            className="h-8 w-8 rounded-full text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white flex items-center justify-center transition-colors"
+                            title="Lihat detail absensi & lokasi"
+                            aria-label="Lihat detail absensi"
+                          >
+                            <Info className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleSharePost(post)}
+                            disabled={sharingPostId !== null}
+                            className="h-8 px-2.5 rounded-full text-slate-700 dark:text-slate-200 hover:bg-brand-50 dark:hover:bg-brand-950/50 hover:text-brand-600 dark:hover:text-brand-300 disabled:opacity-50 inline-flex items-center gap-1.5 text-xs font-semibold transition-colors"
+                            aria-label={`Bagikan kartu absensi ${post.namaLengkap}`}
+                          >
+                            {sharingPostId === post.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin text-brand-600" />
+                            ) : (
+                              <Share2 className="w-4 h-4" />
+                            )}
+                            <span>{sharingPostId === post.id ? '...' : 'Bagikan'}</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* D. Classic Instagram Inline Caption */}
+                      <div className="text-[13px] leading-relaxed text-slate-800 dark:text-slate-200 break-words">
+                        <span className="font-bold text-slate-900 dark:text-white mr-1.5">
+                          {post.namaLengkap}
+                        </span>
+                        <span className="whitespace-pre-wrap">
+                          {post.deskripsiAktivitas.trim() || 'Melakukan absensi kerja.'}
+                        </span>
+                      </div>
+
+                      {/* E. Full Resolved Location Line (clean, scannable) */}
+                      {post.lokasiAktualAlamat && (
+                        <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400 flex items-start gap-1.5">
+                          <MapPin className="w-3.5 h-3.5 shrink-0 mt-0.5 text-slate-400" />
+                          <span className="line-clamp-2">{post.lokasiAktualAlamat}</span>
+                        </p>
+                      )}
+
+                      {/* F. Subtle Instagram Uppercase Meta Footer */}
+                      <div className="pt-0.5 flex items-center justify-between gap-2 text-[10px] font-medium uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                        <span className="truncate">
+                          {dateLabel} · {post.jamWib} WIB · {post.namaSesi}
+                        </span>
+                        <span className="shrink-0 truncate max-w-[42%]">
+                          {post.bidangNama}
+                        </span>
                       </div>
                     </div>
                   </article>
@@ -698,10 +762,9 @@ export function AttendanceFeedView({
         </div>
       </div>
 
-      {/* Desktop Right Column (Instagram Web Style Account & Colleagues Panel) */}
+      {/* Desktop Right Column (Instagram Web Account & Colleagues Sidebar) */}
       <aside className="hidden lg:block lg:col-span-5 xl:col-span-4 space-y-4 lg:sticky lg:top-20">
-        {/* Current User Mini Profile Card */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 space-y-3">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-4 space-y-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
               <UserAvatar
@@ -734,10 +797,10 @@ export function AttendanceFeedView({
               <button
                 type="button"
                 onClick={onGoToAbsensi}
-                className="w-full min-h-[42px] bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white text-xs font-semibold rounded-xl flex items-center justify-center gap-2"
+                className="w-full min-h-[42px] bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold rounded-xl flex items-center justify-center gap-2 shadow-sm transition-colors"
               >
                 <Camera className="w-4 h-4" />
-                Absen Kamera Sekarang ({myDay.sessionsCompleted}/{myDay.policySnapshot.jumlahSesi})
+                Absen Sesi {myDay.sessionsCompleted + 1} ({myDay.sessionsCompleted}/{myDay.policySnapshot.jumlahSesi})
               </button>
             )}
 
@@ -764,8 +827,8 @@ export function AttendanceFeedView({
           )}
         </div>
 
-        {/* Today's Colleagues Summary */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden">
+        {/* Today's Colleagues */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl overflow-hidden shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
           <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
             <div>
               <h2 className="font-display text-sm font-bold text-slate-900 dark:text-slate-100">
@@ -829,7 +892,7 @@ export function AttendanceFeedView({
         </div>
       </aside>
 
-      {/* Mobile Roster Sheet Modal */}
+      {/* Mobile Roster Sheet */}
       {rosterModalOpen && (
         <div
           className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end justify-center lg:hidden"
@@ -846,7 +909,7 @@ export function AttendanceFeedView({
                   Daftar Pegawai Hari Ini
                 </h2>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Ketuk nama pegawai untuk memfilter postingan beranda
+                  Ketuk nama pegawai untuk memfilter linimasa
                 </p>
               </div>
               <button
@@ -902,18 +965,18 @@ export function AttendanceFeedView({
         </div>
       )}
 
-      {/* Lightbox Modal for Post Photo & Complete Location Details */}
+      {/* Lightbox Modal for Full Photo & Complete Location Details */}
       {lightboxPost && (
         <div
-          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4"
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4"
           onClick={() => setLightboxPost(null)}
         >
           <div
             className="bg-white dark:bg-slate-900 rounded-2xl max-w-xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden max-h-[calc(100dvh-1.5rem)] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="px-4 py-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3 min-w-0">
+            <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
                 <UserAvatar
                   karyawanId={lightboxPost.karyawanId}
                   name={lightboxPost.namaLengkap}
@@ -924,62 +987,78 @@ export function AttendanceFeedView({
                 />
                 <div className="min-w-0">
                   <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
-                    {lightboxPost.namaLengkap} · {lightboxPost.namaSesi}
+                    {lightboxPost.namaLengkap}
                   </p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                    {formatLocationSubtitle(lightboxPost)}
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                    {lightboxPost.namaSesi} · {lightboxPost.tanggal} {lightboxPost.jamWib} WIB
                   </p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setLightboxPost(null)}
-                className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+                className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-full hover:bg-slate-100 dark:hover:bg-slate-800"
                 aria-label="Tutup pratinjau"
               >
                 <X className="w-5 h-5 text-slate-500 dark:text-slate-400" />
               </button>
             </div>
-            <div className="bg-slate-950 flex-none flex items-center justify-center max-h-[44dvh] sm:max-h-[52dvh] overflow-hidden">
-              <img
-                src={getAuthorizedPhotoUrl(lightboxPost.id)}
-                alt={`Foto absensi ${lightboxPost.namaLengkap}`}
-                referrerPolicy="no-referrer"
-                className="max-h-[44dvh] sm:max-h-[52dvh] w-full object-contain"
-              />
+
+            <div className="bg-slate-950 flex-none flex items-center justify-center max-h-[48dvh] overflow-hidden">
+              {lightboxPost.hasFoto && !failedPhotoIds[lightboxPost.id] ? (
+                <img
+                  src={getAuthorizedPhotoUrl(lightboxPost.id)}
+                  alt={`Foto absensi ${lightboxPost.namaLengkap}`}
+                  referrerPolicy="no-referrer"
+                  className="max-h-[48dvh] w-full object-contain"
+                />
+              ) : (
+                <div className="py-12 text-center text-slate-400">
+                  <Camera className="w-8 h-8 mx-auto mb-2 opacity-60" />
+                  <p className="text-xs">Tanpa lampiran foto</p>
+                </div>
+              )}
             </div>
-            <div className="min-h-0 overflow-y-auto overscroll-contain p-4 space-y-2 text-xs text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/80">
-              <p className="text-sm text-slate-900 dark:text-slate-100">
-                <strong>{lightboxPost.namaLengkap}</strong> — {lightboxPost.deskripsiAktivitas}
+
+            <div className="min-h-0 overflow-y-auto overscroll-contain p-4 space-y-3 text-xs text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900">
+              <p className="text-sm text-slate-900 dark:text-slate-100 leading-relaxed">
+                <strong>{lightboxPost.namaLengkap}</strong>{' '}
+                {lightboxPost.deskripsiAktivitas}
               </p>
-              <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                Alamat GPS merupakan hasil perkiraan reverse geocoding. Powered by{' '}
-                <a href="https://www.geoapify.com/" target="_blank" rel="noopener noreferrer" className="font-semibold text-brand-600 dark:text-brand-400 underline">
-                  Geoapify
-                </a>{' · '}©{' '}
-                <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer" className="font-semibold text-brand-600 dark:text-brand-400 underline">
-                  OpenStreetMap contributors
-                </a>.
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-1 text-[11px] font-mono text-slate-500 dark:text-slate-400 tabular-nums">
-                <span>Waktu: {lightboxPost.tanggal} {lightboxPost.waktuServer.slice(11, 19)} WIB</span>
-                <span>
-                  Geofence:{' '}
-                  {lightboxPost.jarakKantorMeter !== null
-                    ? `${lightboxPost.jarakKantorMeter}m (${lightboxPost.dalamGeofence ? 'Dalam Radius' : 'Luar Radius'})`
-                    : 'Tanpa GPS'}
-                </span>
-                <span className="sm:col-span-2">
-                  Lokasi Saat Absen: {lightboxPost.lokasiAktualAlamat || 'Alamat tidak tersimpan pada saat absensi'}
-                </span>
-                <span className="sm:col-span-2">
-                  Kantor Penempatan: {lightboxPost.kantorNama} — {lightboxPost.kantorAlamat}
-                </span>
-                {lightboxPost.lat !== null && lightboxPost.lng !== null && (
-                  <span className="sm:col-span-2">
-                    Koordinat Browser: {lightboxPost.lat.toFixed(6)}, {lightboxPost.lng.toFixed(6)}
-                  </span>
-                )}
+
+              <div className="rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/80 p-3 space-y-1.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-2 min-w-0">
+                    <MapPin className="w-4 h-4 text-brand-600 dark:text-brand-400 shrink-0 mt-0.5" />
+                    <div className="min-w-0">
+                      <p className="font-semibold text-slate-900 dark:text-slate-100">
+                        {lightboxPost.lokasiAktualAlamat || lightboxPost.kantorNama}
+                      </p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        Kantor: {lightboxPost.kantorNama} ·{' '}
+                        {lightboxPost.jarakKantorMeter !== null
+                          ? `${formatDistance(lightboxPost.jarakKantorMeter)} (${lightboxPost.dalamGeofence ? 'Dalam Radius' : 'Luar Radius'})`
+                          : 'Tanpa GPS'}
+                      </p>
+                      {lightboxPost.lat !== null && lightboxPost.lng !== null && (
+                        <p className="text-[10px] font-mono tabular-nums text-slate-400 mt-0.5">
+                          GPS {lightboxPost.lat.toFixed(6)}, {lightboxPost.lng.toFixed(6)}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  {lightboxPost.lat !== null && lightboxPost.lng !== null && (
+                    <a
+                      href={`https://www.google.com/maps/search/?api=1&query=${lightboxPost.lat},${lightboxPost.lng}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-2.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-[11px] font-semibold inline-flex items-center gap-1 shrink-0"
+                    >
+                      <Navigation className="w-3 h-3" />
+                      Maps
+                    </a>
+                  )}
+                </div>
               </div>
             </div>
           </div>
