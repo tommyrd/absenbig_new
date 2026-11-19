@@ -204,9 +204,7 @@ export function AdminCheckinOverrideTab() {
       )}
 
       {selected && (
-        <div className="fixed inset-0 z-[70] bg-black/55 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5" onMouseDown={(event) => {
-          if (event.target === event.currentTarget && !saving) setSelected(null);
-        }}>
+        <div className="fixed inset-0 z-[70] bg-black/55 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5">
           <div role="dialog" aria-modal="true" aria-labelledby="checkin-override-title" className="w-full max-w-lg rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl overflow-hidden">
             <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-start justify-between gap-3">
               <div>

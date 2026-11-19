@@ -489,13 +489,11 @@ export function AdminCalendarTab() {
 
       {/* Add Holiday Modal (Bottom Sheet on Mobile) */}
       {holModal && (
-        <div
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
-          onClick={() => setHolModal(false)}
-        >
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div
+            role="dialog"
+            aria-modal="true"
             className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[92vh] flex flex-col"
-            onClick={(e) => e.stopPropagation()}
           >
             <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
               <h2 className="font-display text-base font-bold text-slate-900 dark:text-slate-100">
@@ -587,13 +585,11 @@ export function AdminCalendarTab() {
 
       {/* Add Special Work Modal (Bottom Sheet on Mobile) */}
       {kkModal && (
-        <div
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
-          onClick={() => setKkModal(false)}
-        >
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div
+            role="dialog"
+            aria-modal="true"
             className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[92vh] flex flex-col"
-            onClick={(e) => e.stopPropagation()}
           >
             <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
               <h2 className="font-display text-base font-bold text-slate-900 dark:text-slate-100">
