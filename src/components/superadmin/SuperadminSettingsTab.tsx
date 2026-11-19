@@ -214,7 +214,7 @@ export function SuperadminSettingsTab({ onSettingsUpdated }: SuperadminSettingsT
         <button
           type="submit"
           disabled={saving}
-          className="min-h-[44px] sm:min-h-[40px] px-5 bg-navy-900 hover:bg-navy-800 dark:bg-blue-700 dark:hover:bg-blue-600 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-2 self-stretch sm:self-auto disabled:opacity-60"
+          className="min-h-[44px] sm:min-h-[40px] px-5 bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-2 self-stretch sm:self-auto disabled:opacity-60"
         >
           <Save className="w-4 h-4" />
           <span>{saving ? 'Menyimpan...' : 'Simpan Pengaturan'}</span>
@@ -238,43 +238,51 @@ export function SuperadminSettingsTab({ onSettingsUpdated }: SuperadminSettingsT
         {/* Left: Live Login Dashboard Preview, Logo and Favicon Upload */}
         <div className="lg:col-span-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 sm:p-5 space-y-4">
           <h2 className="font-display text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-            <ImageIcon className="w-4 h-4 text-blue-700 dark:text-blue-400" />
+            <ImageIcon className="w-4 h-4 text-brand-600 dark:text-brand-400" />
             Pratinjau Dashboard Login & Logo
           </h2>
 
           {/* Live Preview Card */}
           <div className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700">
-            <div className="p-4 sm:p-5 bg-navy-900 text-white space-y-3">
+            <div
+              className="p-4 sm:p-5 text-white space-y-3"
+              style={{
+                background:
+                  'radial-gradient(circle at 88% 92%, #d94334 0%, #c0392b 42%, #7f1d15 82%, #4a0e0a 100%)',
+              }}
+            >
               <div className="flex items-center gap-3">
-                <img
-                  src={logoPreview}
-                  alt="Preview Logo Aplikasi"
-                  className="w-11 h-11 rounded-xl object-contain bg-white/10 p-1 border border-white/15 shrink-0"
-                />
+                <div className="w-11 h-11 rounded-xl bg-white p-1.5 flex items-center justify-center shrink-0 shadow-xs">
+                  <img
+                    src={logoPreview}
+                    alt="Preview Logo Aplikasi"
+                    className="w-full h-full object-contain"
+                  />
+                </div>
                 <div className="min-w-0">
                   <p className="font-display text-base font-bold text-white truncate">
                     {namaAplikasi || 'Absensi BIGNET'}
                   </p>
-                  <p className="text-xs text-blue-300 truncate">{subjudulLogin}</p>
+                  <p className="text-xs text-brand-200 truncate">{subjudulLogin}</p>
                 </div>
               </div>
-              <div className="pt-2 border-t border-white/10 space-y-1.5">
+              <div className="pt-2 border-t border-white/15 space-y-1.5">
                 <p className="font-display text-sm font-bold leading-snug text-white">
-                  {judulHeroLogin || 'Headline Utama Halaman Login'}
+                  {judulHeroLogin || 'Selamat Datang di ABSENSI BIGNET'}
                 </p>
-                <p className="text-[11px] text-slate-300 line-clamp-2">{deskripsiLogin}</p>
+                <p className="text-[11px] text-white/80 line-clamp-2">{deskripsiLogin}</p>
               </div>
               {footerLogin && (
-                <p className="text-[10px] text-slate-400 pt-1">{footerLogin}</p>
+                <p className="text-[10px] text-white/65 pt-1">{footerLogin}</p>
               )}
             </div>
             <div className="p-4 bg-slate-50 dark:bg-slate-800/80 space-y-2">
               <p className="font-display text-xs font-bold text-slate-900 dark:text-slate-100">
-                {judulFormLogin || 'Masuk ke Akun Anda'}
+                {judulFormLogin || 'Selamat Datang Kembali'}
               </p>
               {pengumumanLogin.trim() && (
-                <div className="p-2.5 rounded-lg bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800/70 text-[11px] text-blue-900 dark:text-blue-200 flex items-start gap-2">
-                  <Megaphone className="w-3.5 h-3.5 shrink-0 mt-0.5 text-blue-700 dark:text-blue-400" />
+                <div className="p-2.5 rounded-lg bg-brand-50 dark:bg-brand-950/60 border border-brand-200 dark:border-brand-700/70 text-[11px] text-brand-900 dark:text-brand-200 flex items-start gap-2">
+                  <Megaphone className="w-3.5 h-3.5 shrink-0 mt-0.5 text-brand-600 dark:text-brand-400" />
                   <span>{pengumumanLogin}</span>
                 </div>
               )}
@@ -282,7 +290,7 @@ export function SuperadminSettingsTab({ onSettingsUpdated }: SuperadminSettingsT
           </div>
 
           <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2">
-            <label className="flex-1 min-h-[44px] px-4 py-2 bg-navy-900 hover:bg-navy-800 dark:bg-blue-700 dark:hover:bg-blue-600 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-2 cursor-pointer">
+            <label className="flex-1 min-h-[44px] px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-2 cursor-pointer">
               <Upload className="w-4 h-4 shrink-0" />
               <span>Unggah Logo Baru</span>
               <input
@@ -336,7 +344,7 @@ export function SuperadminSettingsTab({ onSettingsUpdated }: SuperadminSettingsT
                   <span className="text-xs text-slate-400">×</span>
                 </div>
                 <div className="flex flex-col sm:flex-row flex-wrap gap-2">
-                  <label className="min-h-[40px] px-3.5 py-2 bg-navy-900 hover:bg-navy-800 dark:bg-blue-700 dark:hover:bg-blue-600 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-2 cursor-pointer">
+                  <label className="min-h-[40px] px-3.5 py-2 bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-2 cursor-pointer">
                     <Upload className="w-3.5 h-3.5" />
                     <span>Unggah Favicon</span>
                     <input
@@ -371,7 +379,7 @@ export function SuperadminSettingsTab({ onSettingsUpdated }: SuperadminSettingsT
         {/* Right: System Branding, Login Copy & Operational Parameters */}
         <div className="lg:col-span-7 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 sm:p-5 space-y-4">
           <h2 className="font-display text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-            <Settings className="w-4 h-4 text-blue-700 dark:text-blue-400" />
+            <Settings className="w-4 h-4 text-brand-600 dark:text-brand-400" />
             Branding Aplikasi, Teks Login & Kebijakan Sistem
           </h2>
 
@@ -485,7 +493,7 @@ export function SuperadminSettingsTab({ onSettingsUpdated }: SuperadminSettingsT
                 type="checkbox"
                 checked={wajibGpsAbsensi}
                 onChange={(e) => setWajibGpsAbsensi(e.target.checked)}
-                className="w-4 h-4 mt-0.5 accent-blue-700"
+                className="w-4 h-4 mt-0.5 accent-brand-600"
               />
               <span>Aktifkan validasi GPS & jarak geofence saat absensi sesi</span>
             </label>
@@ -494,7 +502,7 @@ export function SuperadminSettingsTab({ onSettingsUpdated }: SuperadminSettingsT
                 type="checkbox"
                 checked={izinDemoLogin}
                 onChange={(e) => setIzinDemoLogin(e.target.checked)}
-                className="w-4 h-4 mt-0.5 accent-blue-700"
+                className="w-4 h-4 mt-0.5 accent-brand-600"
               />
               <span>Tampilkan panel akses cepat akun demo pada halaman login</span>
             </label>

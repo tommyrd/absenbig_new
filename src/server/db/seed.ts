@@ -39,14 +39,14 @@ function createSamplePhotoSvgFile(
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="360" viewBox="0 0 480 360">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#0b1528"/>
-      <stop offset="100%" stop-color="#1d335c"/>
+      <stop offset="0%" stop-color="#4a0e0a"/>
+      <stop offset="100%" stop-color="#922b21"/>
     </linearGradient>
   </defs>
   <rect width="480" height="360" fill="url(#bg)"/>
-  <circle cx="240" cy="135" r="46" fill="#334155" stroke="#93c5fd" stroke-width="2"/>
-  <path d="M168 258 C168 208 312 208 312 258" fill="#334155" stroke="#93c5fd" stroke-width="2"/>
-  <rect x="20" y="278" width="440" height="62" rx="8" fill="rgba(7,14,27,0.82)" stroke="rgba(148,163,184,0.3)"/>
+  <circle cx="240" cy="135" r="46" fill="#6b1a12" stroke="#f5aba3" stroke-width="2"/>
+  <path d="M168 258 C168 208 312 208 312 258" fill="#6b1a12" stroke="#f5aba3" stroke-width="2"/>
+  <rect x="20" y="278" width="440" height="62" rx="8" fill="rgba(43,9,6,0.84)" stroke="rgba(245,171,163,0.3)"/>
   <text x="34" y="302" font-family="sans-serif" font-size="14" font-weight="700" fill="#f8fafc">${escapeXml(name)} — ${escapeXml(sesiLabel)}</text>
   <text x="34" y="324" font-family="monospace" font-size="12" fill="#cbd5e1">${escapeXml(tanggal)} ${escapeXml(waktu)} WIB · ${escapeXml(lokasi)}</text>
 </svg>`;

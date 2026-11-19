@@ -120,7 +120,7 @@ const STATUS_MAP: Record<
   },
   CLOSED: {
     label: 'PERIODE DITUTUP',
-    cls: 'bg-navy-900 text-white border-navy-800 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-700',
+    cls: 'bg-slate-900 text-white border-slate-800 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-700',
     Icon: ShieldAlert,
   },
   OPEN: {

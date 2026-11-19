@@ -133,7 +133,7 @@ export function EmployeePengajuanPage() {
         <button
           type="button"
           onClick={openCreate}
-          className="min-h-[44px] sm:h-10 px-4 bg-navy-900 hover:bg-navy-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 w-full sm:w-auto"
+          className="min-h-[44px] sm:h-10 px-4 bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 w-full sm:w-auto"
         >
           <Plus className="w-4 h-4" />
           Buat Pengajuan
@@ -256,7 +256,7 @@ export function EmployeePengajuanPage() {
                   <button
                     type="button"
                     onClick={() => openEdit(req)}
-                    className="min-h-[36px] inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 dark:text-blue-400 hover:underline"
+                    className="min-h-[36px] inline-flex items-center gap-1.5 text-xs font-semibold text-brand-600 dark:text-brand-400 hover:underline"
                   >
                     <Edit3 className="w-3.5 h-3.5" />
                     Edit Pengajuan
@@ -416,7 +416,7 @@ export function EmployeePengajuanPage() {
                 <button
                   type="submit"
                   disabled={submitting || (jenis === 'OFF_PENGGANTI' && !editing && availableRights.length === 0)}
-                  className="min-h-[44px] sm:h-10 px-5 text-xs font-semibold bg-navy-900 hover:bg-navy-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white rounded-lg disabled:opacity-50"
+                  className="min-h-[44px] sm:h-10 px-5 text-xs font-semibold bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white rounded-lg disabled:opacity-50"
                 >
                   {submitting ? 'Mengirim...' : editing ? 'Simpan Perubahan' : 'Kirim Pengajuan'}
                 </button>

@@ -82,15 +82,15 @@ export async function exportPayrollToImage(
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, width, height);
 
-  // Dark Navy Header Band
-  ctx.fillStyle = '#0b1528';
+  // Crimson Brand Header Band
+  ctx.fillStyle = '#8c261c';
   ctx.fillRect(0, 0, width, 112);
 
   ctx.fillStyle = '#ffffff';
   ctx.font = 'bold 22px "Plus Jakarta Sans", sans-serif';
   ctx.fillText('ABSENSI BIGNET — REKAP KEHADIRAN PAYROLL', 32, 46);
 
-  ctx.fillStyle = '#93c5fd';
+  ctx.fillStyle = '#fad2ce';
   ctx.font = '500 14px "DM Sans", sans-serif';
   ctx.fillText(`Periode Bulan: ${bulan}   ·   Total Karyawan: ${items.length}   ·   Sumber: Server BIGNET`, 32, 76);
 

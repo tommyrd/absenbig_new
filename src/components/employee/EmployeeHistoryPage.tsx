@@ -184,7 +184,7 @@ export function EmployeeHistoryPage() {
           {/* Primary Payroll Output: HARI MASUK & TIDAK HADIR */}
           <div className="grid grid-cols-2 gap-3 sm:gap-4">
             <div className="bg-navy-900 dark:bg-slate-900 border border-navy-800 dark:border-slate-800 text-white rounded-xl p-4 sm:p-5">
-              <p className="text-xs font-medium text-blue-300">HARI MASUK</p>
+              <p className="text-xs font-medium text-brand-200">HARI MASUK</p>
               <p className="font-mono text-2xl sm:text-4xl font-bold tabular-nums mt-1.5">
                 {summary.hariMasuk}{' '}
                 <span className="text-xs sm:text-sm font-sans font-normal text-slate-300">hari</span>
@@ -226,7 +226,7 @@ export function EmployeeHistoryPage() {
                 <button
                   type="button"
                   onClick={() => setSelectedDate(null)}
-                  className="min-h-[36px] px-3 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold text-blue-700 dark:text-blue-400 hover:bg-slate-50 dark:hover:bg-slate-800"
+                  className="min-h-[36px] px-3 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold text-brand-600 dark:text-brand-400 hover:bg-slate-50 dark:hover:bg-slate-800"
                 >
                   Tampilkan Semua Tanggal
                 </button>
@@ -275,7 +275,7 @@ export function EmployeeHistoryPage() {
                     aria-label={`${dateKey}: ${appearance.label}; ${day.sessionsCompleted} dari ${day.policySnapshot.jumlahSesi} sesi`}
                     title={`${dateKey} · ${appearance.label}${day.isOverridden ? ' · Admin Override' : ''}`}
                     onClick={() => setSelectedDate(isSelected ? null : dateKey)}
-                    className={`relative min-h-[54px] sm:min-h-[68px] rounded-lg border p-1 sm:p-2 flex flex-col items-center justify-center gap-0.5 transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 ${appearance.className} ${isSelected ? 'ring-2 ring-blue-600 ring-offset-2 dark:ring-offset-slate-900 z-10' : 'hover:brightness-95'}`}
+                    className={`relative min-h-[54px] sm:min-h-[68px] rounded-lg border p-1 sm:p-2 flex flex-col items-center justify-center gap-0.5 transition-all focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-1 ${appearance.className} ${isSelected ? 'ring-2 ring-brand-600 ring-offset-2 dark:ring-offset-slate-900 z-10' : 'hover:brightness-95'}`}
                   >
                     <span className="text-xs sm:text-sm font-bold tabular-nums">{dateNumber}</span>
                     <span className="text-[8px] sm:text-[10px] leading-tight font-semibold text-center">
@@ -304,7 +304,7 @@ export function EmployeeHistoryPage() {
                 ['bg-violet-500', 'Cuti'],
                 ['bg-cyan-500', 'Izin'],
                 ['bg-orange-500', 'Sakit'],
-                ['bg-blue-700', 'O = Admin Override'],
+                ['bg-brand-600', 'O = Admin Override'],
               ].map(([dot, label]) => (
                 <span key={label} className="inline-flex items-center gap-1.5">
                   <span className={`w-2 h-2 rounded-sm ${dot}`} />
@@ -314,7 +314,7 @@ export function EmployeeHistoryPage() {
             </div>
 
             {selectedDay && (
-              <div className="rounded-lg border border-blue-200 dark:border-blue-900 bg-blue-50/70 dark:bg-blue-950/30 p-3 text-xs space-y-1">
+              <div className="rounded-lg border border-brand-200 dark:border-brand-900 bg-brand-50/70 dark:bg-brand-950/30 p-3 text-xs space-y-1">
                 <p className="font-bold text-slate-900 dark:text-slate-100">
                   {selectedDay.tanggal} · {selectedDay.dayLabel}
                 </p>
@@ -413,7 +413,7 @@ export function EmployeeHistoryPage() {
                 <button
                   type="button"
                   onClick={() => setSelectedDate(null)}
-                  className="min-h-[36px] px-2.5 rounded-lg text-xs font-semibold text-blue-700 dark:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  className="min-h-[36px] px-2.5 rounded-lg text-xs font-semibold text-brand-600 dark:text-brand-400 hover:bg-slate-100 dark:hover:bg-slate-800"
                 >
                   Hapus Filter
                 </button>

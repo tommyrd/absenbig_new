@@ -349,7 +349,7 @@ export function SuperadminAccountsTab({
       sortValue: (r) => r.role_diminta,
       render: (r) => (
         <div className="text-xs">
-          <p className="font-bold text-navy-900 dark:text-blue-400">
+          <p className="font-bold text-navy-900 dark:text-brand-400">
             {r.role_diminta === 'ADMIN' ? 'Admin Operasional' : 'Teknisi / Karyawan'}
           </p>
           <p className="text-slate-500 dark:text-slate-400">{r.jabatan}</p>
@@ -458,7 +458,7 @@ export function SuperadminAccountsTab({
       sortValue: (r) => r.role,
       render: (r) => (
         <div className="text-xs">
-          <p className="font-bold text-navy-900 dark:text-blue-400">{r.role === 'SUPERADMIN' ? 'SUPERADMIN · OWNER' : r.role}</p>
+          <p className="font-bold text-navy-900 dark:text-brand-400">{r.role === 'SUPERADMIN' ? 'SUPERADMIN · OWNER' : r.role}</p>
           <p className="text-slate-500 dark:text-slate-400">{r.role === 'SUPERADMIN' ? 'Akun pengelola sistem' : r.jabatan}</p>
         </div>
       ),
@@ -544,7 +544,7 @@ export function SuperadminAccountsTab({
         <button
           type="button"
           onClick={openCreateAccount}
-          className="min-h-[44px] sm:min-h-[40px] px-4 bg-navy-900 hover:bg-navy-800 dark:bg-blue-700 dark:hover:bg-blue-600 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5 w-full sm:w-auto"
+          className="min-h-[44px] sm:min-h-[40px] px-4 bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5 w-full sm:w-auto"
         >
           <Plus className="w-4 h-4" />
           Buat Akun Langsung
@@ -570,7 +570,7 @@ export function SuperadminAccountsTab({
       {/* Summary Strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <div className="bg-navy-900 text-white rounded-xl p-4">
-          <p className="text-[11px] sm:text-xs text-blue-300 font-medium">MENUNGGU ACC</p>
+          <p className="text-[11px] sm:text-xs text-brand-200 font-medium">MENUNGGU ACC</p>
           <p className="font-mono text-2xl font-bold tabular-nums mt-1">{pendingRegsCount}</p>
           <p className="text-[11px] text-slate-300 mt-1">Pendaftaran baru</p>
         </div>
@@ -589,7 +589,7 @@ export function SuperadminAccountsTab({
           <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 font-semibold">
             ADMIN & SUPERADMIN
           </p>
-          <p className="font-mono text-2xl font-bold text-blue-700 dark:text-blue-400 tabular-nums mt-1">
+          <p className="font-mono text-2xl font-bold text-brand-600 dark:text-brand-400 tabular-nums mt-1">
             {accounts.filter((a) => a.role === 'ADMIN' || a.role === 'SUPERADMIN').length}
           </p>
           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
@@ -1186,7 +1186,7 @@ export function SuperadminAccountsTab({
                     onChange={(e) =>
                       setAccountForm({ ...accountForm, aktif: e.target.checked ? 1 : 0 })
                     }
-                    className="w-4 h-4 accent-navy-900 dark:accent-blue-500"
+                    className="w-4 h-4 accent-navy-900 dark:accent-brand-500"
                   />
                   Status Akun Aktif (dapat login & beroperasional)
                 </label>
@@ -1203,7 +1203,7 @@ export function SuperadminAccountsTab({
                 <button
                   type="submit"
                   disabled={saving}
-                  className="min-h-[44px] sm:min-h-[40px] px-5 text-xs font-semibold bg-navy-900 dark:bg-blue-700 text-white rounded-lg"
+                  className="min-h-[44px] sm:min-h-[40px] px-5 text-xs font-semibold bg-navy-900 dark:bg-brand-600 text-white rounded-lg"
                 >
                   {saving ? 'Menyimpan...' : 'Simpan Akun'}
                 </button>
@@ -1259,7 +1259,7 @@ export function SuperadminAccountsTab({
                 <button
                   type="submit"
                   disabled={saving}
-                  className="min-h-[44px] sm:min-h-[40px] px-5 text-xs font-semibold bg-navy-900 dark:bg-blue-700 text-white rounded-lg"
+                  className="min-h-[44px] sm:min-h-[40px] px-5 text-xs font-semibold bg-navy-900 dark:bg-brand-600 text-white rounded-lg"
                 >
                   {saving ? 'Menyimpan...' : 'Simpan Sandi'}
                 </button>

@@ -79,13 +79,15 @@ export function AdminShell({
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex transition-colors">
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-40 lg:flex lg:flex-col lg:h-screen w-64 bg-navy-900 dark:bg-slate-900 text-white border-r border-navy-800 dark:border-slate-800 shrink-0">
-        <div className="h-16 px-5 border-b border-navy-800 dark:border-slate-800 flex items-center gap-2.5">
-          <img
-            src={logoSrc}
-            alt={appName}
-            className="w-8 h-8 rounded-lg object-contain bg-white/10 p-0.5 border border-white/15 shrink-0"
-          />
+      <aside className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-40 lg:flex lg:flex-col lg:h-screen w-64 bg-gradient-to-b from-[#4a0e0a] via-[#5c140e] to-[#3d0c07] dark:bg-slate-900 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 text-white border-r border-brand-900 dark:border-slate-800 shrink-0">
+        <div className="h-16 px-5 border-b border-white/10 dark:border-slate-800 flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-white p-1 flex items-center justify-center shrink-0 shadow-xs">
+            <img
+              src={logoSrc}
+              alt={appName}
+              className="w-full h-full object-contain"
+            />
+          </div>
           <span className="font-display text-base font-bold tracking-tight truncate">
             {appName}
           </span>
@@ -93,7 +95,7 @@ export function AdminShell({
         <button
           type="button"
           onClick={() => selectTab('profile')}
-          className="px-4 py-4 border-b border-navy-800/80 dark:border-slate-800 text-xs text-left hover:bg-white/5 transition-colors flex items-center gap-3"
+          className="px-4 py-4 border-b border-white/10 dark:border-slate-800 text-xs text-left hover:bg-white/5 transition-colors flex items-center gap-3"
         >
           <UserAvatar
             karyawanId={user.karyawan_id}
@@ -104,7 +106,7 @@ export function AdminShell({
           />
           <div className="min-w-0">
             <p className="font-semibold text-white truncate">{user.nama_lengkap}</p>
-            <p className="text-blue-300 mt-0.5">ADMIN OPERASIONAL · Profil</p>
+            <p className="text-brand-200 mt-0.5">ADMIN OPERASIONAL · Profil</p>
           </div>
         </button>
         <nav className="min-h-0 flex-1 p-3 space-y-1 overflow-y-auto overscroll-contain">
@@ -118,8 +120,8 @@ export function AdminShell({
                 onClick={() => selectTab(m.id)}
                 className={`w-full px-3 py-2.5 rounded-lg text-xs font-medium flex items-center gap-2.5 transition-colors text-left ${
                   active
-                    ? 'bg-blue-700 text-white'
-                    : 'text-slate-300 hover:bg-white/10 hover:text-white'
+                    ? 'bg-[#c0392b] text-white shadow-sm'
+                    : 'text-white/75 hover:bg-white/10 hover:text-white'
                 }`}
               >
                 <Icon className="w-4 h-4 shrink-0" />
@@ -128,7 +130,7 @@ export function AdminShell({
             );
           })}
         </nav>
-        <div className="p-3 border-t border-navy-800 dark:border-slate-800">
+        <div className="p-3 border-t border-white/10 dark:border-slate-800">
           <button
             type="button"
             onClick={onLogout}
@@ -147,16 +149,18 @@ export function AdminShell({
           onClick={() => setDrawerOpen(false)}
         >
           <aside
-            className="w-72 bg-navy-900 dark:bg-slate-900 text-white h-full flex flex-col border-r border-slate-800"
+            className="w-72 bg-gradient-to-b from-[#4a0e0a] via-[#5c140e] to-[#3d0c07] dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 text-white h-full flex flex-col border-r border-brand-900 dark:border-slate-800"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="h-12 px-4 border-b border-navy-800 dark:border-slate-800 flex items-center justify-between gap-2">
+            <div className="h-12 px-4 border-b border-white/10 dark:border-slate-800 flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0">
-                <img
-                  src={logoSrc}
-                  alt={appName}
-                  className="w-7 h-7 rounded-md object-contain bg-white/10 p-0.5 shrink-0"
-                />
+                <div className="w-7 h-7 rounded-md bg-white p-0.5 flex items-center justify-center shrink-0">
+                  <img
+                    src={logoSrc}
+                    alt={appName}
+                    className="w-full h-full object-contain"
+                  />
+                </div>
                 <span className="font-display text-sm font-bold truncate">{appName}</span>
               </div>
               <button
@@ -165,13 +169,13 @@ export function AdminShell({
                 className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg hover:bg-white/10"
                 aria-label="Tutup menu"
               >
-                <X className="w-5 h-5 text-slate-300" />
+                <X className="w-5 h-5 text-white/75" />
               </button>
             </div>
             <button
               type="button"
               onClick={() => selectTab('profile')}
-              className="px-4 py-3 border-b border-navy-800/80 dark:border-slate-800 flex items-center gap-3 text-left"
+              className="px-4 py-3 border-b border-white/10 dark:border-slate-800 flex items-center gap-3 text-left"
             >
               <UserAvatar
                 karyawanId={user.karyawan_id}
@@ -182,7 +186,7 @@ export function AdminShell({
               />
               <div className="min-w-0 text-xs">
                 <p className="font-semibold text-white truncate">{user.nama_lengkap}</p>
-                <p className="text-blue-300 text-[11px]">ADMIN · Profil</p>
+                <p className="text-brand-200 text-[11px]">ADMIN · Profil</p>
               </div>
             </button>
             <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
@@ -195,7 +199,7 @@ export function AdminShell({
                     type="button"
                     onClick={() => selectTab(m.id)}
                     className={`w-full min-h-[44px] px-3 py-2.5 rounded-lg text-xs font-medium flex items-center gap-2.5 text-left ${
-                      active ? 'bg-blue-700 text-white' : 'text-slate-300 hover:bg-white/10'
+                      active ? 'bg-[#c0392b] text-white' : 'text-white/75 hover:bg-white/10'
                     }`}
                   >
                     <Icon className="w-4 h-4 shrink-0" />
@@ -204,7 +208,7 @@ export function AdminShell({
                 );
               })}
             </nav>
-            <div className="p-3 border-t border-navy-800 dark:border-slate-800">
+            <div className="p-3 border-t border-white/10 dark:border-slate-800">
               <button
                 type="button"
                 onClick={onLogout}

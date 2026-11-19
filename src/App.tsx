@@ -86,7 +86,7 @@ export default function App() {
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center">
         <div className="text-center space-y-2">
-          <div className="w-8 h-8 border-2 border-navy-900 dark:border-blue-400 border-t-transparent rounded-full animate-spin mx-auto" />
+          <div className="w-8 h-8 border-2 border-brand-600 dark:border-brand-400 border-t-transparent rounded-full animate-spin mx-auto" />
           <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
             Memverifikasi sesi Absensi BIGNET...
           </p>

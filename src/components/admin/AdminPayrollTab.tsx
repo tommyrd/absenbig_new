@@ -277,7 +277,7 @@ export function AdminPayrollTab() {
             <button
               type="button"
               onClick={() => setCloseModal(true)}
-              className="min-h-[44px] sm:h-10 px-4 bg-navy-900 hover:bg-navy-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5 w-full sm:w-auto"
+              className="min-h-[44px] sm:h-10 px-4 bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5 w-full sm:w-auto"
             >
               <Lock className="w-4 h-4" />
               Tutup Periode
@@ -289,7 +289,7 @@ export function AdminPayrollTab() {
       {/* Prominent Top Payroll Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
         <div className="bg-navy-900 dark:bg-slate-900 border border-navy-800 dark:border-slate-800 text-white rounded-xl p-4 sm:p-5">
-          <p className="text-xs text-blue-300 font-medium">TOTAL HARI MASUK ({bulan})</p>
+          <p className="text-xs text-brand-200 font-medium">TOTAL HARI MASUK ({bulan})</p>
           <p className="font-mono text-2xl sm:text-3xl font-bold tabular-nums mt-1">{totalMasuk} hari</p>
         </div>
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 sm:p-5">
@@ -410,7 +410,7 @@ export function AdminPayrollTab() {
                         setOverrideAlasan('');
                         setOverrideErr(null);
                       }}
-                      className="min-h-[36px] text-xs font-semibold text-blue-700 dark:text-blue-400 hover:underline"
+                      className="min-h-[36px] text-xs font-semibold text-brand-600 dark:text-brand-400 hover:underline"
                     >
                       Admin Override Tanggal Ini
                     </button>
@@ -532,7 +532,7 @@ export function AdminPayrollTab() {
                     required
                     checked={postClosingConfirm}
                     onChange={(e) => setPostClosingConfirm(e.target.checked)}
-                    className="w-4 h-4 accent-navy-900 dark:accent-blue-500 mt-0.5"
+                    className="w-4 h-4 accent-navy-900 dark:accent-brand-500 mt-0.5"
                   />
                   <span>
                     Periode {bulan} sudah CLOSED. Konfirmasi ini adalah Koreksi Khusus Pasca-Closing.
@@ -551,7 +551,7 @@ export function AdminPayrollTab() {
                 <button
                   type="submit"
                   disabled={savingOverride}
-                  className="min-h-[44px] sm:h-10 px-5 text-xs font-semibold bg-navy-900 hover:bg-navy-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white rounded-lg"
+                  className="min-h-[44px] sm:h-10 px-5 text-xs font-semibold bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white rounded-lg"
                 >
                   {savingOverride ? 'Menyimpan...' : 'Simpan Override'}
                 </button>
@@ -612,7 +612,7 @@ export function AdminPayrollTab() {
                 <button
                   type="submit"
                   disabled={closing}
-                  className="min-h-[44px] sm:h-10 px-5 text-xs font-semibold bg-navy-900 hover:bg-navy-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white rounded-lg"
+                  className="min-h-[44px] sm:h-10 px-5 text-xs font-semibold bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white rounded-lg"
                 >
                   {closing ? 'Menutup...' : 'Kunci & Simpan Snapshot'}
                 </button>

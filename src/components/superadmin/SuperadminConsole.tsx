@@ -237,7 +237,7 @@ export function SuperadminConsole({
       sortValue: (r) => r.modul,
       render: (r) => (
         <div className="text-xs">
-          <p className="font-bold text-navy-900 dark:text-blue-400">{r.modul}</p>
+          <p className="font-bold text-navy-900 dark:text-brand-400">{r.modul}</p>
           <p className="font-mono text-slate-600 dark:text-slate-400">{r.aksi}</p>
         </div>
       ),
@@ -271,7 +271,7 @@ export function SuperadminConsole({
         <button
           type="button"
           onClick={() => setSelectedAudit(r)}
-          className="inline-flex items-center gap-1 min-h-[36px] px-2 text-xs font-semibold text-blue-700 dark:text-blue-400 hover:underline"
+          className="inline-flex items-center gap-1 min-h-[36px] px-2 text-xs font-semibold text-brand-600 dark:text-brand-400 hover:underline"
         >
           <Eye className="w-3.5 h-3.5" />
           Inspeksi
@@ -337,7 +337,7 @@ export function SuperadminConsole({
           <button
             type="button"
             onClick={() => setSelectedEvidence(r)}
-            className="inline-flex items-center gap-1.5 min-h-[36px] px-2 text-xs font-semibold text-blue-700 dark:text-blue-400 hover:underline"
+            className="inline-flex items-center gap-1.5 min-h-[36px] px-2 text-xs font-semibold text-brand-600 dark:text-brand-400 hover:underline"
           >
             <ImageIcon className="w-3.5 h-3.5" />
             Lihat Foto
@@ -430,13 +430,15 @@ export function SuperadminConsole({
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex transition-colors">
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-40 lg:flex lg:flex-col lg:h-screen w-64 bg-navy-950 text-white shrink-0">
+      <aside className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-40 lg:flex lg:flex-col lg:h-screen w-64 bg-gradient-to-b from-[#3d0c07] via-[#4f110b] to-[#2b0906] text-white shrink-0">
         <div className="h-16 px-5 border-b border-white/10 flex items-center gap-2.5">
-          <img
-            src={logoSrc}
-            alt={appName}
-            className="w-8 h-8 rounded-lg object-contain bg-white/10 p-0.5 border border-white/15 shrink-0"
-          />
+          <div className="w-8 h-8 rounded-lg bg-white p-1 flex items-center justify-center shrink-0 shadow-xs">
+            <img
+              src={logoSrc}
+              alt={appName}
+              className="w-full h-full object-contain"
+            />
+          </div>
           <span className="font-display text-base font-bold tracking-tight truncate">
             {appName}
           </span>
@@ -457,7 +459,7 @@ export function SuperadminConsole({
           <div className="min-w-0">
             <p className="font-semibold text-white truncate">{user.nama_lengkap}</p>
             <p className="text-amber-300 mt-0.5 font-semibold">SUPERADMIN · OWNER</p>
-            <p className="text-slate-400 mt-0.5 text-[11px]">Kelola Profil & Foto</p>
+            <p className="text-white/60 mt-0.5 text-[11px]">Kelola Profil & Foto</p>
           </div>
         </button>
         <nav className="min-h-0 flex-1 p-3 space-y-1 overflow-y-auto overscroll-contain">
@@ -471,8 +473,8 @@ export function SuperadminConsole({
                 onClick={() => setTab(m.id)}
                 className={`w-full px-3 py-2.5 rounded-lg text-xs font-medium flex items-center justify-between gap-2 text-left transition-colors ${
                   active
-                    ? 'bg-blue-700 text-white'
-                    : 'text-slate-300 hover:bg-white/10 hover:text-white'
+                    ? 'bg-[#c0392b] text-white shadow-sm'
+                    : 'text-white/75 hover:bg-white/10 hover:text-white'
                 }`}
               >
                 <span className="flex items-center gap-2.5 min-w-0">
@@ -480,7 +482,7 @@ export function SuperadminConsole({
                   <span className="truncate">{m.label}</span>
                 </span>
                 {m.badge && m.badge > 0 ? (
-                  <span className="font-mono text-[11px] font-bold px-1.5 py-0.5 rounded bg-amber-400 text-navy-950 shrink-0">
+                  <span className="font-mono text-[11px] font-bold px-1.5 py-0.5 rounded bg-amber-400 text-brand-950 shrink-0">
                     {m.badge}
                   </span>
                 ) : null}
@@ -507,16 +509,18 @@ export function SuperadminConsole({
           onClick={() => setDrawerOpen(false)}
         >
           <aside
-            className="w-72 bg-navy-950 text-white h-full flex flex-col"
+            className="w-72 bg-gradient-to-b from-[#3d0c07] via-[#4f110b] to-[#2b0906] text-white h-full flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="h-14 px-4 border-b border-white/10 flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0">
-                <img
-                  src={logoSrc}
-                  alt={appName}
-                  className="w-7 h-7 rounded-md object-contain bg-white/10 p-0.5 shrink-0"
-                />
+                <div className="w-7 h-7 rounded-md bg-white p-0.5 flex items-center justify-center shrink-0">
+                  <img
+                    src={logoSrc}
+                    alt={appName}
+                    className="w-full h-full object-contain"
+                  />
+                </div>
                 <span className="font-display text-sm font-bold truncate">{appName}</span>
               </div>
               <button
@@ -524,7 +528,7 @@ export function SuperadminConsole({
                 onClick={() => setDrawerOpen(false)}
                 className="min-w-[40px] min-h-[40px] flex items-center justify-center"
               >
-                <X className="w-5 h-5 text-slate-300" />
+                <X className="w-5 h-5 text-white/75" />
               </button>
             </div>
             <button
@@ -560,7 +564,7 @@ export function SuperadminConsole({
                       setDrawerOpen(false);
                     }}
                     className={`w-full px-3 py-3 rounded-lg text-xs font-medium flex items-center justify-between gap-2 text-left ${
-                      tab === m.id ? 'bg-blue-700 text-white' : 'text-slate-300'
+                      tab === m.id ? 'bg-[#c0392b] text-white' : 'text-white/75'
                     }`}
                   >
                     <span className="flex items-center gap-2.5">
@@ -568,7 +572,7 @@ export function SuperadminConsole({
                       <span>{m.label}</span>
                     </span>
                     {m.badge && m.badge > 0 ? (
-                      <span className="font-mono text-[11px] font-bold px-1.5 py-0.5 rounded bg-amber-400 text-navy-950">
+                      <span className="font-mono text-[11px] font-bold px-1.5 py-0.5 rounded bg-amber-400 text-brand-950">
                         {m.badge}
                       </span>
                     ) : null}
@@ -682,7 +686,7 @@ export function SuperadminConsole({
               {overview && (
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                   <div className="bg-navy-900 text-white rounded-xl p-4 sm:p-5">
-                    <p className="text-[11px] sm:text-xs text-blue-300 font-medium">
+                    <p className="text-[11px] sm:text-xs text-brand-200 font-medium">
                       TOTAL HARI MASUK
                     </p>
                     <p className="font-mono text-2xl sm:text-3xl font-bold tabular-nums mt-1">

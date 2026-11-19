@@ -232,7 +232,7 @@ export function AdminApprovalTab() {
             setCreateErr(null);
             setCreateModal(true);
           }}
-          className="min-h-[44px] sm:h-10 px-4 bg-navy-900 hover:bg-navy-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5 self-start sm:self-auto w-full sm:w-auto"
+          className="min-h-[44px] sm:h-10 px-4 bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5 self-start sm:self-auto w-full sm:w-auto"
         >
           <Plus className="w-4 h-4" />
           Buat Atas Nama Karyawan
@@ -444,7 +444,7 @@ export function AdminApprovalTab() {
                 </button>
                 <button
                   type="submit"
-                  className="min-h-[44px] sm:h-10 px-5 text-xs font-semibold bg-navy-900 hover:bg-navy-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white rounded-lg"
+                  className="min-h-[44px] sm:h-10 px-5 text-xs font-semibold bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white rounded-lg"
                 >
                   Simpan Pengajuan
                 </button>

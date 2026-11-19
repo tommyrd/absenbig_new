@@ -170,9 +170,9 @@ export function AdminDashboardTab({ onNavigateApproval }: { onNavigateApproval: 
         <button
           type="button"
           onClick={onNavigateApproval}
-          className="text-left bg-navy-900 dark:bg-slate-900 border border-navy-800 dark:border-blue-800/70 text-white rounded-xl p-4 hover:bg-navy-800 dark:hover:bg-slate-800 transition-colors"
+          className="text-left bg-navy-900 dark:bg-slate-900 border border-navy-800 dark:border-brand-700/70 text-white rounded-xl p-4 hover:bg-navy-800 dark:hover:bg-slate-800 transition-colors"
         >
-          <p className="text-xs text-blue-300">Menunggu Approval</p>
+          <p className="text-xs text-brand-200">Menunggu Approval</p>
           <p className="font-mono text-2xl font-bold tabular-nums mt-1">{pendingCount}</p>
           <p className="text-[11px] text-slate-300 mt-0.5">Klik untuk proses pengajuan →</p>
         </button>

@@ -125,11 +125,11 @@ export function AdminCheckinOverrideTab() {
         </button>
       </div>
 
-      <div className="rounded-xl border border-blue-200 dark:border-blue-900/70 bg-blue-50/70 dark:bg-blue-950/25 p-4 flex items-start gap-3">
-        <ShieldCheck className="w-5 h-5 text-blue-700 dark:text-blue-400 shrink-0 mt-0.5" />
-        <div className="space-y-1 text-xs text-blue-950 dark:text-blue-100">
+      <div className="rounded-xl border border-brand-200 dark:border-brand-900/70 bg-brand-50/70 dark:bg-brand-950/25 p-4 flex items-start gap-3">
+        <ShieldCheck className="w-5 h-5 text-brand-600 dark:text-brand-400 shrink-0 mt-0.5" />
+        <div className="space-y-1 text-xs text-brand-950 dark:text-brand-100">
           <p className="font-bold">Izin tidak menghapus keterlambatan</p>
-          <p className="leading-relaxed text-blue-900 dark:text-blue-200">
+          <p className="leading-relaxed text-brand-900 dark:text-brand-200">
             Akses berlaku satu kali untuk sesi berikutnya selama 5, 10, 15, atau 30 menit. Karyawan tetap wajib selfie melalui kamera browser, validasi GPS, dan menggunakan waktu server. Status TERLAMBAT serta alasan dan nama Admin tetap tercatat di audit.
           </p>
         </div>
@@ -181,18 +181,18 @@ export function AdminCheckinOverrideTab() {
               </div>
 
               {item.activeGrant ? (
-                <div className="rounded-lg border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/35 p-3 space-y-1">
-                  <p className="text-xs font-bold text-blue-900 dark:text-blue-100 inline-flex items-center gap-1.5">
+                <div className="rounded-lg border border-brand-200 dark:border-brand-900 bg-brand-50 dark:bg-brand-950/35 p-3 space-y-1">
+                  <p className="text-xs font-bold text-brand-900 dark:text-brand-100 inline-flex items-center gap-1.5">
                     <KeyRound className="w-3.5 h-3.5" /> Izin Aktif sampai {item.activeGrant.berlakuSampai.slice(11, 16)} WIB
                   </p>
-                  <p className="text-[11px] text-blue-800 dark:text-blue-200">Dibuka oleh {item.activeGrant.adminNama}. Karyawan belum menggunakan izin ini.</p>
-                  <p className="text-[11px] text-blue-800 dark:text-blue-200">Alasan: {item.activeGrant.alasan}</p>
+                  <p className="text-[11px] text-brand-700 dark:text-brand-200">Dibuka oleh {item.activeGrant.adminNama}. Karyawan belum menggunakan izin ini.</p>
+                  <p className="text-[11px] text-brand-700 dark:text-brand-200">Alasan: {item.activeGrant.alasan}</p>
                 </div>
               ) : (
                 <button
                   type="button"
                   onClick={() => openGrantForm(item)}
-                  className="w-full min-h-[44px] px-4 py-2.5 rounded-lg bg-navy-900 hover:bg-navy-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white text-xs font-semibold inline-flex items-center justify-center gap-2"
+                  className="w-full min-h-[44px] px-4 py-2.5 rounded-lg bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white text-xs font-semibold inline-flex items-center justify-center gap-2"
                 >
                   <KeyRound className="w-4 h-4" />
                   Buka Akses Check-in
@@ -236,7 +236,7 @@ export function AdminCheckinOverrideTab() {
               {formError && <p role="alert" className="text-xs text-red-700 dark:text-red-300">{formError}</p>}
               <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-1">
                 <button type="button" onClick={() => setSelected(null)} disabled={saving} className="min-h-[44px] px-4 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 disabled:opacity-50">Batal</button>
-                <button type="submit" disabled={saving || reason.trim().length < 5} className="min-h-[44px] px-4 rounded-lg bg-blue-700 hover:bg-blue-800 text-white text-xs font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-55">
+                <button type="submit" disabled={saving || reason.trim().length < 5} className="min-h-[44px] px-4 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-55">
                   {saving ? <><Loader2 className="w-4 h-4 animate-spin" /> Menyimpan...</> : <><KeyRound className="w-4 h-4" /> Konfirmasi Izin</>}
                 </button>
               </div>

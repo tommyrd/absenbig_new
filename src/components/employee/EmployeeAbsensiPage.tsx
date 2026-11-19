@@ -679,7 +679,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
         <button
           type="button"
           onClick={() => void loadToday()}
-          className="mt-3 min-h-[44px] sm:min-h-[36px] px-4 py-2 text-xs font-medium bg-navy-900 dark:bg-blue-600 text-white rounded-lg"
+          className="mt-3 min-h-[44px] sm:min-h-[36px] px-4 py-2 text-xs font-medium bg-navy-900 dark:bg-brand-600 text-white rounded-lg"
         >
           Muat Ulang
         </button>
@@ -742,7 +742,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
       <div className="bg-navy-900 dark:bg-slate-900 border border-navy-800 dark:border-slate-800 text-white rounded-2xl p-4 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
           <div>
-            <p className="text-xs text-blue-300 font-medium">
+            <p className="text-xs text-brand-200 font-medium">
               {user.kantor_nama} · {user.bidang_nama}
             </p>
             <h1 className="font-display text-lg sm:text-2xl font-bold mt-1">
@@ -873,7 +873,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                       record
                         ? 'bg-emerald-50/60 dark:bg-emerald-950/35 border-emerald-200 dark:border-emerald-800/70'
                         : isNext && (sesiStarted || hasActiveCheckinOverride)
-                        ? 'bg-blue-50/70 dark:bg-blue-950/40 border-blue-600 dark:border-blue-500'
+                        ? 'bg-brand-50/70 dark:bg-brand-950/40 border-brand-600 dark:border-brand-500'
                         : isNext
                         ? 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700/70'
                         : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-800 opacity-75'
@@ -894,12 +894,12 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                           {record.waktu_server.slice(11, 16)}
                         </span>
                       ) : isNext && hasActiveCheckinOverride ? (
-                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 dark:text-blue-400">
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 dark:text-brand-400">
                           <CheckCircle2 className="w-4 h-4" />
                           Izin Admin Aktif
                         </span>
                       ) : isNext && sesiStarted ? (
-                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 dark:text-blue-400">
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 dark:text-brand-400">
                           <Clock className="w-4 h-4" />
                           Sesi Dibuka
                         </span>
@@ -953,7 +953,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                   submitMsg.type === 'ok'
                     ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
                     : submitMsg.type === 'loading'
-                      ? 'bg-blue-50 dark:bg-blue-950/50 border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-200'
+                      ? 'bg-brand-50 dark:bg-brand-950/50 border-brand-200 dark:border-brand-700 text-brand-700 dark:text-brand-200'
                       : 'bg-red-50 dark:bg-red-950/50 border-red-200 dark:border-red-800 text-red-800 dark:text-red-200'
                 }`}
               >
@@ -985,7 +985,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                 <div className="space-y-5">
                   <div className="flex items-center justify-between gap-3 pb-4 border-b border-slate-100 dark:border-slate-800">
                     <div>
-                      <p className="text-xs font-medium text-blue-700 dark:text-blue-400">
+                      <p className="text-xs font-medium text-brand-600 dark:text-brand-400">
                         Sesi Berikutnya ({nextSesi.urutan} dari {day.policySnapshot.jumlahSesi})
                       </p>
                       <h2 className="font-display text-lg font-bold text-slate-900 dark:text-slate-100 mt-0.5">
@@ -999,18 +999,18 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
 
                   {/* Session time-window notice */}
                   {hasActiveCheckinOverride ? (
-                    <div className="p-4 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/70 flex items-start gap-3">
-                      <CheckCircle2 className="w-5 h-5 text-blue-700 dark:text-blue-400 shrink-0 mt-0.5" />
+                    <div className="p-4 rounded-xl bg-brand-50 dark:bg-brand-950/40 border border-brand-200 dark:border-brand-700/70 flex items-start gap-3">
+                      <CheckCircle2 className="w-5 h-5 text-brand-600 dark:text-brand-400 shrink-0 mt-0.5" />
                       <div className="space-y-1 text-xs">
-                        <p className="font-bold text-blue-950 dark:text-blue-100">
+                        <p className="font-bold text-brand-950 dark:text-brand-100">
                           Izin Check-in Khusus dari Admin Aktif
                         </p>
-                        <p className="text-blue-900 dark:text-blue-200 leading-relaxed">
+                        <p className="text-brand-900 dark:text-brand-200 leading-relaxed">
                           Admin {day.checkinOverride?.adminNama} membuka akses untuk {nextSesi.nama}.
                           Selesaikan absensi sebelum pukul <span className="font-mono font-semibold">{day.checkinOverride?.berlakuSampai.slice(11, 16)} WIB</span>.
                           Waktu aktual tetap dicatat dan status keterlambatan tidak dihapus.
                         </p>
-                        <p className="text-blue-800 dark:text-blue-300">Alasan: {day.checkinOverride?.alasan}</p>
+                        <p className="text-brand-700 dark:text-brand-200">Alasan: {day.checkinOverride?.alasan}</p>
                       </div>
                     </div>
                   ) : nextSessionExpired ? (
@@ -1067,13 +1067,13 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                   ) : null}
 
                   {/* Step 1: GPS & Geofence */}
-                  <div className="p-4 rounded-xl bg-blue-50/70 dark:bg-blue-950/25 border border-blue-200 dark:border-blue-900/70 space-y-3 shadow-sm">
+                  <div className="p-4 rounded-xl bg-brand-50/70 dark:bg-brand-950/25 border border-brand-200 dark:border-brand-900/70 space-y-3 shadow-sm">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
-                        <MapPin className="w-4 h-4 text-blue-700 dark:text-blue-400" />
+                        <MapPin className="w-4 h-4 text-brand-600 dark:text-brand-400" />
                         Lokasi & Geofence ({user.kantor_nama})
                       </span>
-                      <span className="rounded-full bg-blue-100 dark:bg-blue-900/70 px-2.5 py-1 text-[10px] font-bold tracking-wide text-blue-800 dark:text-blue-200">
+                      <span className="rounded-full bg-brand-100 dark:bg-brand-900/70 px-2.5 py-1 text-[10px] font-bold tracking-wide text-brand-700 dark:text-brand-200">
                         LANGKAH 1
                       </span>
                     </div>
@@ -1081,10 +1081,10 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                       type="button"
                       disabled={gpsStatus === 'loading' || submitting}
                       onClick={requestGps}
-                      className={`w-full min-h-[50px] px-4 py-3 rounded-xl inline-flex items-center justify-center gap-2.5 text-sm font-bold shadow-sm transition-all focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:opacity-65 disabled:cursor-wait ${
+                      className={`w-full min-h-[50px] px-4 py-3 rounded-xl inline-flex items-center justify-center gap-2.5 text-sm font-bold shadow-sm transition-all focus:outline-none focus:ring-4 focus:ring-brand-500/20 disabled:opacity-65 disabled:cursor-wait ${
                         gpsStatus === 'ok' && coords
                           ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                          : 'bg-blue-700 hover:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white'
+                          : 'bg-brand-600 hover:bg-brand-700 dark:bg-brand-600 dark:hover:bg-brand-500 text-white'
                       }`}
                     >
                       <RefreshCw className={`w-5 h-5 shrink-0 ${gpsStatus === 'loading' ? 'animate-spin' : ''}`} />
@@ -1118,7 +1118,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                             href={`https://www.google.com/maps/search/?api=1&query=${coords.lat},${coords.lng}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex min-h-[32px] items-center text-blue-700 dark:text-blue-400 font-semibold hover:underline"
+                            className="inline-flex min-h-[32px] items-center text-brand-600 dark:text-brand-400 font-semibold hover:underline"
                           >
                             Buka titik GPS di Google Maps
                           </a>
@@ -1193,7 +1193,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                             type="button"
                             disabled={!nextSessionStarted || !canCheckInByLocation || cameraLoading || submitting}
                             onClick={() => retakePhoto(facingMode)}
-                            className="min-h-[44px] px-3 py-2 rounded-lg bg-blue-700 hover:bg-blue-800 dark:bg-blue-600 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 disabled:opacity-50"
+                            className="min-h-[44px] px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 dark:bg-brand-600 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 disabled:opacity-50"
                           >
                             <Camera className="w-4 h-4" />
                             Ganti Foto
@@ -1233,7 +1233,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                             type="button"
                             disabled={!cameraReady || cameraLoading}
                             onClick={captureFromVideo}
-                            className="min-w-0 min-h-[44px] h-11 px-2.5 bg-navy-900 hover:bg-navy-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white text-xs sm:text-sm font-semibold rounded-lg flex items-center justify-center gap-1.5 whitespace-nowrap disabled:opacity-55 disabled:cursor-wait"
+                            className="min-w-0 min-h-[44px] h-11 px-2.5 bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white text-xs sm:text-sm font-semibold rounded-lg flex items-center justify-center gap-1.5 whitespace-nowrap disabled:opacity-55 disabled:cursor-wait"
                           >
                             <Camera className="w-4 h-4 shrink-0" />
                             <span>{cameraReady ? 'Ambil Foto' : 'Menyiapkan...'}</span>
@@ -1270,7 +1270,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                             type="button"
                             disabled={!nextSessionStarted || !canCheckInByLocation || cameraLoading}
                             onClick={() => void startCamera(facingMode)}
-                            className="w-full sm:w-auto min-h-[44px] px-4 py-2.5 bg-navy-900 hover:bg-navy-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="w-full sm:w-auto min-h-[44px] px-4 py-2.5 bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <Camera className="w-4 h-4" />
                             {cameraLoading
@@ -1321,7 +1321,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                             onClick={() => setTipeAktivitas('AKTIVITAS')}
                             className={`min-h-[44px] sm:h-10 rounded-lg border text-xs font-semibold transition-colors disabled:opacity-50 ${
                               tipeAktivitas === 'AKTIVITAS'
-                                ? 'bg-navy-900 dark:bg-blue-600 text-white border-navy-900 dark:border-blue-600'
+                                ? 'bg-navy-900 dark:bg-brand-600 text-white border-navy-900 dark:border-brand-600'
                                 : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
                             }`}
                           >
@@ -1333,7 +1333,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                             onClick={() => setTipeAktivitas('STANDBY')}
                             className={`min-h-[44px] sm:h-10 rounded-lg border text-xs font-semibold transition-colors disabled:opacity-50 ${
                               tipeAktivitas === 'STANDBY'
-                                ? 'bg-navy-900 dark:bg-blue-600 text-white border-navy-900 dark:border-blue-600'
+                                ? 'bg-navy-900 dark:bg-brand-600 text-white border-navy-900 dark:border-brand-600'
                                 : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
                             }`}
                           >
@@ -1364,7 +1364,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                               ? 'Tuliskan status standby (mis. Standby monitoring node & tiket NOC)...'
                               : 'Tuliskan aktivitas pekerjaan yang sedang/telah dilakukan...'
                         }
-                        className="w-full p-3 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-700 dark:focus:border-blue-500 disabled:opacity-60"
+                        className="w-full p-3 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-600/20 focus:border-brand-600 dark:focus:border-brand-500 disabled:opacity-60"
                       />
                       <p className="text-right text-[10px] text-slate-400">
                         {deskripsiAktivitas.length}/500 karakter
@@ -1377,7 +1377,7 @@ export function EmployeeAbsensiPage({ user, onSessionSubmitted }: EmployeeAbsens
                     type="button"
                     disabled={!canSubmitAttendance}
                     onClick={handleSubmitSession}
-                    className="w-full min-h-[52px] px-4 py-3 bg-blue-700 hover:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white font-bold text-sm rounded-xl transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full min-h-[52px] px-4 py-3 bg-brand-600 hover:bg-brand-700 dark:bg-brand-600 dark:hover:bg-brand-500 text-white font-bold text-sm rounded-xl transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {submitting ? (
                       <Loader2 className="w-5 h-5 animate-spin" />

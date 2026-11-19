@@ -185,7 +185,7 @@ export function ProfileSettingsPanel({
                       {user.nik}
                     </span>{' '}
                     · {user.jabatan} · Role:{' '}
-                    <strong className="text-navy-900 dark:text-blue-400">{user.role}</strong>
+                    <strong className="text-navy-900 dark:text-brand-400">{user.role}</strong>
                   </p>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
                     {user.bidang_nama} · {user.kantor_nama}
@@ -193,7 +193,7 @@ export function ProfileSettingsPanel({
                 </>
               )}
               <div className="pt-2 flex flex-wrap items-center gap-2">
-                <label className="min-h-[44px] sm:min-h-[36px] px-3.5 py-2 bg-navy-900 hover:bg-navy-800 dark:bg-blue-700 dark:hover:bg-blue-600 text-white text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 cursor-pointer">
+                <label className="min-h-[44px] sm:min-h-[36px] px-3.5 py-2 bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 cursor-pointer">
                   <Camera className="w-3.5 h-3.5" />
                   <span>{savingPhoto ? 'Mengunggah...' : 'Ganti Foto Profil'}</span>
                   <input
@@ -265,7 +265,7 @@ export function ProfileSettingsPanel({
                 onClick={() => setTheme(id)}
                 className={`min-h-[44px] sm:min-h-[36px] px-3 rounded-lg text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors ${
                   active
-                    ? 'bg-white dark:bg-slate-900 text-navy-900 dark:text-blue-400 shadow-sm'
+                    ? 'bg-white dark:bg-slate-900 text-navy-900 dark:text-brand-400 shadow-sm'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
                 }`}
               >
@@ -285,7 +285,7 @@ export function ProfileSettingsPanel({
         >
           <div className="flex items-center justify-between">
             <h2 className="font-display text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-              <User className="w-4 h-4 text-blue-700 dark:text-blue-400" />
+              <User className="w-4 h-4 text-brand-600 dark:text-brand-400" />
               Pengaturan Profil Saya
             </h2>
             <span className="font-mono text-xs text-slate-500 dark:text-slate-400">
@@ -354,7 +354,7 @@ export function ProfileSettingsPanel({
             <button
               type="submit"
               disabled={savingProfile}
-              className="min-h-[44px] sm:h-10 px-4 bg-navy-900 hover:bg-navy-800 dark:bg-blue-700 dark:hover:bg-blue-600 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5 disabled:opacity-60"
+              className="min-h-[44px] sm:h-10 px-4 bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5 disabled:opacity-60"
             >
               <Save className="w-3.5 h-3.5" />
               {savingProfile ? 'Menyimpan...' : 'Simpan Profil'}

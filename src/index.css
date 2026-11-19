@@ -6,12 +6,24 @@
   --font-display: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 
-  --color-navy-950: #070e1b;
-  --color-navy-900: #0b1528;
-  --color-navy-800: #13223f;
-  --color-navy-700: #1d335c;
-  --color-electric-600: #1d4ed8;
-  --color-electric-500: #2563eb;
+  --color-brand-50: #fef5f4;
+  --color-brand-100: #fde8e6;
+  --color-brand-200: #fad2ce;
+  --color-brand-300: #f5aba3;
+  --color-brand-400: #ea7568;
+  --color-brand-500: #d64536;
+  --color-brand-600: #c0392b;
+  --color-brand-700: #a93226;
+  --color-brand-800: #8c261c;
+  --color-brand-900: #6b1a12;
+  --color-brand-950: #3d0c07;
+
+  --color-navy-950: #2b0906;
+  --color-navy-900: #c0392b;
+  --color-navy-800: #a93226;
+  --color-navy-700: #8c261c;
+  --color-electric-600: #c0392b;
+  --color-electric-500: #d64536;
 }
 
 @layer base {

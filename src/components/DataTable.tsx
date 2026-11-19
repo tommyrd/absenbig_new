@@ -138,7 +138,7 @@ export function DataTable<T>({
                   setPage(1);
                 }}
                 placeholder={searchPlaceholder}
-                className="w-full h-11 sm:h-10 pl-9 pr-3 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+                className="w-full h-11 sm:h-10 pl-9 pr-3 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-[#c0392b]/20 focus:border-[#c0392b]"
               />
             </div>
           )}
@@ -150,7 +150,7 @@ export function DataTable<T>({
 
       {/* Bulk Action Bar */}
       {selectable && selected.size > 0 && bulkActions && (
-        <div className="px-4 py-2.5 bg-navy-900 text-white flex flex-wrap items-center justify-between gap-3">
+        <div className="px-4 py-2.5 bg-brand-900 text-white flex flex-wrap items-center justify-between gap-3">
           <span className="text-xs font-medium tabular-nums">
             {selected.size} baris dipilih
           </span>
@@ -183,7 +183,7 @@ export function DataTable<T>({
             <button
               type="button"
               onClick={onRetry}
-              className="mt-4 min-h-[44px] sm:min-h-[36px] inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-navy-900 dark:bg-blue-700 text-white rounded-lg hover:bg-navy-800 dark:hover:bg-blue-600 transition-colors"
+              className="mt-4 min-h-[44px] sm:min-h-[36px] inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-[#c0392b] hover:bg-[#a93226] text-white rounded-lg transition-colors"
             >
               <RefreshCw className="w-3.5 h-3.5" />
               Coba Lagi
@@ -246,7 +246,7 @@ export function DataTable<T>({
                         type="checkbox"
                         checked={selected.has(rowId)}
                         onChange={() => toggleOne(rowId)}
-                        className="w-5 h-5 accent-navy-900 dark:accent-blue-500"
+                        className="w-5 h-5 accent-[#c0392b] dark:accent-brand-400"
                         aria-label={`Pilih baris ${absIdx}`}
                       />
                     )}
@@ -285,7 +285,7 @@ export function DataTable<T>({
                           paginated.every((r) => selected.has(getRowId(r)))
                         }
                         onChange={toggleAllVisible}
-                        className="w-4 h-4 accent-navy-900 dark:accent-blue-500 rounded"
+                        className="w-4 h-4 accent-[#c0392b] dark:accent-brand-400 rounded"
                         aria-label="Pilih semua di halaman ini"
                       />
                     </th>
@@ -312,9 +312,9 @@ export function DataTable<T>({
                             <span>{col.header}</span>
                             {isSorted ? (
                               sortDir === 'asc' ? (
-                                <ArrowUp className="w-3.5 h-3.5 text-blue-700 dark:text-blue-400" />
+                                <ArrowUp className="w-3.5 h-3.5 text-[#c0392b] dark:text-brand-400" />
                               ) : (
-                                <ArrowDown className="w-3.5 h-3.5 text-blue-700 dark:text-blue-400" />
+                                <ArrowDown className="w-3.5 h-3.5 text-[#c0392b] dark:text-brand-400" />
                               )
                             ) : (
                               <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
@@ -343,7 +343,7 @@ export function DataTable<T>({
                             type="checkbox"
                             checked={selected.has(rowId)}
                             onChange={() => toggleOne(rowId)}
-                            className="w-4 h-4 accent-navy-900 dark:accent-blue-500 rounded"
+                            className="w-4 h-4 accent-[#c0392b] dark:accent-brand-400 rounded"
                             aria-label={`Pilih baris ${absIdx}`}
                           />
                         </td>

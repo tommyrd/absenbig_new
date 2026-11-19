@@ -265,7 +265,7 @@ export function AttendanceFeedView({
               <div
                 className={`w-16 h-16 rounded-full p-[2.5px] transition-all ${
                   selectedEmpId === null
-                    ? 'bg-gradient-to-tr from-blue-600 via-indigo-500 to-emerald-500'
+                    ? 'bg-gradient-to-tr from-brand-600 via-indigo-500 to-emerald-500'
                     : 'bg-slate-200 dark:bg-slate-800'
                 }`}
               >
@@ -288,9 +288,9 @@ export function AttendanceFeedView({
               const selected = selectedEmpId === person.karyawanId;
               const hasAbsenToday = person.sessionsCompleted > 0;
               const ringBg = selected
-                ? 'bg-gradient-to-tr from-amber-500 via-rose-500 to-blue-600'
+                ? 'bg-gradient-to-tr from-amber-500 via-rose-500 to-brand-600'
                 : hasAbsenToday
-                ? 'bg-gradient-to-tr from-blue-600 via-indigo-500 to-emerald-500'
+                ? 'bg-gradient-to-tr from-brand-600 via-indigo-500 to-emerald-500'
                 : 'bg-slate-200 dark:bg-slate-800';
 
               return (
@@ -324,7 +324,7 @@ export function AttendanceFeedView({
                   <span
                     className={`text-[11px] truncate w-full ${
                       selected
-                        ? 'font-bold text-blue-700 dark:text-blue-400'
+                        ? 'font-bold text-brand-600 dark:text-brand-400'
                         : 'font-medium text-slate-700 dark:text-slate-300'
                     }`}
                   >
@@ -354,7 +354,7 @@ export function AttendanceFeedView({
                 onClick={() => setShowFilters((v) => !v)}
                 className={`min-w-[42px] min-h-[42px] sm:min-h-[38px] px-3 rounded-xl border text-xs font-semibold inline-flex items-center justify-center gap-1.5 shrink-0 transition-colors ${
                   showFilters || kantorFilter || bidangFilter || scope === 'today'
-                    ? 'bg-blue-50 dark:bg-blue-950/60 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300'
+                    ? 'bg-brand-50 dark:bg-brand-950/60 border-brand-200 dark:border-brand-700 text-brand-600 dark:text-brand-200'
                     : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200'
                 }`}
                 aria-label="Filter beranda"
@@ -432,7 +432,7 @@ export function AttendanceFeedView({
               <button
                 type="button"
                 onClick={onGoToAbsensi}
-                className="lg:hidden w-full min-h-[44px] px-4 bg-navy-900 hover:bg-navy-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white text-xs font-semibold rounded-xl flex items-center justify-between gap-3"
+                className="lg:hidden w-full min-h-[44px] px-4 bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white text-xs font-semibold rounded-xl flex items-center justify-between gap-3"
               >
                 <span className="flex items-center gap-2">
                   <Camera className="w-4 h-4" />
@@ -443,14 +443,14 @@ export function AttendanceFeedView({
             )}
 
           {selectedPerson && (
-            <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/70 rounded-xl px-3.5 py-2.5 flex items-center justify-between gap-2">
-              <p className="text-xs text-blue-950 dark:text-blue-100 truncate">
+            <div className="bg-brand-50 dark:bg-brand-950/40 border border-brand-200 dark:border-brand-700/70 rounded-xl px-3.5 py-2.5 flex items-center justify-between gap-2">
+              <p className="text-xs text-brand-950 dark:text-brand-100 truncate">
                 Menampilkan foto absensi <strong>{selectedPerson.namaLengkap}</strong>
               </p>
               <button
                 type="button"
                 onClick={() => setSelectedEmpId(null)}
-                className="text-xs font-semibold text-blue-700 dark:text-blue-300 hover:underline shrink-0"
+                className="text-xs font-semibold text-brand-600 dark:text-brand-200 hover:underline shrink-0"
               >
                 Tampilkan Semua
               </button>
@@ -473,7 +473,7 @@ export function AttendanceFeedView({
             <div
               role="status"
               aria-live="polite"
-              className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 px-3 py-2.5 text-xs text-blue-800 dark:text-blue-200"
+              className="rounded-lg border border-brand-200 dark:border-brand-700 bg-brand-50 dark:bg-brand-950/40 px-3 py-2.5 text-xs text-brand-700 dark:text-brand-200"
             >
               {shareNotice}
             </div>
@@ -513,7 +513,7 @@ export function AttendanceFeedView({
                 <button
                   type="button"
                   onClick={() => setScope('recent')}
-                  className="min-h-[40px] px-4 rounded-xl bg-navy-900 dark:bg-blue-600 text-white text-xs font-semibold"
+                  className="min-h-[40px] px-4 rounded-xl bg-navy-900 dark:bg-brand-600 text-white text-xs font-semibold"
                 >
                   Tampilkan Linimasa Terbaru
                 </button>
@@ -531,7 +531,7 @@ export function AttendanceFeedView({
                     id={`attendance-post-${post.id}`}
                     className={`bg-white dark:bg-slate-900 border rounded-2xl overflow-hidden shadow-sm transition-all ${
                       focusAttendanceId === post.id
-                        ? 'border-blue-500 ring-4 ring-blue-500/25 shadow-lg'
+                        ? 'border-brand-500 ring-4 ring-brand-500/25 shadow-lg'
                         : 'border-slate-200 dark:border-slate-800'
                     }`}
                   >
@@ -602,7 +602,7 @@ export function AttendanceFeedView({
                     {/* 3. Session and location verification status */}
                     <div className="px-3.5 sm:px-4 pt-3 pb-2.5 space-y-3">
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="inline-flex items-center rounded-md bg-blue-50 dark:bg-blue-950/50 px-2.5 py-1 text-[11px] font-bold text-blue-800 dark:text-blue-200">
+                        <span className="inline-flex items-center rounded-md bg-brand-50 dark:bg-brand-950/50 px-2.5 py-1 text-[11px] font-bold text-brand-700 dark:text-brand-200">
                           {post.namaSesi} · {post.sessionsCompletedToday}/{post.sessionsTotalToday} sesi
                         </span>
                         <span
@@ -678,7 +678,7 @@ export function AttendanceFeedView({
                           type="button"
                           onClick={() => void handleSharePost(post)}
                           disabled={sharingPostId !== null}
-                          className="min-h-[42px] shrink-0 inline-flex items-center justify-center gap-2 rounded-lg bg-blue-700 hover:bg-blue-800 disabled:opacity-60 disabled:cursor-wait px-4 text-xs font-bold text-white shadow-sm focus:outline-none focus:ring-4 focus:ring-blue-500/20"
+                          className="min-h-[42px] shrink-0 inline-flex items-center justify-center gap-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-60 disabled:cursor-wait px-4 text-xs font-bold text-white shadow-sm focus:outline-none focus:ring-4 focus:ring-brand-500/20"
                           aria-label={`Bagikan kartu absensi ${post.namaLengkap}`}
                         >
                           {sharingPostId === post.id ? (
@@ -734,7 +734,7 @@ export function AttendanceFeedView({
               <button
                 type="button"
                 onClick={onGoToAbsensi}
-                className="w-full min-h-[42px] bg-navy-900 hover:bg-navy-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white text-xs font-semibold rounded-xl flex items-center justify-center gap-2"
+                className="w-full min-h-[42px] bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white text-xs font-semibold rounded-xl flex items-center justify-center gap-2"
               >
                 <Camera className="w-4 h-4" />
                 Absen Kamera Sekarang ({myDay.sessionsCompleted}/{myDay.policySnapshot.jumlahSesi})
@@ -788,7 +788,7 @@ export function AttendanceFeedView({
                   type="button"
                   onClick={() => setSelectedEmpId(isSelected ? null : m.karyawanId)}
                   className={`w-full px-4 py-2.5 text-left flex items-center justify-between gap-3 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/60 ${
-                    isSelected ? 'bg-blue-50/70 dark:bg-blue-950/35' : ''
+                    isSelected ? 'bg-brand-50/70 dark:bg-brand-950/35' : ''
                   }`}
                 >
                   <div className="flex items-center gap-3 min-w-0">
@@ -954,10 +954,10 @@ export function AttendanceFeedView({
               </p>
               <p className="text-[10px] text-slate-500 dark:text-slate-400">
                 Alamat GPS merupakan hasil perkiraan reverse geocoding. Powered by{' '}
-                <a href="https://www.geoapify.com/" target="_blank" rel="noopener noreferrer" className="font-semibold text-blue-700 dark:text-blue-400 underline">
+                <a href="https://www.geoapify.com/" target="_blank" rel="noopener noreferrer" className="font-semibold text-brand-600 dark:text-brand-400 underline">
                   Geoapify
                 </a>{' · '}©{' '}
-                <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer" className="font-semibold text-blue-700 dark:text-blue-400 underline">
+                <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer" className="font-semibold text-brand-600 dark:text-brand-400 underline">
                   OpenStreetMap contributors
                 </a>.
               </p>

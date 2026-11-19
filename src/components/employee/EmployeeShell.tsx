@@ -169,7 +169,7 @@ export function EmployeeShell({
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center">
         <div className="text-center space-y-3">
-          <div className="w-8 h-8 border-2 border-navy-900 dark:border-blue-400 border-t-transparent rounded-full animate-spin mx-auto" />
+          <div className="w-8 h-8 border-2 border-[#c0392b] dark:border-brand-400 border-t-transparent rounded-full animate-spin mx-auto" />
           <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
             Memeriksa jadwal absensi hari ini...
           </p>
@@ -180,20 +180,22 @@ export function EmployeeShell({
 
   const appName = settings?.nama_aplikasi || 'Absensi BIGNET';
   const logoSrc = `/api/v1/assets/logo?v=${encodeURIComponent(
-    settings?.logo_updated_at || '1'
+    settings?.logo_updated_at || '2'
   )}`;
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col transition-colors">
       {/* Compact Sticky Top Bar (< 48px mobile) */}
-      <header className="sticky top-0 z-30 h-12 md:h-14 bg-navy-900 dark:bg-slate-900 text-white border-b border-navy-800 dark:border-slate-800 px-3 sm:px-6 flex items-center justify-between gap-2 sm:gap-3">
+      <header className="sticky top-0 z-30 h-12 md:h-14 bg-[#c0392b] dark:bg-slate-900 text-white border-b border-[#a93226] dark:border-slate-800 px-3 sm:px-6 flex items-center justify-between gap-2 sm:gap-3">
         <div className="flex items-center gap-4 sm:gap-5 min-w-0">
           <div className="flex items-center gap-2 min-w-0">
-            <img
-              src={logoSrc}
-              alt={appName}
-              className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg object-contain bg-white/10 p-0.5 border border-white/15 shrink-0"
-            />
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-white p-0.5 flex items-center justify-center shrink-0 shadow-xs">
+              <img
+                src={logoSrc}
+                alt={appName}
+                className="w-full h-full object-contain"
+              />
+            </div>
             <span className="font-display text-sm sm:text-base font-bold tracking-tight whitespace-nowrap truncate">
               {appName}
             </span>
@@ -209,8 +211,8 @@ export function EmployeeShell({
                   onClick={() => setTab(item.id)}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
                     active
-                      ? 'bg-white/15 text-white'
-                      : 'text-slate-300 hover:text-white hover:bg-white/10'
+                      ? 'bg-white/20 text-white font-semibold'
+                      : 'text-white/80 hover:text-white hover:bg-white/10'
                   }`}
                 >
                   {item.label}
@@ -329,7 +331,7 @@ export function EmployeeShell({
               onClick={() => setTab(item.id)}
               className={`min-h-[44px] flex flex-col items-center justify-center gap-0.5 transition-colors ${
                 active
-                  ? 'text-blue-700 dark:text-blue-400'
+                  ? 'text-[#c0392b] dark:text-brand-400'
                   : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
               }`}
             >

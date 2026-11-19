@@ -189,7 +189,7 @@ export function AdminCalendarTab() {
                 setFormErr(null);
                 setHolModal(true);
               }}
-              className="min-h-[44px] sm:h-10 px-4 bg-navy-900 hover:bg-navy-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5 w-full sm:w-auto"
+              className="min-h-[44px] sm:h-10 px-4 bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5 w-full sm:w-auto"
             >
               <Plus className="w-4 h-4" />
               Tambah Hari Libur
@@ -211,7 +211,7 @@ export function AdminCalendarTab() {
                 setFormErr(null);
                 setKkModal(true);
               }}
-              className="min-h-[44px] sm:h-10 px-4 bg-navy-900 hover:bg-navy-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5 w-full sm:w-auto"
+              className="min-h-[44px] sm:h-10 px-4 bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5 w-full sm:w-auto"
             >
               <Plus className="w-4 h-4" />
               Tetapkan Kerja Khusus
@@ -279,7 +279,7 @@ export function AdminCalendarTab() {
                   >
                     <div className="px-5 py-4 bg-slate-50 dark:bg-slate-800/70 border-b border-slate-200 dark:border-slate-800">
                       <h2 className="font-display text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                        <CalendarDays className="w-4 h-4 text-blue-700 dark:text-blue-400" />
+                        <CalendarDays className="w-4 h-4 text-brand-600 dark:text-brand-400" />
                         {off.nama}
                       </h2>
                     </div>
@@ -525,7 +525,7 @@ export function AdminCalendarTab() {
                   type="checkbox"
                   checked={holForm.dihitung_masuk}
                   onChange={(e) => setHolForm({ ...holForm, dihitung_masuk: e.target.checked })}
-                  className="w-4 h-4 accent-navy-900 dark:accent-blue-500"
+                  className="w-4 h-4 accent-navy-900 dark:accent-brand-500"
                 />
                 Dihitung Masuk Payroll (menambah HARI MASUK)
               </label>
@@ -539,7 +539,7 @@ export function AdminCalendarTab() {
                 </button>
                 <button
                   type="submit"
-                  className="min-h-[44px] sm:h-10 px-5 text-xs font-semibold bg-navy-900 hover:bg-navy-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white rounded-lg"
+                  className="min-h-[44px] sm:h-10 px-5 text-xs font-semibold bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white rounded-lg"
                 >
                   Simpan Hari Libur
                 </button>
@@ -656,7 +656,7 @@ export function AdminCalendarTab() {
                   onChange={(e) =>
                     setKkForm({ ...kkForm, berhak_off_pengganti: e.target.checked })
                   }
-                  className="w-4 h-4 accent-navy-900 dark:accent-blue-500"
+                  className="w-4 h-4 accent-navy-900 dark:accent-brand-500"
                 />
                 Berhak mendapatkan 1 hak Off Pengganti
               </label>
@@ -670,7 +670,7 @@ export function AdminCalendarTab() {
                 </button>
                 <button
                   type="submit"
-                  className="min-h-[44px] sm:h-10 px-5 text-xs font-semibold bg-navy-900 hover:bg-navy-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white rounded-lg"
+                  className="min-h-[44px] sm:h-10 px-5 text-xs font-semibold bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white rounded-lg"
                 >
                   Tetapkan Penugasan
                 </button>

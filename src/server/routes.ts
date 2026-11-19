@@ -154,9 +154,9 @@ function buildDefaultAvatarSvg(namaLengkap: string, role?: string): string {
     .map((w) => w[0]?.toUpperCase() || '')
     .join('');
   const bg =
-    role === 'SUPERADMIN' ? '#0b1528' : role === 'ADMIN' ? '#1d4ed8' : '#1e3a5f';
+    role === 'SUPERADMIN' ? '#4a0e0a' : role === 'ADMIN' ? '#c0392b' : '#7c1c13';
   const ring =
-    role === 'SUPERADMIN' ? '#fbbf24' : role === 'ADMIN' ? '#93c5fd' : '#34d399';
+    role === 'SUPERADMIN' ? '#fbbf24' : role === 'ADMIN' ? '#fad2ce' : '#f5aba3';
   const safeInitials = initials.replace(/[<>&'"]/g, '') || 'BG';
   return `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160" fill="none">
   <rect width="160" height="160" rx="36" fill="${bg}"/>
@@ -2978,20 +2978,28 @@ export function registerApiRoutes(app: Express) {
   });
 
   // 13. System Settings, Custom Logo & Website Favicon
-  const DEFAULT_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" fill="none">
-  <rect width="128" height="128" rx="28" fill="#1D4ED8"/>
-  <rect x="8" y="8" width="112" height="112" rx="22" stroke="rgba(255,255,255,0.22)" stroke-width="2"/>
-  <path d="M36 38H68C79.0457 38 88 46.9543 88 58C88 64.262 85.121 69.852 80.614 73.516C86.782 76.827 91 83.334 91 90.8C91 101.404 82.404 110 71.8 110H36V38Z" fill="white" fill-opacity="0.14"/>
-  <path d="M40 36H68C77.941 36 86 44.059 86 54C86 59.566 83.474 64.544 79.5 67.85C84.622 71.033 88 76.716 88 83.2C88 93.141 79.941 101.2 70 101.2H40V36Z" stroke="white" stroke-width="7" stroke-linejoin="round"/>
-  <path d="M40 68H69" stroke="#93C5FD" stroke-width="7" stroke-linecap="round"/>
-  <circle cx="94" cy="34" r="10" fill="#10B981" stroke="#0B1528" stroke-width="4"/>
+  const DEFAULT_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="180" height="84" viewBox="0 0 180 84" fill="none">
+  <defs>
+    <linearGradient id="bgRibbonTop" x1="16" y1="8" x2="60" y2="44" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#e74c3c"/>
+      <stop offset="100%" stop-color="#c0392b"/>
+    </linearGradient>
+    <linearGradient id="bgRibbonBot" x1="16" y1="36" x2="68" y2="76" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#c0392b"/>
+      <stop offset="100%" stop-color="#8c1f16"/>
+    </linearGradient>
+  </defs>
+  <path d="M18 10C18 8.89543 18.8954 8 20 8H36C48.1503 8 56 14.8 56 24.5C56 32.5 50.2 37.8 41.5 39.2L18 39.2V10Z" fill="url(#bgRibbonTop)"/>
+  <path d="M18 34H44C57.5 34 66 41.8 66 53.5C66 65.8 56.5 74 42.5 74H20C18.8954 74 18 73.1046 18 72V34Z" fill="url(#bgRibbonBot)"/>
+  <path d="M32 45H41.5C47.5 45 51.5 48.3 51.5 53.5C51.5 58.7 47.5 62 41.5 62H32V45Z" fill="#ffffff"/>
+  <path d="M32 20H37.5C41.8 20 44.5 22.1 44.5 25.5C44.5 28.9 41.8 31 37.5 31H32V20Z" fill="#ffffff" fill-opacity="0.95"/>
+  <text x="76" y="45" font-family="Plus Jakarta Sans, Arial, sans-serif" font-size="29" font-weight="800" letter-spacing="-0.5" fill="#0f172a">BIG</text>
+  <text x="76" y="72" font-family="Plus Jakarta Sans, Arial, sans-serif" font-size="29" font-weight="800" letter-spacing="-0.5" fill="#c0392b">net</text>
 </svg>`;
 
   const DEFAULT_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="15" fill="#1D4ED8"/>
+  <rect width="64" height="64" rx="15" fill="#c0392b"/>
   <path d="M17 14h15a12 12 0 0 1 7.9 21 13 13 0 0 1-7.3 22H17V14Zm7 7v12h8a6 6 0 0 0 0-12h-8Zm0 19v10h8a5 5 0 0 0 0-10h-8Z" fill="#fff"/>
-  <path d="M24 34h12" stroke="#93C5FD" stroke-width="4" stroke-linecap="round"/>
-  <circle cx="48" cy="16" r="6" fill="#10B981" stroke="#0B1528" stroke-width="2"/>
 </svg>`;
 
   function mapSettingsRow(row: Record<string, unknown>) {

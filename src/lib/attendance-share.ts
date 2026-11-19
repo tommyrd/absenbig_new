@@ -136,23 +136,23 @@ export async function createAttendanceShareImage(post: AttendanceFeedPost): Prom
   ctx.fillStyle = '#ffffff';
   ctx.fill();
 
-  // Navy brand header.
+  // Crimson brand header.
   ctx.save();
   roundedRect(ctx, 38, 38, WIDTH - 76, 205, 36);
   ctx.clip();
-  ctx.fillStyle = '#0b1528';
+  ctx.fillStyle = '#6b1a12';
   ctx.fillRect(38, 38, WIDTH - 76, 205);
-  ctx.fillStyle = '#2563eb';
+  ctx.fillStyle = '#c0392b';
   ctx.fillRect(38, 222, WIDTH - 76, 21);
   ctx.restore();
 
-  ctx.fillStyle = '#93c5fd';
+  ctx.fillStyle = '#fad2ce';
   ctx.font = '700 24px Arial, sans-serif';
   ctx.fillText('ABSENSI BIGNET', PADDING, 100);
   ctx.fillStyle = '#ffffff';
   ctx.font = '700 46px Arial, sans-serif';
   ctx.fillText('BUKTI KEHADIRAN', PADDING, 166);
-  ctx.fillStyle = '#cbd5e1';
+  ctx.fillStyle = '#f8e6e4';
   ctx.font = '24px Arial, sans-serif';
   ctx.fillText('Catatan absensi resmi dari sistem BIGNET', PADDING, 210);
 
@@ -165,9 +165,9 @@ export async function createAttendanceShareImage(post: AttendanceFeedPost): Prom
   ctx.fillText(`${post.jabatan} · ${post.bidangNama}`, PADDING, nameY + 8);
 
   roundedRect(ctx, PADDING, nameY + 38, 430, 62, 18);
-  ctx.fillStyle = '#eff6ff';
+  ctx.fillStyle = '#fef5f4';
   ctx.fill();
-  ctx.fillStyle = '#1d4ed8';
+  ctx.fillStyle = '#c0392b';
   ctx.font = '700 24px Arial, sans-serif';
   ctx.fillText(`${post.namaSesi} · Sesi ${post.urutanSesi}`, PADDING + 20, nameY + 78);
 

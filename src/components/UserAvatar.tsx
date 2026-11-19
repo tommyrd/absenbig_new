@@ -46,10 +46,10 @@ export function UserAvatar({
 
   const fallbackBg =
     role === 'SUPERADMIN'
-      ? 'bg-navy-950 text-amber-300 border border-amber-400/30'
+      ? 'bg-brand-950 text-amber-300 border border-amber-400/30'
       : role === 'ADMIN'
-      ? 'bg-blue-700 text-white'
-      : 'bg-navy-900 text-white';
+      ? 'bg-[#c0392b] text-white'
+      : 'bg-brand-800 text-white';
 
   const sizeCls = SIZE_CLASSES[size];
 
