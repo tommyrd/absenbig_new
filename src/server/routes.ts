@@ -2431,8 +2431,8 @@ export function registerApiRoutes(app: Express) {
       return;
     }
     const jumlahSesi = Number(body.jumlah_sesi);
-    if (!body.nama || !body.nama.trim() || ![2, 3, 4].includes(jumlahSesi)) {
-      res.status(400).json({ error: 'Nama kebijakan dan jumlah sesi (2, 3, atau 4) wajib valid.' });
+    if (!body.nama || !body.nama.trim() || ![1, 2, 3, 4].includes(jumlahSesi)) {
+      res.status(400).json({ error: 'Nama kebijakan dan jumlah sesi (1, 2, 3, atau 4) wajib valid.' });
       return;
     }
 
@@ -2546,8 +2546,8 @@ export function registerApiRoutes(app: Express) {
     const body = req.body as Partial<KebijakanAbsensi> & { sesi?: SesiConfig[] };
     const nextNama = (body.nama ?? before.nama).trim();
     const jumlahSesi = body.jumlah_sesi !== undefined ? Number(body.jumlah_sesi) : before.jumlah_sesi;
-    if (!nextNama || ![2, 3, 4].includes(jumlahSesi)) {
-      res.status(400).json({ error: 'Nama kebijakan dan jumlah sesi (2, 3, atau 4) wajib valid.' });
+    if (!nextNama || ![1, 2, 3, 4].includes(jumlahSesi)) {
+      res.status(400).json({ error: 'Nama kebijakan dan jumlah sesi (1, 2, 3, atau 4) wajib valid.' });
       return;
     }
     const minSesiRaw = body.min_sesi_hadir !== undefined ? Number(body.min_sesi_hadir) : before.min_sesi_hadir;
@@ -2736,9 +2736,13 @@ export function registerApiRoutes(app: Express) {
       jumlah_sesi_khusus: number | null;
       keterangan: string;
     };
+    const validSpecialCount =
+      status_hari === 'HARI_KERJA' && jumlah_sesi_khusus && [1, 2, 3, 4].includes(Number(jumlah_sesi_khusus))
+        ? Number(jumlah_sesi_khusus)
+        : null;
     db.prepare(
       `UPDATE kalender_kerja SET status_hari = ?, jumlah_sesi_khusus = ?, keterangan = ? WHERE id = ?`
-    ).run(status_hari, status_hari === 'HARI_KERJA' && jumlah_sesi_khusus ? Number(jumlah_sesi_khusus) : null, keterangan || '', id);
+    ).run(status_hari, validSpecialCount, keterangan || '', id);
     const after = db.prepare(`SELECT * FROM kalender_kerja WHERE id = ?`).get(id);
     writeAuditLog(db, {
       actor: req.authUser!,
@@ -2874,8 +2878,8 @@ export function registerApiRoutes(app: Express) {
     }
 
     const nowIso = getWibIsoString();
-    const sessions = [2, 3, 4].includes(Number(jumlah_sesi)) ? Number(jumlah_sesi) : 3;
-    const minS = Math.min(Number(min_sesi_hadir) || 2, sessions);
+    const sessions = [1, 2, 3, 4].includes(Number(jumlah_sesi)) ? Number(jumlah_sesi) : 3;
+    const minS = Math.max(1, Math.min(Number(min_sesi_hadir) || 1, sessions));
     const hasOffRight = berhak_off_pengganti !== false;
 
     db.exec('BEGIN IMMEDIATE');

@@ -313,6 +313,97 @@ const MIGRATIONS: MigrationDef[] = [
       }
     },
   },
+  {
+    version: '014',
+    name: 'allow_single_session_attendance_policies',
+    disableForeignKeys: true,
+    up: (db) => {
+      const policyTable = db
+        .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'kebijakan_absensi'`)
+        .get() as { sql?: string } | undefined;
+      if (policyTable?.sql && !/IN\s*\(\s*1\s*,/i.test(policyTable.sql)) {
+        db.exec(`
+          CREATE TABLE kebijakan_absensi_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            level TEXT NOT NULL CHECK(level IN ('DEFAULT','BIDANG','KARYAWAN')),
+            bidang_id INTEGER REFERENCES bidang_kerja(id),
+            karyawan_id INTEGER REFERENCES karyawan(id),
+            nama TEXT NOT NULL,
+            jumlah_sesi INTEGER NOT NULL CHECK(jumlah_sesi IN (1,2,3,4)),
+            min_sesi_hadir INTEGER NOT NULL,
+            toleransi_terlambat_menit INTEGER NOT NULL DEFAULT 15,
+            aturan_lokasi TEXT NOT NULL DEFAULT 'SESI_PERTAMA_KANTOR',
+            wajib_foto_semua_sesi INTEGER NOT NULL DEFAULT 1,
+            wajib_aktivitas_sesi_lanjut INTEGER NOT NULL DEFAULT 1,
+            libur_dihitung_masuk INTEGER NOT NULL DEFAULT 1,
+            off_pengganti_dihitung_masuk INTEGER NOT NULL DEFAULT 1,
+            izin_dihitung_masuk INTEGER NOT NULL DEFAULT 0,
+            sakit_dihitung_masuk INTEGER NOT NULL DEFAULT 1,
+            cuti_dihitung_masuk INTEGER NOT NULL DEFAULT 1,
+            berlaku_mulai TEXT NOT NULL,
+            aktif INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL
+          );
+
+          INSERT INTO kebijakan_absensi_new (
+            id, level, bidang_id, karyawan_id, nama, jumlah_sesi, min_sesi_hadir,
+            toleransi_terlambat_menit, aturan_lokasi, wajib_foto_semua_sesi, wajib_aktivitas_sesi_lanjut,
+            libur_dihitung_masuk, off_pengganti_dihitung_masuk, izin_dihitung_masuk,
+            sakit_dihitung_masuk, cuti_dihitung_masuk, berlaku_mulai, aktif, created_at
+          )
+          SELECT
+            id, level, bidang_id, karyawan_id, nama, jumlah_sesi, min_sesi_hadir,
+            toleransi_terlambat_menit, COALESCE(aturan_lokasi, 'SESI_PERTAMA_KANTOR'),
+            wajib_foto_semua_sesi, wajib_aktivitas_sesi_lanjut,
+            libur_dihitung_masuk, off_pengganti_dihitung_masuk, izin_dihitung_masuk,
+            sakit_dihitung_masuk, cuti_dihitung_masuk, berlaku_mulai, aktif, created_at
+          FROM kebijakan_absensi;
+
+          DROP TABLE kebijakan_absensi;
+          ALTER TABLE kebijakan_absensi_new RENAME TO kebijakan_absensi;
+        `);
+      }
+
+      const kkTable = db
+        .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'penugasan_kerja_khusus'`)
+        .get() as { sql?: string } | undefined;
+      if (kkTable?.sql && !/IN\s*\(\s*1\s*,/i.test(kkTable.sql)) {
+        db.exec(`
+          CREATE TABLE penugasan_kerja_khusus_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            karyawan_id INTEGER NOT NULL REFERENCES karyawan(id),
+            tanggal TEXT NOT NULL,
+            nama_project TEXT NOT NULL,
+            keterangan TEXT NOT NULL DEFAULT '',
+            jumlah_sesi INTEGER NOT NULL CHECK(jumlah_sesi IN (1,2,3,4)),
+            min_sesi_hadir INTEGER NOT NULL,
+            berhak_off_pengganti INTEGER NOT NULL DEFAULT 1,
+            status TEXT NOT NULL DEFAULT 'AKTIF' CHECK(status IN ('AKTIF','SELESAI','DIBATALKAN')),
+            created_by INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(karyawan_id, tanggal)
+          );
+
+          INSERT INTO penugasan_kerja_khusus_new (
+            id, karyawan_id, tanggal, nama_project, keterangan, jumlah_sesi, min_sesi_hadir,
+            berhak_off_pengganti, status, created_by, created_at
+          )
+          SELECT
+            id, karyawan_id, tanggal, nama_project, keterangan, jumlah_sesi, min_sesi_hadir,
+            berhak_off_pengganti, status, created_by, created_at
+          FROM penugasan_kerja_khusus;
+
+          DROP TABLE penugasan_kerja_khusus;
+          ALTER TABLE penugasan_kerja_khusus_new RENAME TO penugasan_kerja_khusus;
+        `);
+      }
+
+      const violations = db.prepare('PRAGMA foreign_key_check').all();
+      if (violations.length > 0) {
+        throw new Error('Migrasi dukungan kebijakan 1 sesi menghasilkan pelanggaran foreign key.');
+      }
+    },
+  },
 ];
 
 export function runMigrations(db: DatabaseSync): string[] {

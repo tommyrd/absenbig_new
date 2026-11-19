@@ -38,6 +38,11 @@ export function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: 
 }
 
 function buildDefaultSessionsForCount(count: number): SesiConfig[] {
+  if (count === 1) {
+    return [
+      { urutan: 1, nama: 'Sesi 1 · Masuk', jam_mulai: '08:00', jam_selesai: '09:30', wajib_foto: 1, wajib_aktivitas: 0, aktif: 1 },
+    ];
+  }
   if (count === 2) {
     return [
       { urutan: 1, nama: 'Sesi 1 · Masuk', jam_mulai: '08:00', jam_selesai: '10:30', wajib_foto: 1, wajib_aktivitas: 0, aktif: 1 },
