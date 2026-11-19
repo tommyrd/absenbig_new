@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Camera,
+  Check,
   CheckCircle2,
   Clock,
+  Copy,
+  Download,
   ExternalLink,
   Info,
   Loader2,
@@ -26,7 +29,43 @@ import type {
 } from '../shared/types';
 import { StatusBadge } from './StatusBadge';
 import { UserAvatar } from './UserAvatar';
-import { createAttendanceShareImage } from '../lib/attendance-share';
+import {
+  buildAttendanceShareCaption,
+  createAttendanceShareImage,
+} from '../lib/attendance-share';
+
+interface SharePreviewState {
+  post: AttendanceFeedPost;
+  file: File;
+  previewUrl: string;
+  caption: string;
+  canNativeShareFiles: boolean;
+}
+
+async function copyTextSafe(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fallback below for restricted iframe contexts.
+  }
+  try {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const ok = document.execCommand('copy');
+    textarea.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
 
 interface FeedTodayResponse {
   tanggal: string;
@@ -101,6 +140,10 @@ export function AttendanceFeedView({
   const [lightboxPost, setLightboxPost] = useState<AttendanceFeedPost | null>(null);
   const [failedPhotoIds, setFailedPhotoIds] = useState<Record<number, boolean>>({});
   const [sharingPostId, setSharingPostId] = useState<number | null>(null);
+  const [sharePreview, setSharePreview] = useState<SharePreviewState | null>(null);
+  const [shareActionBusy, setShareActionBusy] = useState(false);
+  const [captionCopied, setCaptionCopied] = useState(false);
+  const [shareModalNotice, setShareModalNotice] = useState<string | null>(null);
   const [shareNotice, setShareNotice] = useState<string | null>(null);
   const focusedPostRef = useRef<number | null>(null);
 
@@ -177,47 +220,110 @@ export function AttendanceFeedView({
     return () => window.clearTimeout(timerId);
   }, [focusAttendanceId, feed?.posts, onFocusHandled]);
 
+  // Clean up generated snapshot preview object URL on close/unmount.
+  useEffect(() => {
+    return () => {
+      if (sharePreview?.previewUrl) {
+        URL.revokeObjectURL(sharePreview.previewUrl);
+      }
+    };
+  }, [sharePreview?.previewUrl]);
+
+  const closeSharePreview = useCallback(() => {
+    setSharePreview(null);
+    setCaptionCopied(false);
+    setShareModalNotice(null);
+  }, []);
+
   const handleSharePost = async (post: AttendanceFeedPost) => {
     if (sharingPostId !== null) return;
     setSharingPostId(post.id);
     setShareNotice(null);
+    setShareModalNotice(null);
+    setCaptionCopied(false);
     try {
       const file = await createAttendanceShareImage(post);
-      const shareData: ShareData = {
-        files: [file],
-        title: `Bukti Absensi BIGNET - ${post.namaLengkap}`,
-        text: `Bukti absensi ${post.namaLengkap}, ${post.namaSesi}, ${post.tanggal} pukul ${post.jamWib} WIB.`,
-      };
-
-      const canUseNativeShare =
+      const caption = buildAttendanceShareCaption(post);
+      const previewUrl = URL.createObjectURL(file);
+      const canNativeShareFiles =
         typeof navigator.share === 'function' &&
         (!navigator.canShare || navigator.canShare({ files: [file] }));
-      if (canUseNativeShare) {
-        try {
-          await navigator.share(shareData);
-          setShareNotice('Kartu absensi berhasil dibagikan.');
-          return;
-        } catch (shareError) {
-          if (shareError instanceof Error && shareError.name === 'AbortError') return;
-        }
-      }
 
-      const objectUrl = URL.createObjectURL(file);
-      const link = document.createElement('a');
-      link.href = objectUrl;
-      link.download = file.name;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
-      setShareNotice('Gambar kartu absensi diunduh. Anda dapat melampirkan file PNG ke WhatsApp atau Telegram.');
+      setSharePreview({
+        post,
+        file,
+        previewUrl,
+        caption,
+        canNativeShareFiles,
+      });
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return;
       setShareNotice(
-        err instanceof Error ? err.message : 'Gagal menyiapkan gambar kartu absensi.'
+        err instanceof Error ? err.message : 'Gagal menyiapkan snapshot kartu absensi.'
       );
     } finally {
       setSharingPostId(null);
+    }
+  };
+
+  const triggerSnapshotDownload = (file: File, previewUrl: string) => {
+    const link = document.createElement('a');
+    link.href = previewUrl;
+    link.download = file.name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
+  const handleCopyShareCaption = async () => {
+    if (!sharePreview) return;
+    const copied = await copyTextSafe(sharePreview.caption);
+    if (copied) {
+      setCaptionCopied(true);
+      setShareModalNotice('Caption berhasil disalin ke clipboard.');
+      window.setTimeout(() => setCaptionCopied(false), 2500);
+    } else {
+      setShareModalNotice('Tidak dapat menyalin otomatis. Silakan blok dan salin teks caption di atas.');
+    }
+  };
+
+  const handleDownloadSnapshotOnly = () => {
+    if (!sharePreview) return;
+    triggerSnapshotDownload(sharePreview.file, sharePreview.previewUrl);
+    setShareModalNotice('Snapshot PNG berhasil diunduh.');
+  };
+
+  const handleDownloadAndCopy = async () => {
+    if (!sharePreview) return;
+    triggerSnapshotDownload(sharePreview.file, sharePreview.previewUrl);
+    const copied = await copyTextSafe(sharePreview.caption);
+    if (copied) {
+      setCaptionCopied(true);
+      setShareModalNotice('Snapshot PNG diunduh & caption disalin! Tinggal tempel ke WhatsApp/Telegram.');
+      window.setTimeout(() => setCaptionCopied(false), 2500);
+    } else {
+      setShareModalNotice('Snapshot PNG diunduh. Salin caption di atas untuk melengkapi pesan.');
+    }
+  };
+
+  const handleNativeShareSnapshot = async () => {
+    if (!sharePreview || shareActionBusy) return;
+    setShareActionBusy(true);
+    setShareModalNotice(null);
+    try {
+      await navigator.share({
+        files: [sharePreview.file],
+        title: `Bukti Absensi BIGNET — ${sharePreview.post.namaLengkap}`,
+        text: sharePreview.caption,
+      });
+      setShareNotice('Snapshot absensi dan caption berhasil dibagikan.');
+      closeSharePreview();
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return;
+      // Fallback gracefully if OS share sheet rejects files+text combo.
+      await handleDownloadAndCopy();
+    } finally {
+      setShareActionBusy(false);
     }
   };
 
@@ -1060,6 +1166,192 @@ export function AttendanceFeedView({
                   )}
                 </div>
               </div>
+
+              <div className="pt-1 flex justify-end">
+                <button
+                  type="button"
+                  disabled={sharingPostId !== null}
+                  onClick={() => {
+                    const postToShare = lightboxPost;
+                    setLightboxPost(null);
+                    void handleSharePost(postToShare);
+                  }}
+                  className="min-h-[40px] px-4 rounded-xl bg-[#c0392b] hover:bg-[#a93226] text-white text-xs font-semibold inline-flex items-center gap-2 shadow-xs disabled:opacity-50"
+                >
+                  <Share2 className="w-4 h-4" />
+                  Bagikan Snapshot & Caption
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Snapshot Preview & Share Modal (Image + Structured Caption) */}
+      {sharePreview && (
+        <div
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4"
+          onClick={closeSharePreview}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="share-snapshot-title"
+            className="bg-white dark:bg-slate-900 rounded-2xl max-w-2xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden max-h-[calc(100dvh-1.5rem)] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0">
+              <div className="min-w-0">
+                <h2
+                  id="share-snapshot-title"
+                  className="font-display text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100 truncate"
+                >
+                  Bagikan Snapshot Absensi
+                </h2>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                  {sharePreview.post.namaLengkap} · {sharePreview.post.namaSesi} ·{' '}
+                  {sharePreview.post.jamWib} WIB
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeSharePreview}
+                className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0"
+                aria-label="Tutup jendela bagikan"
+              >
+                <X className="w-5 h-5 text-slate-500 dark:text-slate-400" />
+              </button>
+            </div>
+
+            {/* Modal Body: Snapshot Preview + Caption */}
+            <div className="min-h-0 overflow-y-auto overscroll-contain p-4 grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+              {/* Left: Crisp PNG Snapshot Preview */}
+              <div className="space-y-2">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Pratinjau Snapshot (PNG)
+                </p>
+                <div className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-950 shadow-sm">
+                  <img
+                    src={sharePreview.previewUrl}
+                    alt={`Snapshot absensi ${sharePreview.post.namaLengkap}`}
+                    className="w-full h-auto max-h-[52dvh] object-contain mx-auto block"
+                  />
+                </div>
+              </div>
+
+              {/* Right: Structured Caption Ready to Share / Copy */}
+              <div className="space-y-2.5 flex flex-col">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    Caption Siap Bagikan
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void handleCopyShareCaption()}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
+                      captionCopied
+                        ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                        : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200'
+                    }`}
+                  >
+                    {captionCopied ? (
+                      <>
+                        <Check className="w-3.5 h-3.5" />
+                        Tersalin
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        Salin Caption
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                <textarea
+                  readOnly
+                  value={sharePreview.caption}
+                  rows={11}
+                  aria-label="Caption bukti kehadiran"
+                  className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/70 text-xs leading-relaxed text-slate-800 dark:text-slate-100 font-mono resize-none focus:outline-none focus:border-brand-500"
+                />
+
+                {shareModalNotice && (
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    className="rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/50 px-3 py-2 text-xs font-medium text-emerald-800 dark:text-emerald-200 flex items-start gap-2"
+                  >
+                    <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
+                    <span>{shareModalNotice}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Modal Footer Actions */}
+            <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/90 flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 shrink-0">
+              {sharePreview.canNativeShareFiles ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleDownloadSnapshotOnly}
+                    className="min-h-[42px] px-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center justify-center gap-1.5"
+                  >
+                    <Download className="w-4 h-4" />
+                    Unduh PNG
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleCopyShareCaption()}
+                    className="min-h-[42px] px-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center justify-center gap-1.5"
+                  >
+                    {captionCopied ? (
+                      <Check className="w-4 h-4 text-emerald-600" />
+                    ) : (
+                      <Copy className="w-4 h-4" />
+                    )}
+                    {captionCopied ? 'Caption Tersalin' : 'Salin Caption'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={shareActionBusy}
+                    onClick={() => void handleNativeShareSnapshot()}
+                    className="min-h-[42px] px-4 rounded-xl bg-[#c0392b] hover:bg-[#a93226] text-white text-xs font-bold inline-flex items-center justify-center gap-2 shadow-sm disabled:opacity-60"
+                  >
+                    {shareActionBusy ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Share2 className="w-4 h-4" />
+                    )}
+                    Bagikan Snapshot & Caption
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void handleCopyShareCaption()}
+                    className="min-h-[42px] px-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center justify-center gap-1.5"
+                  >
+                    {captionCopied ? (
+                      <Check className="w-4 h-4 text-emerald-600" />
+                    ) : (
+                      <Copy className="w-4 h-4" />
+                    )}
+                    {captionCopied ? 'Caption Tersalin' : 'Salin Caption'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleDownloadAndCopy()}
+                    className="min-h-[42px] px-4 rounded-xl bg-[#c0392b] hover:bg-[#a93226] text-white text-xs font-bold inline-flex items-center justify-center gap-2 shadow-sm"
+                  >
+                    <Download className="w-4 h-4" />
+                    Unduh PNG & Salin Caption
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>

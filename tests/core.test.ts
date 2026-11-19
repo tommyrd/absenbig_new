@@ -18,13 +18,14 @@ import {
   resolveDayForEmployee,
 } from '../src/server/services/resolver.ts';
 import { getWibDateString } from '../src/server/time.ts';
-import type { Karyawan, Role } from '../src/shared/types.ts';
+import type { AttendanceFeedPost, Karyawan, Role } from '../src/shared/types.ts';
 import { isGpsAccuracyAcceptable, isWithinVerifiedGeofence, MAX_GPS_ACCURACY_METERS, requiresOfficeGeofence } from '../src/shared/geofence.ts';
 import { getSessionWindowState } from '../src/shared/session-window.ts';
 import { createServerClockSync, getEstimatedServerEpochMs } from '../src/shared/server-clock.ts';
 import { shouldOpenAttendanceOnEntry } from '../src/shared/employee-entry.ts';
 import { getHistoryCalendarStatus } from '../src/shared/history-calendar.ts';
 import { formatServerEpochPartsInWib } from '../src/lib/server-clock-client.ts';
+import { buildAttendanceShareCaption } from '../src/lib/attendance-share.ts';
 
 // Isolate core test suite to a temporary SQLite directory so running `npm test`
 // never mutates the live application database.
@@ -639,3 +640,65 @@ test('Server clock client formats authoritative server epoch strictly in Asia/Ja
   assert.equal(parts.hmWib, '01:30');
   assert.match(parts.dateTimeLabelWib, /01:30:45 WIB$/);
 });
+
+test('Attendance share caption includes accurate metadata, status, location, and employee caption', () => {
+  const samplePost: AttendanceFeedPost = {
+    id: 42,
+    karyawanId: 2,
+    nik: '2024002',
+    namaLengkap: 'Dimas Nugroho',
+    jabatan: 'Lead Network Technician',
+    role: 'KARYAWAN',
+    fotoProfilUpdatedAt: null,
+    bidangId: 1,
+    bidangNama: 'Teknisi Lapangan',
+    kantorId: 2,
+    kantorNama: 'Kantor Operasional B',
+    kantorAlamat: 'Jl. Merdeka No. 45, Jakarta',
+    lokasiAktualAlamat: 'Jl. Medan Merdeka Barat No. 12, Jakarta Pusat',
+    tanggal: '2026-11-19',
+    urutanSesi: 2,
+    namaSesi: 'Progres Siang',
+    waktuServer: '2026-11-19T11:48:22+07:00',
+    jamWib: '11:48',
+    statusKetepatan: 'TEPAT_WAKTU',
+    keterlambatanMenit: 0,
+    jarakKantorMeter: 24,
+    dalamGeofence: true,
+    lat: -6.175392,
+    lng: 106.827153,
+    tipeAktivitas: 'AKTIVITAS',
+    deskripsiAktivitas: 'Pengecekan ODP pelanggan sektor timur selesai normal.',
+    hasFoto: true,
+    sessionsCompletedToday: 2,
+    sessionsTotalToday: 4,
+    operationalStatusToday: 'BELUM_SELESAI',
+  };
+
+  const caption = buildAttendanceShareCaption(samplePost);
+  assert.match(caption, /BUKTI KEHADIRAN — ABSENSI BIGNET/);
+  assert.match(caption, /Dimas Nugroho \(2024002\)/);
+  assert.match(caption, /Lead Network Technician · Teknisi Lapangan/);
+  assert.match(caption, /Sesi 2\/4 — Progres Siang/);
+  assert.match(caption, /11:48 WIB/);
+  assert.match(caption, /Status: Tepat Waktu/);
+  assert.match(caption, /Caption \(Aktivitas Pekerjaan\)/);
+  assert.match(caption, /Pengecekan ODP pelanggan sektor timur selesai normal\./);
+  assert.match(caption, /Jl\. Medan Merdeka Barat No\. 12, Jakarta Pusat/);
+  assert.match(caption, /Kantor Operasional B \(Dalam Radius · 24 m\)/);
+  assert.match(caption, /Koordinat GPS: -6\.175392, 106\.827153/);
+
+  const lateStandbyCaption = buildAttendanceShareCaption({
+    ...samplePost,
+    statusKetepatan: 'TERLAMBAT',
+    keterlambatanMenit: 14,
+    tipeAktivitas: 'STANDBY',
+    dalamGeofence: false,
+    jarakKantorMeter: 1350,
+    deskripsiAktivitas: 'Standby monitoring jaringan di lokasi mitra.',
+  });
+  assert.match(lateStandbyCaption, /Status: Terlambat 14 menit/);
+  assert.match(lateStandbyCaption, /Caption \(Standby \/ Siaga\)/);
+  assert.match(lateStandbyCaption, /Luar Radius · 1,4 km/);
+});
+
