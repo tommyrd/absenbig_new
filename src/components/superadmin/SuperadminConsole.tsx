@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { apiFetch, getAuthorizedPhotoUrl } from '../../lib/api';
 import { exportPayrollToExcel, exportPayrollToImage } from '../../lib/exportUtils';
+import { useResetScroll } from '../../lib/scroll';
 import { getServerWibYearMonth, useServerClock } from '../../lib/server-clock-client';
 import type {
   AuditLog,
@@ -109,6 +110,8 @@ export function SuperadminConsole({
   const [tab, setTab] = useState<SuperTab>('beranda');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [bulan, setBulan] = useState(() => getServerWibYearMonth());
+
+  useResetScroll([tab]);
 
   const [overview, setOverview] = useState<OverviewPayload | null>(null);
   const [audits, setAudits] = useState<AuditLog[]>([]);
@@ -596,27 +599,30 @@ export function SuperadminConsole({
 
       {/* Main Workspace */}
       <div className="flex-1 min-w-0 flex flex-col lg:ml-64">
-        <header className="sticky top-0 z-30 h-12 lg:h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-3 sm:px-6 flex items-center justify-between gap-2 sm:gap-4 transition-colors">
-          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+        <header className="sticky top-0 z-30 h-14 lg:h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-3 sm:px-5 lg:px-6 flex items-center justify-between gap-2 sm:gap-3 transition-colors">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
             <button
               type="button"
               onClick={() => setDrawerOpen(true)}
               aria-label="Buka menu navigasi"
-              className="lg:hidden min-w-[40px] min-h-[40px] flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shrink-0"
+              className="lg:hidden h-9 w-9 flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 shrink-0"
             >
               <Menu className="w-5 h-5" />
             </button>
-            <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate">
-              Konsol Owner / CEO · {menuItems.find((m) => m.id === tab)?.label}
+            <span className="text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">
+              <span className="hidden xl:inline text-slate-400 dark:text-slate-500 font-medium">
+                Konsol Owner ·{' '}
+              </span>
+              {menuItems.find((m) => m.id === tab)?.label}
             </span>
           </div>
-          <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {tab !== 'beranda' && tab !== 'profile' && tab !== 'accounts' && tab !== 'settings' && (
               <input
                 type="month"
                 value={bulan}
                 onChange={(e) => setBulan(e.target.value)}
-                className="h-9 px-2.5 text-xs font-mono border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 hidden sm:block"
+                className="h-9 px-2.5 text-xs font-mono border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 hidden md:block"
               />
             )}
             <ServerClock compact />
@@ -624,7 +630,9 @@ export function SuperadminConsole({
             <button
               type="button"
               onClick={() => setTab('profile')}
-              className="inline-flex items-center gap-2 pl-1.5 pr-2 sm:pr-2.5 py-1 min-h-[38px] rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+              className="inline-flex items-center justify-center gap-2 h-8 sm:h-9 px-1 sm:px-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 shrink-0"
+              aria-label="Profil Saya"
+              title="Profil & Akun Saya"
             >
               <UserAvatar
                 karyawanId={user.karyawan_id}
@@ -639,10 +647,12 @@ export function SuperadminConsole({
             <button
               type="button"
               onClick={onLogout}
-              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 min-h-[38px] rounded-lg border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/50 hover:bg-red-100 dark:hover:bg-red-900/60 text-xs font-semibold text-red-800 dark:text-red-300 whitespace-nowrap"
+              className="inline-flex items-center justify-center gap-1.5 h-8 sm:h-9 px-2 sm:px-2.5 rounded-lg border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/50 hover:bg-red-100 dark:hover:bg-red-900/60 text-xs font-semibold text-red-800 dark:text-red-300 whitespace-nowrap shrink-0"
+              aria-label="Keluar Akun"
+              title="Keluar Akun"
             >
-              <LogOut className="w-3.5 h-3.5" />
-              <span className="hidden xs:inline sm:inline">Keluar</span>
+              <LogOut className="w-3.5 h-3.5 shrink-0" />
+              <span className="hidden sm:inline">Keluar</span>
             </button>
           </div>
         </header>
@@ -669,8 +679,8 @@ export function SuperadminConsole({
             <SuperadminSettingsTab onSettingsUpdated={onSettingsUpdated} />
           ) : (
             <>
-              {/* Mobile Month Selector */}
-              <div className="sm:hidden flex items-center justify-between gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5">
+              {/* Mobile & Small Tablet Month Selector */}
+              <div className="md:hidden flex items-center justify-between gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5">
                 <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
                   Periode Data
                 </span>

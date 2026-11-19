@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import {
   ArrowLeft,
   Camera,
@@ -14,6 +14,7 @@ import {
   UserPlus,
 } from 'lucide-react';
 import { apiFetch, loginApi } from '../lib/api';
+import { resetViewportScroll, useResetScroll } from '../lib/scroll';
 import { useServerClock } from '../lib/server-clock-client';
 import type { AuthUser, BidangKerja, Kantor, SystemSettings } from '../shared/types';
 import { ServerClock } from './ServerClock';
@@ -71,11 +72,7 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
   const [regError, setRegError] = useState<string | null>(null);
   const [regLoading, setRegLoading] = useState(false);
 
-  useLayoutEffect(() => {
-    window.scrollTo(0, 0);
-    document.documentElement.scrollTop = 0;
-    document.body.scrollTop = 0;
-  }, [mode]);
+  useResetScroll([mode]);
 
   useEffect(() => {
     apiFetch<{ offices: Pick<Kantor, 'id' | 'kode' | 'nama'>[]; bidangList: BidangKerja[] }>(
@@ -134,6 +131,7 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
     setLoading(true);
     try {
       const res = await loginApi(identifier, password);
+      resetViewportScroll();
       onSuccess(res.user);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal masuk ke sistem.');
@@ -196,6 +194,7 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
     setLoading(true);
     try {
       const res = await loginApi(username, 'bignet123');
+      resetViewportScroll();
       onSuccess(res.user);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal masuk ke sistem.');
@@ -248,7 +247,7 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
             APLIKASI INTERNAL BIGNET
           </p>
 
-          <div className="mt-7 inline-flex items-center gap-2.5 rounded-full border border-white/15 bg-black/20 px-4 py-2 backdrop-blur-sm">
+          <div className="mt-7">
             <ServerClock compact onDark />
           </div>
         </div>

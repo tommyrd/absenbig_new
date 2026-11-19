@@ -2,8 +2,9 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
-import { useEffect, useLayoutEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { apiFetch, getStoredToken, logoutApi } from './lib/api';
+import { useResetScroll } from './lib/scroll';
 import { initServerClock } from './lib/server-clock-client';
 import { useTheme } from './lib/theme';
 import type { AuthUser, SystemSettings } from './shared/types';
@@ -18,23 +19,14 @@ export default function App() {
   const [settings, setSettings] = useState<SystemSettings | null>(null);
   const [checking, setChecking] = useState(true);
 
-  // LoginView and every role shell share the same document. Reset the
-  // viewport after any role becomes active so no dashboard inherits the
-  // previous login page's scroll position. Repeat on the next frame to
-  // cover layout/scroll restoration performed immediately after rendering.
-  useLayoutEffect(() => {
-    if (!user) return;
+  useEffect(() => {
+    if ('scrollRestoration' in window.history) {
+      window.history.scrollRestoration = 'manual';
+    }
+  }, []);
 
-    const resetViewport = () => {
-      window.scrollTo(0, 0);
-      document.documentElement.scrollTop = 0;
-      document.body.scrollTop = 0;
-    };
-
-    resetViewport();
-    const frameId = window.requestAnimationFrame(resetViewport);
-    return () => window.cancelAnimationFrame(frameId);
-  }, [user?.id, user?.role]);
+  // Reset viewport strictly to top whenever auth state or role changes
+  useResetScroll([user?.id ?? null, user?.role ?? null, checking]);
 
   useEffect(() => {
     const clockPromise = initServerClock().catch(() => false);

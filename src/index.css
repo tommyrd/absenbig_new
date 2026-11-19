@@ -31,6 +31,8 @@
     font-family: var(--font-sans);
     color-scheme: light;
     -webkit-tap-highlight-color: transparent;
+    overflow-x: clip;
+    scroll-behavior: auto;
   }
 
   html.dark {
@@ -40,13 +42,22 @@
   body {
     background-color: #f8fafc;
     color: #0f172a;
-    overflow-x: hidden;
+    overflow-x: clip;
   }
 
   html.dark body {
     background-color: #020617;
     color: #f1f5f9;
   }
+}
+
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
 }
 
 .pb-safe {

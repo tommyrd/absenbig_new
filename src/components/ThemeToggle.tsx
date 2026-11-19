@@ -19,7 +19,7 @@ export function ThemeToggle({ onDark = false, showLabel = false }: ThemeTogglePr
       onClick={toggleTheme}
       aria-label={isDark ? 'Aktifkan mode terang' : 'Aktifkan mode gelap'}
       title={isDark ? 'Ganti ke Mode Terang' : 'Ganti ke Mode Gelap'}
-      className={`min-h-[40px] sm:min-h-[36px] min-w-[40px] sm:min-w-[36px] px-2.5 rounded-lg border text-xs font-medium inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${btnCls}`}
+      className={`h-8 sm:h-9 min-w-[32px] sm:min-w-[36px] px-2 rounded-lg border text-xs font-medium inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${btnCls}`}
     >
       {isDark ? (
         <Sun className="w-4 h-4 text-amber-400 shrink-0" />

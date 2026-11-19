@@ -14,16 +14,35 @@ export function ServerClock({ compact = false, onDark = false }: ServerClockProp
   if (compact) {
     return (
       <div
-        className={`inline-flex items-center gap-1.5 text-xs font-mono tabular-nums whitespace-nowrap shrink-0 ${
-          onDark ? 'text-slate-200' : 'text-slate-700 dark:text-slate-200'
+        title={synced ? `Waktu Server WIB (${formattedDate})` : 'Menyinkronkan waktu server...'}
+        className={`inline-flex items-center gap-1.5 h-8 sm:h-9 px-2 sm:px-2.5 rounded-lg border text-[11px] sm:text-xs font-mono font-semibold tracking-tight tabular-nums whitespace-nowrap shrink-0 select-none ${
+          onDark
+            ? 'bg-black/25 border-white/20 text-white shadow-xs'
+            : 'bg-slate-100/95 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100'
         }`}
       >
-        <Clock
-          className={`w-3.5 h-3.5 shrink-0 ${
-            onDark ? 'text-brand-200' : 'text-[#c0392b] dark:text-brand-400'
+        <span
+          className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+            synced
+              ? onDark
+                ? 'bg-emerald-300'
+                : 'bg-emerald-500'
+              : 'bg-amber-400 animate-pulse'
           }`}
         />
-        <span>{formattedTime} WIB</span>
+        <Clock
+          className={`w-3.5 h-3.5 shrink-0 hidden min-[380px]:block ${
+            onDark ? 'text-white/85' : 'text-[#c0392b] dark:text-brand-400'
+          }`}
+        />
+        <span>{formattedTime}</span>
+        <span
+          className={`text-[10px] font-bold ${
+            onDark ? 'text-white/80' : 'text-[#c0392b] dark:text-brand-400'
+          }`}
+        >
+          WIB
+        </span>
       </div>
     );
   }

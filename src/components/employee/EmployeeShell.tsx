@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import { apiFetch } from '../../lib/api';
+import { useResetScroll } from '../../lib/scroll';
 import { useServerClock } from '../../lib/server-clock-client';
 import type { AuthUser, ResolvedDay, SystemSettings } from '../../shared/types';
 import { shouldOpenAttendanceOnEntry } from '../../shared/employee-entry';
@@ -69,11 +70,6 @@ export function EmployeeShell({
     setSuccessNotice(message);
     setFocusAttendanceId(sessionId);
     setTab('beranda');
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      });
-    });
 
     try {
       const res = await fetchToday();
@@ -159,6 +155,9 @@ export function EmployeeShell({
   const serverClock = useServerClock(5000);
   const nowWibHm = serverClock.synced && serverClock.hmWib ? serverClock.hmWib : serverWibHm;
 
+  // Ensure viewport lands strictly at top once initial route resolves and on every tab switch
+  useResetScroll([initialRouteReady, tab], initialRouteReady);
+
   const showIncompleteReminder =
     tab !== 'absensi' &&
     myDay !== null &&
@@ -185,10 +184,14 @@ export function EmployeeShell({
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col transition-colors">
-      {/* Compact Sticky Top Bar (< 48px mobile) */}
-      <header className="sticky top-0 z-30 h-12 md:h-14 bg-[#c0392b] dark:bg-slate-900 text-white border-b border-[#a93226] dark:border-slate-800 px-3 sm:px-6 flex items-center justify-between gap-2 sm:gap-3">
-        <div className="flex items-center gap-4 sm:gap-5 min-w-0">
-          <div className="flex items-center gap-2 min-w-0">
+      {/* Sticky Top Bar — Zero overlap across mobile, tablet, and desktop */}
+      <header className="sticky top-0 z-30 h-14 bg-[#c0392b] dark:bg-slate-900 text-white border-b border-[#a93226] dark:border-slate-800 px-3 sm:px-5 lg:px-6 flex items-center justify-between gap-2 sm:gap-3">
+        <div className="flex items-center gap-3 xl:gap-5 min-w-0 flex-1 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setTab('beranda')}
+            className="flex items-center gap-2 min-w-0 shrink-0 text-left"
+          >
             <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-white p-0.5 flex items-center justify-center shrink-0 shadow-xs">
               <img
                 src={logoSrc}
@@ -196,12 +199,12 @@ export function EmployeeShell({
                 className="w-full h-full object-contain"
               />
             </div>
-            <span className="font-display text-sm sm:text-base font-bold tracking-tight whitespace-nowrap truncate">
+            <span className="font-display text-sm sm:text-base font-bold tracking-tight whitespace-nowrap truncate hidden min-[410px]:inline lg:hidden xl:inline">
               {appName}
             </span>
-          </div>
-          {/* Desktop Navigation */}
-          <nav className="hidden md:flex items-center gap-1">
+          </button>
+          {/* Desktop Navigation (lg+ only so tablets never crowd or collide with clock) */}
+          <nav className="hidden lg:flex items-center gap-1 shrink-0">
             {NAV_ITEMS.map((item) => {
               const active = tab === item.id;
               return (
@@ -222,14 +225,15 @@ export function EmployeeShell({
           </nav>
         </div>
 
-        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           <ServerClock compact onDark />
           <ThemeToggle onDark />
           <button
             type="button"
             onClick={() => setTab('profil')}
-            className="inline-flex items-center gap-2 pl-1 pr-1.5 sm:pr-2 py-1 rounded-lg hover:bg-white/10 text-xs font-medium text-slate-100 whitespace-nowrap shrink-0 min-h-[40px] sm:min-h-[36px]"
+            className="inline-flex items-center gap-2 h-8 sm:h-9 px-1 xl:pr-2.5 rounded-lg hover:bg-white/10 text-xs font-medium text-slate-100 whitespace-nowrap shrink-0"
             title="Buka Profil & Foto Saya"
+            aria-label="Profil Saya"
           >
             <UserAvatar
               karyawanId={user.karyawan_id}
@@ -238,22 +242,23 @@ export function EmployeeShell({
               version={user.foto_profil_updated_at}
               size="xs"
             />
-            <span className="hidden sm:inline max-w-[110px] truncate">{user.nama_lengkap}</span>
+            <span className="hidden xl:inline max-w-[120px] truncate">{user.nama_lengkap}</span>
           </button>
           <button
             type="button"
             onClick={onLogout}
-            className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 min-h-[40px] sm:min-h-[36px] rounded-lg text-xs font-medium text-slate-200 hover:bg-white/10 border border-white/15 whitespace-nowrap shrink-0"
+            className="inline-flex items-center justify-center gap-1.5 h-8 sm:h-9 px-2 sm:px-2.5 rounded-lg text-xs font-medium text-white/90 hover:bg-white/15 border border-white/20 whitespace-nowrap shrink-0"
             aria-label="Keluar Akun"
+            title="Keluar Akun"
           >
-            <LogOut className="w-3.5 h-3.5" />
+            <LogOut className="w-3.5 h-3.5 shrink-0" />
             <span className="hidden sm:inline">Keluar</span>
           </button>
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-5 pb-20 md:pb-10">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-5 pb-20 lg:pb-10">
         {tab === 'beranda' && successNotice && (
           <div
             role="status"
@@ -316,30 +321,32 @@ export function EmployeeShell({
         )}
       </main>
 
-      {/* Mobile Fixed Bottom Nav (< 56px height) */}
+      {/* Mobile & Tablet Fixed Bottom Nav */}
       <nav
         aria-label="Navigasi Karyawan"
-        className="md:hidden fixed bottom-0 left-0 right-0 z-40 h-14 pb-safe bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 grid grid-cols-5 items-center"
+        className="lg:hidden fixed bottom-0 left-0 right-0 z-40 pb-safe bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800"
       >
-        {NAV_ITEMS.map((item) => {
-          const Icon = item.Icon;
-          const active = tab === item.id;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => setTab(item.id)}
-              className={`min-h-[44px] flex flex-col items-center justify-center gap-0.5 transition-colors ${
-                active
-                  ? 'text-[#c0392b] dark:text-brand-400'
-                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
-              }`}
-            >
-              <Icon className="w-5 h-5" />
-              <span className="text-[10px] font-semibold tracking-tight">{item.label}</span>
-            </button>
-          );
-        })}
+        <div className="max-w-xl mx-auto h-14 grid grid-cols-5 items-center">
+          {NAV_ITEMS.map((item) => {
+            const Icon = item.Icon;
+            const active = tab === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setTab(item.id)}
+                className={`min-h-[44px] flex flex-col items-center justify-center gap-0.5 transition-colors ${
+                  active
+                    ? 'text-[#c0392b] dark:text-brand-400'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
+                }`}
+              >
+                <Icon className="w-5 h-5" />
+                <span className="text-[10px] font-semibold tracking-tight">{item.label}</span>
+              </button>
+            );
+          })}
+        </div>
       </nav>
     </div>
   );

@@ -13,6 +13,7 @@ import {
   UserCog,
   X,
 } from 'lucide-react';
+import { useResetScroll } from '../../lib/scroll';
 import type { AuthUser, SystemSettings } from '../../shared/types';
 import { AttendanceFeedView } from '../AttendanceFeedView';
 import { ProfileSettingsPanel } from '../ProfileSettingsPanel';
@@ -65,6 +66,8 @@ export function AdminShell({
 }: AdminShellProps) {
   const [tab, setTab] = useState<AdminTab>('beranda');
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  useResetScroll([tab]);
 
   const selectTab = (id: AdminTab) => {
     setTab(id);
@@ -224,27 +227,32 @@ export function AdminShell({
 
       {/* Main Content */}
       <div className="flex-1 min-w-0 flex flex-col lg:ml-64">
-        <header className="sticky top-0 z-30 h-12 lg:h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-3 sm:px-6 flex items-center justify-between gap-2 sm:gap-4">
-          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+        <header className="sticky top-0 z-30 h-14 lg:h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-3 sm:px-5 lg:px-6 flex items-center justify-between gap-2 sm:gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
             <button
               type="button"
               onClick={() => setDrawerOpen(true)}
-              className="lg:hidden min-w-[40px] min-h-[40px] flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 shrink-0"
+              className="lg:hidden h-9 w-9 flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 shrink-0"
               aria-label="Buka menu"
             >
               <Menu className="w-5 h-5" />
             </button>
-            <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 truncate">
-              Konsol Admin · {ADMIN_MENU.find((m) => m.id === tab)?.label}
+            <span className="text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">
+              <span className="hidden md:inline text-slate-400 dark:text-slate-500 font-medium">
+                Konsol Admin ·{' '}
+              </span>
+              {ADMIN_MENU.find((m) => m.id === tab)?.label}
             </span>
           </div>
-          <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <ServerClock compact />
             <ThemeToggle />
             <button
               type="button"
               onClick={() => selectTab('profile')}
-              className="inline-flex items-center gap-2 pl-1.5 pr-2 sm:pr-2.5 min-h-[40px] sm:min-h-[36px] rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+              className="inline-flex items-center justify-center gap-2 h-8 sm:h-9 px-1 sm:px-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 shrink-0"
+              aria-label="Profil Saya"
+              title="Profil & Akun Saya"
             >
               <UserAvatar
                 karyawanId={user.karyawan_id}
@@ -258,10 +266,11 @@ export function AdminShell({
             <button
               type="button"
               onClick={onLogout}
-              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 min-h-[40px] sm:min-h-[36px] rounded-lg border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/50 hover:bg-red-100 dark:hover:bg-red-900/60 text-xs font-semibold text-red-800 dark:text-red-300 whitespace-nowrap"
+              className="inline-flex items-center justify-center gap-1.5 h-8 sm:h-9 px-2 sm:px-2.5 rounded-lg border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/50 hover:bg-red-100 dark:hover:bg-red-900/60 text-xs font-semibold text-red-800 dark:text-red-300 whitespace-nowrap shrink-0"
               aria-label="Keluar Akun"
+              title="Keluar Akun"
             >
-              <LogOut className="w-3.5 h-3.5" />
+              <LogOut className="w-3.5 h-3.5 shrink-0" />
               <span className="hidden sm:inline">Keluar</span>
             </button>
           </div>
