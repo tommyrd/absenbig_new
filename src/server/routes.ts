@@ -608,6 +608,7 @@ export function registerApiRoutes(app: Express) {
     const list = getWorkforceToday(db, kantorId, bidangId);
     res.json({
       tanggal: getWibDateString(),
+      serverTime: getWibTimeString(),
       totalBekerja: list.filter((w) => w.isWorkingToday).length,
       totalHadirSelesai: list.filter((w) => w.operationalStatus === 'HADIR').length,
       items: list,

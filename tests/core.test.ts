@@ -26,6 +26,12 @@ import { shouldOpenAttendanceOnEntry } from '../src/shared/employee-entry.ts';
 import { getHistoryCalendarStatus } from '../src/shared/history-calendar.ts';
 import { formatServerEpochPartsInWib } from '../src/lib/server-clock-client.ts';
 import { buildAttendanceShareCaption } from '../src/lib/attendance-share.ts';
+import {
+  buildMonitoringCheckInCaption,
+  computeMonitoringCheckInStats,
+  sortMonitoringCheckInRows,
+  type MonitoringCheckInRow,
+} from '../src/lib/monitoring-snapshot.ts';
 
 // Isolate core test suite to a temporary SQLite directory so running `npm test`
 // never mutates the live application database.
@@ -701,4 +707,102 @@ test('Attendance share caption includes accurate metadata, status, location, and
   assert.match(lateStandbyCaption, /Caption \(Standby \/ Siaga\)/);
   assert.match(lateStandbyCaption, /Luar Radius · 1,4 km/);
 });
+
+test('Monitoring Hari Ini check-in snapshot sorts by Jam Masuk, computes stats, and formats morning caption', () => {
+  const rows: MonitoringCheckInRow[] = [
+    {
+      karyawanId: 1,
+      nik: '2024001',
+      namaLengkap: 'Fajar Hidayat',
+      jabatan: 'NOC',
+      kantorNama: 'Kantor Pusat A',
+      bidangNama: 'NOC',
+      isWorkingToday: true,
+      operationalStatus: 'BELUM_SELESAI',
+      sessionsCompleted: 0,
+      sessionsTotal: 3,
+      sesi1Time: null,
+      sesi1Terlambat: false,
+      keterlambatanMenit: 0,
+      dalamGeofence: null,
+    },
+    {
+      karyawanId: 2,
+      nik: '2024002',
+      namaLengkap: 'Dewi Lestari',
+      jabatan: 'Teknisi',
+      kantorNama: 'Kantor Pusat A',
+      bidangNama: 'Teknisi Lapangan',
+      isWorkingToday: true,
+      operationalStatus: 'BELUM_SELESAI',
+      sessionsCompleted: 1,
+      sessionsTotal: 4,
+      sesi1Time: '08:18',
+      sesi1Terlambat: true,
+      keterlambatanMenit: 18,
+      dalamGeofence: true,
+    },
+    {
+      karyawanId: 3,
+      nik: '2024003',
+      namaLengkap: 'Andi Pratama',
+      jabatan: 'Staff',
+      kantorNama: 'Kantor Pusat A',
+      bidangNama: 'Administrasi',
+      isWorkingToday: true,
+      operationalStatus: 'BELUM_SELESAI',
+      sessionsCompleted: 1,
+      sessionsTotal: 3,
+      sesi1Time: '07:52',
+      sesi1Terlambat: false,
+      keterlambatanMenit: 0,
+      dalamGeofence: true,
+    },
+    {
+      karyawanId: 4,
+      nik: '2024004',
+      namaLengkap: 'Hendra Wijaya',
+      jabatan: 'Staff',
+      kantorNama: 'Kantor Pusat A',
+      bidangNama: 'Administrasi',
+      isWorkingToday: false,
+      operationalStatus: 'CUTI',
+      sessionsCompleted: 0,
+      sessionsTotal: 3,
+      sesi1Time: null,
+      sesi1Terlambat: false,
+      keterlambatanMenit: 0,
+      dalamGeofence: null,
+    },
+  ];
+
+  const sorted = sortMonitoringCheckInRows(rows);
+  assert.deepEqual(
+    sorted.map((r) => r.namaLengkap),
+    ['Andi Pratama', 'Dewi Lestari', 'Fajar Hidayat', 'Hendra Wijaya']
+  );
+
+  const stats = computeMonitoringCheckInStats(sorted);
+  assert.equal(stats.totalWajibKerja, 3);
+  assert.equal(stats.sudahMasuk, 2);
+  assert.equal(stats.tepatWaktu, 1);
+  assert.equal(stats.terlambat, 1);
+  assert.equal(stats.belumAbsen, 1);
+  assert.equal(stats.tidakWajibKerja, 1);
+
+  const caption = buildMonitoringCheckInCaption({
+    tanggal: '2026-11-19',
+    serverTimeWib: '08:30:00',
+    filterLabel: 'Kantor Pusat A · Semua Bidang',
+    rows,
+  });
+  assert.match(caption, /LAPORAN JAM MASUK HARIAN — ABSENSI BIGNET/);
+  assert.match(caption, /Update Server: 08:30 WIB/);
+  assert.match(caption, /2\/3 Sudah Masuk · 1 Tepat Waktu · 1 Terlambat · 1 Belum Absen/);
+  assert.match(caption, /01\. \*07:52 WIB\* — Andi Pratama \(Tepat Waktu\)/);
+  assert.match(caption, /02\. \*08:18 WIB\* — Dewi Lestari \(Terlambat 18 mnt\)/);
+  assert.match(caption, /03\. \*Belum Absen\* — Fajar Hidayat/);
+  assert.match(caption, /04\. \[CUTI\] — Hendra Wijaya/);
+});
+
 
