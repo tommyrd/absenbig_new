@@ -117,7 +117,9 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
   const heroDesc = (settings?.deskripsi_login || '').trim() || 'APLIKASI INTERNAL BIGNET';
   const formHeading = (settings?.judul_form_login || '').trim() || 'Selamat Datang Kembali';
   const loginAnnouncement = (settings?.pengumuman_login || '').trim();
-  const footerText = settings?.footer_login || 'Sistem Kehadiran & Payroll';
+  const customFooter = (settings?.footer_login || '').trim();
+  const footerText =
+    customFooter || `© ${serverYear} ${appName.toUpperCase()} · Sistem Kehadiran & Payroll`;
   const showDemo = Boolean(settings?.izin_demo_login);
   const logoSrc = `/api/v1/assets/logo?v=${encodeURIComponent(
     settings?.logo_updated_at || '2'
@@ -222,7 +224,7 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
             </div>
             <div className="min-w-0">
               <p className="truncate font-display text-base font-extrabold tracking-tight text-white">
-                PT. BIG
+                {appName}
               </p>
               <p className="truncate text-[11px] font-medium uppercase tracking-[0.14em] text-white/75">
                 {subtitle}
@@ -255,9 +257,9 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
           </div>
         </div>
 
-        {/* Bottom Copyright */}
-        <div className="relative z-10 text-xs text-white/65">
-          © {serverYear} {appName.toUpperCase()} · {footerText}
+        {/* Bottom Footer */}
+        <div className="relative z-10 text-xs text-white/75">
+          {footerText}
         </div>
       </aside>
 
@@ -289,7 +291,7 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
             </div>
 
             <p className="mt-3.5 text-[11px] font-bold uppercase tracking-[0.14em] text-[#c0392b] dark:text-brand-400">
-              {subtitle} · PT. BIG
+              {subtitle}
             </p>
 
             <h2 className="mt-1.5 font-display text-[22px] font-extrabold tracking-tight text-slate-900 dark:text-white sm:text-2xl">
@@ -443,9 +445,9 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
                 </div>
               )}
 
-              {/* Mobile Card Footer */}
+              {/* Mobile & Tablet Card Footer */}
               <p className="mt-7 text-center text-[11px] tracking-wide text-slate-400 dark:text-slate-500 lg:hidden">
-                © {serverYear} {appName.toUpperCase()} · PT. BIG
+                {footerText}
               </p>
             </div>
           ) : (

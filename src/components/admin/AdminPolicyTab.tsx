@@ -250,6 +250,17 @@ export function AdminPolicyTab() {
   };
 
   const activeDefaultCount = policies.filter((p) => p.level === 'DEFAULT' && p.aktif === 1).length;
+  const todayWib = getServerWibDateString();
+
+  const getTargetLabel = (p: KebijakanAbsensi) => {
+    if (p.level === 'KARYAWAN') {
+      return `Target Individu: ${p.karyawan_nama || 'Karyawan'}`;
+    }
+    if (p.level === 'BIDANG') {
+      return `Target Kelompok Bidang: ${p.bidang_nama || 'Bidang Kerja'}`;
+    }
+    return 'Target: Semua Karyawan (Default Perusahaan)';
+  };
 
   return (
     <div className="space-y-5 sm:space-y-6">
@@ -270,6 +281,18 @@ export function AdminPolicyTab() {
           <Plus className="w-4 h-4" />
           Buat Kebijakan Baru
         </button>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/60 p-3.5 text-xs text-slate-600 dark:text-slate-300 space-y-1 leading-relaxed">
+        <p className="font-semibold text-slate-800 dark:text-slate-100">
+          Cara Kerja Target &amp; Tanggal Berlaku Mulai
+        </p>
+        <p>
+          • <strong>Target Kelompok / Individu:</strong> Pilih <strong>Bidang Kerja</strong> untuk seluruh anggota satu bidang, atau <strong>Individu Karyawan</strong> untuk 1 orang tertentu. Prioritas: <strong>Individu &gt; Bidang Kerja &gt; Default Perusahaan</strong>.
+        </p>
+        <p>
+          • <strong>Tanggal Berlaku Mulai:</strong> Kebijakan hanya aktif sejak tanggal tersebut. Sebelum tanggal berlaku tiba, karyawan akan mengikuti kebijakan aktif dengan prioritas di bawahnya (mis. <strong>Default Perusahaan</strong>), atau <strong>tidak menampilkan sesi absen</strong> jika semua kebijakan yang berlaku untuk karyawan tersebut belum mencapai tanggal mulai.
+        </p>
       </div>
 
       {feedback && (
@@ -305,27 +328,34 @@ export function AdminPolicyTab() {
           {policies.map((p) => {
             const isOnlyActiveDefault = p.level === 'DEFAULT' && p.aktif === 1 && activeDefaultCount <= 1;
             const isConfirmingDelete = confirmDeleteId === p.id;
+            const isScheduledFuture = Boolean(p.aktif && todayWib && p.berlaku_mulai > todayWib);
             return (
               <div
                 key={p.id}
                 className={`bg-white dark:bg-slate-900 border rounded-xl p-4 sm:p-5 space-y-4 transition-opacity ${
-                  p.aktif
-                    ? 'border-slate-200 dark:border-slate-800'
-                    : 'border-slate-200/70 dark:border-slate-800/70 opacity-65'
+                  !p.aktif
+                    ? 'border-slate-200/70 dark:border-slate-800/70 opacity-65'
+                    : isScheduledFuture
+                      ? 'border-amber-300 dark:border-amber-800/80'
+                      : 'border-slate-200 dark:border-slate-800'
                 }`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2 text-xs text-brand-600 dark:text-brand-400 font-semibold">
                       <ShieldCheck className="w-4 h-4 shrink-0" />
-                      <span>
-                        Prioritas {p.level}
-                        {p.bidang_nama ? ` · ${p.bidang_nama}` : ''}
-                        {p.karyawan_nama ? ` · ${p.karyawan_nama}` : ''}
-                      </span>
-                      {!p.aktif && (
+                      <span>{getTargetLabel(p)}</span>
+                      {!p.aktif ? (
                         <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
                           Nonaktif
+                        </span>
+                      ) : isScheduledFuture ? (
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 px-1.5 py-0.5 rounded">
+                          Terjadwal · Belum Berlaku
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 px-1.5 py-0.5 rounded">
+                          Berlaku Aktif
                         </span>
                       )}
                     </div>
@@ -334,6 +364,7 @@ export function AdminPolicyTab() {
                     </h2>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 font-mono">
                       Berlaku mulai {p.berlaku_mulai}
+                      {isScheduledFuture ? ' (belum aktif hari ini)' : ''}
                     </p>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
@@ -488,7 +519,14 @@ export function AdminPolicyTab() {
                 </div>
               )}
 
-              {!editing && (
+              {editing ? (
+                <div className="rounded-lg bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 px-3.5 py-2.5 text-xs text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-brand-600 dark:text-brand-400 shrink-0" />
+                  <span>
+                    <strong>{getTargetLabel(editing)}</strong>
+                  </span>
+                </div>
+              ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">

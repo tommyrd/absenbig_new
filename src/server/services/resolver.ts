@@ -88,12 +88,28 @@ function buildHolidayEmergencySessions(): SesiConfig[] {
   ];
 }
 
+function hydratePolicy(
+  db: DatabaseSync,
+  policy: KebijakanAbsensi
+): KebijakanAbsensi & { sesiList: SesiConfig[] } {
+  const sesiList = db
+    .prepare(
+      `SELECT * FROM sesi_absensi WHERE kebijakan_id = ? AND aktif = 1 ORDER BY urutan ASC`
+    )
+    .all(policy.id) as unknown as SesiConfig[];
+
+  return {
+    ...policy,
+    sesiList: sesiList.length > 0 ? sesiList : buildDefaultSessionsForCount(policy.jumlah_sesi),
+  };
+}
+
 export function getEffectivePolicy(
   db: DatabaseSync,
   karyawan: Karyawan,
   tanggal: string
-): KebijakanAbsensi & { sesiList: SesiConfig[] } {
-  // Priority: KARYAWAN -> BIDANG -> DEFAULT, effective <= tanggal
+): (KebijakanAbsensi & { sesiList: SesiConfig[] }) | null {
+  // Priority: KARYAWAN -> BIDANG -> DEFAULT, strictly effective <= tanggal
   const empPolicy = db
     .prepare(
       `SELECT * FROM kebijakan_absensi
@@ -102,42 +118,68 @@ export function getEffectivePolicy(
     )
     .get(karyawan.id, tanggal) as KebijakanAbsensi | undefined;
 
-  const bidangPolicy = !empPolicy
-    ? (db
-        .prepare(
-          `SELECT * FROM kebijakan_absensi
-           WHERE aktif = 1 AND level = 'BIDANG' AND bidang_id = ? AND berlaku_mulai <= ?
-           ORDER BY berlaku_mulai DESC, id DESC LIMIT 1`
-        )
-        .get(karyawan.bidang_id, tanggal) as KebijakanAbsensi | undefined)
-    : undefined;
+  if (empPolicy) return hydratePolicy(db, empPolicy);
 
-  const defaultPolicy =
-    !empPolicy && !bidangPolicy
-      ? (db
-          .prepare(
-            `SELECT * FROM kebijakan_absensi
-             WHERE aktif = 1 AND level = 'DEFAULT' AND berlaku_mulai <= ?
-             ORDER BY berlaku_mulai DESC, id DESC LIMIT 1`
-          )
-          .get(tanggal) as KebijakanAbsensi | undefined)
-      : undefined;
-
-  const fallbackAny = (empPolicy ||
-    bidangPolicy ||
-    defaultPolicy ||
-    db.prepare(`SELECT * FROM kebijakan_absensi WHERE aktif = 1 ORDER BY id ASC LIMIT 1`).get()) as unknown as KebijakanAbsensi;
-
-  const sesiList = db
+  const bidangPolicy = db
     .prepare(
-      `SELECT * FROM sesi_absensi WHERE kebijakan_id = ? AND aktif = 1 ORDER BY urutan ASC`
+      `SELECT * FROM kebijakan_absensi
+       WHERE aktif = 1 AND level = 'BIDANG' AND bidang_id = ? AND berlaku_mulai <= ?
+       ORDER BY berlaku_mulai DESC, id DESC LIMIT 1`
     )
-    .all(fallbackAny.id) as unknown as SesiConfig[];
+    .get(karyawan.bidang_id, tanggal) as KebijakanAbsensi | undefined;
 
-  return {
-    ...fallbackAny,
-    sesiList: sesiList.length > 0 ? sesiList : buildDefaultSessionsForCount(fallbackAny.jumlah_sesi),
-  };
+  if (bidangPolicy) return hydratePolicy(db, bidangPolicy);
+
+  const defaultPolicy = db
+    .prepare(
+      `SELECT * FROM kebijakan_absensi
+       WHERE aktif = 1 AND level = 'DEFAULT' AND berlaku_mulai <= ?
+       ORDER BY berlaku_mulai DESC, id DESC LIMIT 1`
+    )
+    .get(tanggal) as KebijakanAbsensi | undefined;
+
+  if (defaultPolicy) return hydratePolicy(db, defaultPolicy);
+
+  return null;
+}
+
+export function getUpcomingPolicy(
+  db: DatabaseSync,
+  karyawan: Karyawan,
+  tanggal: string
+): (KebijakanAbsensi & { sesiList: SesiConfig[] }) | null {
+  // Earliest scheduled future policy matching this employee (priority: KARYAWAN -> BIDANG -> DEFAULT)
+  const empUpcoming = db
+    .prepare(
+      `SELECT * FROM kebijakan_absensi
+       WHERE aktif = 1 AND level = 'KARYAWAN' AND karyawan_id = ? AND berlaku_mulai > ?
+       ORDER BY berlaku_mulai ASC, id DESC LIMIT 1`
+    )
+    .get(karyawan.id, tanggal) as KebijakanAbsensi | undefined;
+
+  if (empUpcoming) return hydratePolicy(db, empUpcoming);
+
+  const bidangUpcoming = db
+    .prepare(
+      `SELECT * FROM kebijakan_absensi
+       WHERE aktif = 1 AND level = 'BIDANG' AND bidang_id = ? AND berlaku_mulai > ?
+       ORDER BY berlaku_mulai ASC, id DESC LIMIT 1`
+    )
+    .get(karyawan.bidang_id, tanggal) as KebijakanAbsensi | undefined;
+
+  if (bidangUpcoming) return hydratePolicy(db, bidangUpcoming);
+
+  const defaultUpcoming = db
+    .prepare(
+      `SELECT * FROM kebijakan_absensi
+       WHERE aktif = 1 AND level = 'DEFAULT' AND berlaku_mulai > ?
+       ORDER BY berlaku_mulai ASC, id DESC LIMIT 1`
+    )
+    .get(tanggal) as KebijakanAbsensi | undefined;
+
+  if (defaultUpcoming) return hydratePolicy(db, defaultUpcoming);
+
+  return null;
 }
 
 export function resolveDayForEmployee(
@@ -148,6 +190,15 @@ export function resolveDayForEmployee(
   const today = getWibDateString();
   const dow = getDayOfWeekFromYmd(tanggal);
   const basePolicy = getEffectivePolicy(db, karyawan, tanggal);
+  const upcomingPolicy = getUpcomingPolicy(db, karyawan, tanggal);
+
+  // Safe payroll-rule defaults if no effective policy exists yet on this date
+  const liburDihitungMasuk = basePolicy ? basePolicy.libur_dihitung_masuk : 1;
+  const offPenggantiDihitungMasuk = basePolicy ? basePolicy.off_pengganti_dihitung_masuk : 1;
+  const cutiDihitungMasuk = basePolicy ? basePolicy.cuti_dihitung_masuk : 1;
+  const sakitDihitungMasuk = basePolicy ? basePolicy.sakit_dihitung_masuk : 1;
+  const izinDihitungMasuk = basePolicy ? basePolicy.izin_dihitung_masuk : 0;
+  const toleransiTerlambatMenit = basePolicy ? basePolicy.toleransi_terlambat_menit : 15;
 
   // Check Special Work
   const kerjaKhusus = db
@@ -222,14 +273,21 @@ export function resolveDayForEmployee(
   }));
 
   // Determine active policy snapshot for this specific day
-  let jumlahSesi = basePolicy.jumlah_sesi;
-  let minSesiHadir = basePolicy.min_sesi_hadir;
-  let policyLevel: PolicyLevel | 'KERJA_KHUSUS' | 'KALENDER_KHUSUS' = basePolicy.level;
-  let policyName = basePolicy.nama;
-  let sesiList = basePolicy.sesiList;
-  let aturanLokasi: AttendanceLocationRule = basePolicy.aturan_lokasi || 'SESI_PERTAMA_KANTOR';
-  let wajibFotoSemuaSesi = Boolean(basePolicy.wajib_foto_semua_sesi);
-  let wajibAktivitasSesiLanjut = Boolean(basePolicy.wajib_aktivitas_sesi_lanjut);
+  let policyId: number | null = basePolicy ? basePolicy.id : null;
+  let jumlahSesi = basePolicy ? basePolicy.jumlah_sesi : 0;
+  let minSesiHadir = basePolicy ? basePolicy.min_sesi_hadir : 0;
+  let policyLevel: PolicyLevel | 'KERJA_KHUSUS' | 'KALENDER_KHUSUS' | 'BELUM_BERLAKU' = basePolicy
+    ? basePolicy.level
+    : 'BELUM_BERLAKU';
+  let policyName = basePolicy
+    ? basePolicy.nama
+    : upcomingPolicy
+      ? upcomingPolicy.nama
+      : 'Belum Ada Kebijakan Sesi Aktif';
+  let sesiList: SesiConfig[] = basePolicy ? basePolicy.sesiList : [];
+  let aturanLokasi: AttendanceLocationRule = basePolicy?.aturan_lokasi || 'SESI_PERTAMA_KANTOR';
+  let wajibFotoSemuaSesi = basePolicy ? Boolean(basePolicy.wajib_foto_semua_sesi) : true;
+  let wajibAktivitasSesiLanjut = basePolicy ? Boolean(basePolicy.wajib_aktivitas_sesi_lanjut) : true;
 
   if (kerjaKhusus) {
     jumlahSesi = kerjaKhusus.jumlah_sesi;
@@ -244,7 +302,7 @@ export function resolveDayForEmployee(
     } else {
       sesiList = buildDefaultSessionsForCount(kerjaKhusus.jumlah_sesi);
     }
-  } else if (calDay?.jumlah_sesi_khusus && calDay.status_hari === 'HARI_KERJA') {
+  } else if (basePolicy && calDay?.jumlah_sesi_khusus && calDay.status_hari === 'HARI_KERJA') {
     jumlahSesi = calDay.jumlah_sesi_khusus;
     minSesiHadir = Math.min(minSesiHadir, calDay.jumlah_sesi_khusus);
     policyLevel = 'KALENDER_KHUSUS';
@@ -268,7 +326,7 @@ export function resolveDayForEmployee(
     dayLabel = 'Off Pengganti';
     operationalStatus = 'OFF_PENGGANTI';
     mustCheckIn = false;
-    if (basePolicy.off_pengganti_dihitung_masuk) {
+    if (offPenggantiDihitungMasuk) {
       payrollStatus = 'DIHITUNG_MASUK';
       payrollSource = 'OFF_PENGGANTI';
     } else {
@@ -304,7 +362,7 @@ export function resolveDayForEmployee(
     // Company holiday pays if configured; weekly Sunday off only pays if explicitly configured or is company holiday
     // Payroll baseline stays strictly unchanged until Admin approves a KERJA_HARI_LIBUR request.
     if (holiday) {
-      if (holiday.dihitung_masuk === 1 && basePolicy.libur_dihitung_masuk === 1) {
+      if (holiday.dihitung_masuk === 1 && liburDihitungMasuk === 1) {
         payrollStatus = 'DIHITUNG_MASUK';
         payrollSource = 'LIBUR_DIBAYAR';
       } else {
@@ -338,18 +396,33 @@ export function resolveDayForEmployee(
     operationalStatus = approvedRequest.jenis as OperationalStatus;
     mustCheckIn = false;
     if (approvedRequest.jenis === 'CUTI') {
-      payrollStatus = basePolicy.cuti_dihitung_masuk ? 'DIHITUNG_MASUK' : 'TIDAK_DIHITUNG_MASUK';
+      payrollStatus = cutiDihitungMasuk ? 'DIHITUNG_MASUK' : 'TIDAK_DIHITUNG_MASUK';
       payrollSource = 'CUTI';
     } else if (approvedRequest.jenis === 'SAKIT') {
-      payrollStatus = basePolicy.sakit_dihitung_masuk ? 'DIHITUNG_MASUK' : 'TIDAK_DIHITUNG_MASUK';
+      payrollStatus = sakitDihitungMasuk ? 'DIHITUNG_MASUK' : 'TIDAK_DIHITUNG_MASUK';
       payrollSource = 'SAKIT';
     } else if (approvedRequest.jenis === 'IZIN') {
-      payrollStatus = basePolicy.izin_dihitung_masuk ? 'DIHITUNG_MASUK' : 'TIDAK_DIHITUNG_MASUK';
+      payrollStatus = izinDihitungMasuk ? 'DIHITUNG_MASUK' : 'TIDAK_DIHITUNG_MASUK';
       payrollSource = 'IZIN';
     } else {
       payrollStatus = 'TIDAK_DIHITUNG_MASUK';
       payrollSource = 'OFF';
     }
+  } else if (!basePolicy) {
+    // No active policy has reached berlaku_mulai <= tanggal yet:
+    // Do NOT expose attendance sessions and never mark employee as TIDAK_HADIR.
+    dayType = 'HARI_KERJA';
+    dayLabel = upcomingPolicy
+      ? 'Kebijakan Sesi Belum Berlaku'
+      : 'Belum Ada Kebijakan Sesi Aktif';
+    operationalStatus = 'BELUM_SELESAI';
+    payrollStatus = 'TIDAK_DIHITUNG_MASUK';
+    payrollSource = 'BELUM_SELESAI';
+    mustCheckIn = false;
+    policyId = null;
+    jumlahSesi = 0;
+    minSesiHadir = 0;
+    sesiList = [];
   } else {
     dayType = 'HARI_KERJA';
     dayLabel = 'Hari Kerja';
@@ -403,17 +476,29 @@ export function resolveDayForEmployee(
         : null,
     pengajuanInfo: approvedRequest ?? null,
     policySnapshot: {
-      policyId: basePolicy.id,
+      policyId,
       policyName,
       level: policyLevel,
+      berlakuMulai: basePolicy?.berlaku_mulai ?? null,
       jumlahSesi,
       minSesiHadir,
-      toleransiTerlambatMenit: basePolicy.toleransi_terlambat_menit,
+      toleransiTerlambatMenit,
       wajibFotoSemuaSesi,
       wajibAktivitasSesiLanjut,
       aturanLokasi,
       sesiList,
     },
+    upcomingPolicy: upcomingPolicy
+      ? {
+          policyId: upcomingPolicy.id,
+          policyName: upcomingPolicy.nama,
+          level: upcomingPolicy.level,
+          berlakuMulai: upcomingPolicy.berlaku_mulai,
+          jumlahSesi: upcomingPolicy.jumlah_sesi,
+          minSesiHadir: upcomingPolicy.min_sesi_hadir,
+          sesiList: upcomingPolicy.sesiList,
+        }
+      : null,
     sessionsCompleted,
     sessionsRequired: minSesiHadir,
     sessionRecords,

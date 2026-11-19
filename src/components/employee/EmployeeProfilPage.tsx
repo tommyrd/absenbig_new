@@ -108,33 +108,70 @@ export function EmployeeProfilPage({
               Kebijakan Sesi Aktif Hari Ini
             </h2>
             {myDay ? (
-              <div className="space-y-3 text-xs">
-                <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700">
-                  <p className="font-semibold text-slate-900 dark:text-slate-100">
-                    {myDay.policySnapshot.policyName}
-                  </p>
-                  <p className="text-slate-500 dark:text-slate-400 mt-1">
-                    Tingkat Prioritas: <strong>{myDay.policySnapshot.level}</strong> · Minimum hadir:{' '}
-                    <strong className="font-mono text-slate-900 dark:text-slate-100">
-                      {myDay.policySnapshot.minSesiHadir}/{myDay.policySnapshot.jumlahSesi}
-                    </strong>{' '}
-                    sesi · Toleransi terlambat:{' '}
-                    <strong className="font-mono text-slate-900 dark:text-slate-100">
-                      {myDay.policySnapshot.toleransiTerlambatMenit} menit
-                    </strong>
-                  </p>
-                </div>
-                <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {myDay.policySnapshot.sesiList.map((s) => (
-                    <div key={s.urutan} className="py-2 flex items-center justify-between">
-                      <span className="font-medium text-slate-800 dark:text-slate-200">{s.nama}</span>
-                      <span className="font-mono text-slate-600 dark:text-slate-400 tabular-nums">
-                        {s.jam_mulai} – {s.jam_selesai} WIB
-                      </span>
+              myDay.policySnapshot.policyId === null ? (
+                <div className="space-y-3 text-xs">
+                  <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 text-amber-950 dark:text-amber-100 space-y-1">
+                    <p className="font-semibold">
+                      {myDay.upcomingPolicy
+                        ? `Belum Berlaku — Mulai ${myDay.upcomingPolicy.berlakuMulai}`
+                        : 'Belum Ada Kebijakan Sesi Aktif'}
+                    </p>
+                    <p className="text-amber-800 dark:text-amber-200">
+                      {myDay.upcomingPolicy
+                        ? `Kebijakan "${myDay.upcomingPolicy.policyName}" (${myDay.upcomingPolicy.level}) akan aktif mulai ${myDay.upcomingPolicy.berlakuMulai} dengan target ${myDay.upcomingPolicy.minSesiHadir}/${myDay.upcomingPolicy.jumlahSesi} sesi.`
+                        : 'Saat ini belum ada jadwal sesi absensi yang aktif untuk akun Anda.'}
+                    </p>
+                  </div>
+                  {myDay.upcomingPolicy && myDay.upcomingPolicy.sesiList.length > 0 && (
+                    <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {myDay.upcomingPolicy.sesiList.map((s) => (
+                        <div key={s.urutan} className="py-2 flex items-center justify-between">
+                          <span className="font-medium text-slate-700 dark:text-slate-300">{s.nama}</span>
+                          <span className="font-mono text-slate-500 dark:text-slate-400 tabular-nums">
+                            {s.jam_mulai} – {s.jam_selesai} WIB
+                          </span>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
                 </div>
-              </div>
+              ) : (
+                <div className="space-y-3 text-xs">
+                  <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700">
+                    <p className="font-semibold text-slate-900 dark:text-slate-100">
+                      {myDay.policySnapshot.policyName}
+                    </p>
+                    <p className="text-slate-500 dark:text-slate-400 mt-1">
+                      Tingkat Prioritas: <strong>{myDay.policySnapshot.level}</strong> · Minimum hadir:{' '}
+                      <strong className="font-mono text-slate-900 dark:text-slate-100">
+                        {myDay.policySnapshot.minSesiHadir}/{myDay.policySnapshot.jumlahSesi}
+                      </strong>{' '}
+                      sesi · Toleransi terlambat:{' '}
+                      <strong className="font-mono text-slate-900 dark:text-slate-100">
+                        {myDay.policySnapshot.toleransiTerlambatMenit} menit
+                      </strong>
+                    </p>
+                  </div>
+                  <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {myDay.policySnapshot.sesiList.map((s) => (
+                      <div key={s.urutan} className="py-2 flex items-center justify-between">
+                        <span className="font-medium text-slate-800 dark:text-slate-200">{s.nama}</span>
+                        <span className="font-mono text-slate-600 dark:text-slate-400 tabular-nums">
+                          {s.jam_mulai} – {s.jam_selesai} WIB
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  {myDay.upcomingPolicy &&
+                    myDay.upcomingPolicy.policyId !== myDay.policySnapshot.policyId && (
+                      <div className="p-2.5 rounded-lg bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800/70 text-sky-900 dark:text-sky-200">
+                        Jadwal mendatang mulai{' '}
+                        <strong className="font-mono">{myDay.upcomingPolicy.berlakuMulai}</strong>:{' '}
+                        <strong>{myDay.upcomingPolicy.policyName}</strong> ({myDay.upcomingPolicy.jumlahSesi} sesi).
+                      </div>
+                    )}
+                </div>
+              )
             ) : (
               <p className="text-xs text-slate-500 dark:text-slate-400">Memuat kebijakan aktif...</p>
             )}

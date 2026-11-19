@@ -361,7 +361,8 @@ export interface ResolvedDay {
   policySnapshot: {
     policyId: number | null;
     policyName: string;
-    level: PolicyLevel | 'KERJA_KHUSUS' | 'KALENDER_KHUSUS';
+    level: PolicyLevel | 'KERJA_KHUSUS' | 'KALENDER_KHUSUS' | 'BELUM_BERLAKU';
+    berlakuMulai?: string | null;
     jumlahSesi: number;
     minSesiHadir: number;
     toleransiTerlambatMenit: number;
@@ -370,6 +371,15 @@ export interface ResolvedDay {
     aturanLokasi: AttendanceLocationRule;
     sesiList: SesiConfig[];
   };
+  upcomingPolicy?: {
+    policyId: number;
+    policyName: string;
+    level: PolicyLevel;
+    berlakuMulai: string;
+    jumlahSesi: number;
+    minSesiHadir: number;
+    sesiList: SesiConfig[];
+  } | null;
   sessionsCompleted: number;
   sessionsRequired: number;
   sessionRecords: AbsensiSesiRecord[];

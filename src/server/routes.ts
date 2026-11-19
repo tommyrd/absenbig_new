@@ -1099,6 +1099,11 @@ export function registerApiRoutes(app: Express) {
         : null,
     };
 
+    const appSettingsRow = db
+      .prepare(`SELECT wajib_gps_absensi FROM pengaturan_aplikasi WHERE id = 1`)
+      .get() as { wajib_gps_absensi?: number } | undefined;
+    const wajibGpsAbsensi = appSettingsRow ? Number(appSettingsRow.wajib_gps_absensi ?? 1) === 1 : true;
+
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.json({
       serverDate: today,
@@ -1108,6 +1113,7 @@ export function registerApiRoutes(app: Express) {
       serverWindowState,
       serverSessionWindowStates,
       serverMinutesUntilStart,
+      wajibGpsAbsensi,
       karyawan: emp,
       day,
       pendingRequestsToday: pendingRequests,
@@ -1443,7 +1449,12 @@ export function registerApiRoutes(app: Express) {
       return;
     }
 
-    // Validate Geofence & GPS coordinates bounds
+    // Validate Geofence & GPS coordinates bounds (respecting Superadmin wajib_gps_absensi setting)
+    const appSettingsRow = db
+      .prepare(`SELECT wajib_gps_absensi FROM pengaturan_aplikasi WHERE id = 1`)
+      .get() as { wajib_gps_absensi?: number } | undefined;
+    const wajibGpsAbsensi = appSettingsRow ? Number(appSettingsRow.wajib_gps_absensi ?? 1) === 1 : true;
+
     const office = db.prepare(`SELECT lat, lng, radius_meter FROM kantor WHERE id = ?`).get(emp.kantor_id) as
       | { lat: number; lng: number; radius_meter: number }
       | undefined;
@@ -1463,46 +1474,48 @@ export function registerApiRoutes(app: Express) {
       lng >= -180 &&
       lng <= 180;
 
-    if (!hasValidCoords) {
+    const hasValidAccuracy =
+      typeof accuracyMeter === 'number' &&
+      Number.isFinite(accuracyMeter) &&
+      accuracyMeter >= 0;
+
+    if (wajibGpsAbsensi && !hasValidCoords) {
       res.status(400).json({
         error: 'Lokasi GPS wajib tersedia dan valid. Absensi tidak dapat dilakukan tanpa koordinat GPS.',
       });
       return;
     }
 
-    if (
-      typeof accuracyMeter !== 'number' ||
-      !Number.isFinite(accuracyMeter) ||
-      accuracyMeter < 0
-    ) {
+    if (wajibGpsAbsensi && !hasValidAccuracy) {
       res.status(400).json({
         error: 'Informasi akurasi lokasi tidak tersedia. Aktifkan layanan lokasi perangkat dan coba kembali.',
       });
       return;
     }
 
-    const jarakMeter = haversineMeters(lat!, lng!, office.lat, office.lng);
-    const accuracyAcceptable = isGpsAccuracyAcceptable(accuracyMeter);
+    const jarakMeter = hasValidCoords ? haversineMeters(lat!, lng!, office.lat, office.lng) : null;
+    const accuracyAcceptable = hasValidAccuracy ? isGpsAccuracyAcceptable(accuracyMeter!) : false;
     const dalamGeofence =
+      hasValidCoords &&
+      jarakMeter !== null &&
       accuracyAcceptable &&
-      isWithinVerifiedGeofence(jarakMeter, accuracyMeter, office.radius_meter)
+      isWithinVerifiedGeofence(jarakMeter, accuracyMeter!, office.radius_meter)
         ? 1
         : 0;
-    const wajibDiKantor = requiresOfficeGeofence(
-      day.policySnapshot.aturanLokasi,
-      expectedNext
-    );
+    const wajibDiKantor =
+      wajibGpsAbsensi &&
+      requiresOfficeGeofence(day.policySnapshot.aturanLokasi, expectedNext);
 
     if (wajibDiKantor && !accuracyAcceptable) {
       res.status(400).json({
-        error: `Sesi ini wajib dilakukan di kantor. Akurasi GPS harus maksimal ±${MAX_GPS_ACCURACY_METERS}m; hasil saat ini ±${Math.ceil(accuracyMeter)}m. Aktifkan lokasi presisi atau gunakan perangkat GPS yang lebih akurat.`,
+        error: `Sesi ini wajib dilakukan di kantor. Akurasi GPS harus maksimal ±${MAX_GPS_ACCURACY_METERS}m; hasil saat ini ±${Math.ceil(accuracyMeter!)}m. Aktifkan lokasi presisi atau gunakan perangkat GPS yang lebih akurat.`,
       });
       return;
     }
 
     if (wajibDiKantor && !dalamGeofence) {
       res.status(400).json({
-        error: `Absensi ditolak. Sesi ${expectedNext} wajib berada di kantor. Jarak titik GPS ${jarakMeter}m dengan estimasi akurasi ±${Math.ceil(accuracyMeter)}m belum dapat dipastikan di dalam radius kantor ${office.radius_meter}m.`,
+        error: `Absensi ditolak. Sesi ${expectedNext} wajib berada di kantor. Jarak titik GPS ${jarakMeter}m dengan estimasi akurasi ±${Math.ceil(accuracyMeter!)}m belum dapat dipastikan di dalam radius kantor ${office.radius_meter}m.`,
       });
       return;
     }
@@ -1518,9 +1531,11 @@ export function registerApiRoutes(app: Express) {
 
     // Store a display-only address snapshot resolved by the server from the
     // submitted GPS coordinates. Geocoding failures never block attendance.
-    const actualLocationAddress = await getGeoapifyAddress(lat!, lng!)
-      .then((result) => result.address)
-      .catch(() => null);
+    const actualLocationAddress = hasValidCoords
+      ? await getGeoapifyAddress(lat!, lng!)
+          .then((result) => result.address)
+          .catch(() => null)
+      : null;
 
     // Save photo file securely (camera capture raster image + magic-byte check + unpredictable filename)
     let savedPhotoName: string | null = null;
@@ -4087,6 +4102,7 @@ export function registerApiRoutes(app: Express) {
     const row = db.prepare(`SELECT * FROM pengaturan_aplikasi WHERE id = 1`).get() as
       | Record<string, unknown>
       | undefined;
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.json({ settings: row ? mapSettingsRow(row) : null });
   });
 

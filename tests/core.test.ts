@@ -299,12 +299,14 @@ test('Policy Hierarchy resolves KARYAWAN > BIDANG > DEFAULT', () => {
   // Dimas (id 4) has KARYAWAN policy (4 sesi)
   const dimas = db.prepare('SELECT * FROM karyawan WHERE id = 4').get() as unknown as Karyawan;
   const dimasPolicy = getEffectivePolicy(db, dimas, today);
+  assert.ok(dimasPolicy);
   assert.equal(dimasPolicy.level, 'KARYAWAN');
   assert.equal(dimasPolicy.jumlah_sesi, 4);
 
   // Andi (id 2) is Teknisi Lapangan (BIDANG policy: 3 sesi)
   const andi = db.prepare('SELECT * FROM karyawan WHERE id = 2').get() as unknown as Karyawan;
   const andiPolicy = getEffectivePolicy(db, andi, today);
+  assert.ok(andiPolicy);
   assert.equal(andiPolicy.level, 'BIDANG');
   assert.equal(andiPolicy.jumlah_sesi, 3);
 
@@ -313,6 +315,7 @@ test('Policy Hierarchy resolves KARYAWAN > BIDANG > DEFAULT', () => {
   const dewi = db.prepare('SELECT * FROM karyawan WHERE id = 6').get() as unknown as Karyawan;
   const employeeWithoutMatchingPolicy = { ...dewi, id: -999999, bidang_id: -999999 };
   const defaultPolicy = getEffectivePolicy(db, employeeWithoutMatchingPolicy, today);
+  assert.ok(defaultPolicy);
   assert.equal(defaultPolicy.level, 'DEFAULT');
   assert.equal(defaultPolicy.jumlah_sesi, 4);
 });
@@ -576,6 +579,7 @@ test('System settings API strictly enforces SUPERADMIN access while keeping publ
       .prepare('SELECT * FROM karyawan WHERE id = ?')
       .get(fajarUser.karyawan_id) as unknown as Karyawan;
     const fajarPolicy = getEffectivePolicy(db, fajarEmployee, getWibDateString());
+    assert.ok(fajarPolicy);
     const firstSession = fajarPolicy.sesiList[0];
     const nowTimeRes = await fetch(`${baseUrl}/api/v1/time`);
     const nowTimeJson = (await nowTimeRes.json()) as { time: string };
@@ -846,5 +850,153 @@ test('Monitoring Hari Ini check-in snapshot groups by office location and captur
   assert.match(caption, /01\. \*08:18 WIB\* — Dewi Lestari \(Terlambat 18 mnt\)/);
   assert.match(caption, /02\. \*Tidak Masuk\* — Hendra Wijaya/);
 });
+
+test('Future berlaku_mulai suppresses active sessions and surfaces upcomingPolicy without marking TIDAK_HADIR', () => {
+  const db = getDb();
+  const dewi = db.prepare('SELECT * FROM karyawan WHERE id = 6').get() as unknown as Karyawan;
+  const futureDate = '2099-12-22';
+
+  // Temporarily move all active policies to a future effective date and verify restoration in finally
+  const originalDates = db
+    .prepare('SELECT id, berlaku_mulai FROM kebijakan_absensi')
+    .all() as { id: number; berlaku_mulai: string }[];
+
+  try {
+    db.prepare('UPDATE kebijakan_absensi SET berlaku_mulai = ?').run(futureDate);
+    const checkDate = '2026-11-20'; // Friday (normal weekday)
+    const effective = getEffectivePolicy(db, dewi, checkDate);
+    assert.equal(effective, null);
+
+    const day = resolveDayForEmployee(db, dewi, checkDate);
+    assert.equal(day.mustCheckIn, false);
+    assert.equal(day.policySnapshot.policyId, null);
+    assert.equal(day.policySnapshot.level, 'BELUM_BERLAKU');
+    assert.equal(day.policySnapshot.jumlahSesi, 0);
+    assert.equal(day.policySnapshot.sesiList.length, 0);
+    assert.notEqual(day.operationalStatus, 'TIDAK_HADIR');
+    assert.equal(day.operationalStatus, 'BELUM_SELESAI');
+    assert.ok(day.upcomingPolicy);
+    assert.equal(day.upcomingPolicy.berlakuMulai, futureDate);
+    assert.ok(day.upcomingPolicy.sesiList.length > 0);
+  } finally {
+    const restoreStmt = db.prepare('UPDATE kebijakan_absensi SET berlaku_mulai = ? WHERE id = ?');
+    for (const row of originalDates) {
+      restoreStmt.run(row.berlaku_mulai, row.id);
+    }
+  }
+});
+
+test('System setting wajib_gps_absensi controls whether GPS coordinates are required on check-in', async () => {
+  const db = getDb();
+  const app = express();
+  app.use(express.json({ limit: '6mb' }));
+  registerApiRoutes(app);
+
+  const server = http.createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const addr = server.address() as { port: number };
+  const baseUrl = `http://127.0.0.1:${addr.port}`;
+  const today = getWibDateString();
+
+  const originalSetting = db
+    .prepare('SELECT wajib_gps_absensi FROM pengaturan_aplikasi WHERE id = 1')
+    .get() as { wajib_gps_absensi: number };
+
+  // Find a KARYAWAN user and give them an open all-day KARYAWAN policy for this test
+  const empUser = db
+    .prepare(
+      `SELECT id, role, karyawan_id, token_version FROM pengguna WHERE role = 'KARYAWAN' AND aktif = 1 LIMIT 1`
+    )
+    .get() as { id: number; role: Role; karyawan_id: number; token_version: number };
+  const token = signToken({
+    userId: empUser.id,
+    role: empUser.role,
+    tv: empUser.token_version,
+    exp: Date.now() + 3_600_000,
+  });
+  const nowIso = `${today}T08:00:00+07:00`;
+
+  const createdPolicy = db
+    .prepare(
+      `INSERT INTO kebijakan_absensi (
+         level, bidang_id, karyawan_id, nama, jumlah_sesi, min_sesi_hadir,
+         toleransi_terlambat_menit, aturan_lokasi, wajib_foto_semua_sesi, wajib_aktivitas_sesi_lanjut,
+         libur_dihitung_masuk, off_pengganti_dihitung_masuk, izin_dihitung_masuk, sakit_dihitung_masuk,
+         cuti_dihitung_masuk, berlaku_mulai, aktif, created_at
+       ) VALUES ('KARYAWAN', NULL, ?, 'Test GPS Toggle Policy', 1, 1, 15, 'SESI_PERTAMA_KANTOR', 0, 0, 1, 1, 0, 1, 1, ?, 1, ?)`
+    )
+    .run(empUser.karyawan_id, today, nowIso);
+  const testPolicyId = Number(createdPolicy.lastInsertRowid);
+  db.prepare(
+    `INSERT INTO sesi_absensi (kebijakan_id, urutan, nama, jam_mulai, jam_selesai, wajib_foto, wajib_aktivitas, aktif)
+     VALUES (?, 1, 'Sesi 1 · Uji GPS', '00:00', '23:59', 0, 0, 1)`
+  ).run(testPolicyId);
+
+  const existingRecords = db
+    .prepare('SELECT id FROM absensi_sesi WHERE karyawan_id = ? AND tanggal = ?')
+    .all(empUser.karyawan_id, today) as { id: number }[];
+  const createdSessionIds: number[] = [];
+
+  try {
+    // Only test when no pre-existing session blocks urutan 1
+    if (existingRecords.length === 0) {
+      // 1. With wajib_gps_absensi = 1, missing GPS must be rejected (400)
+      db.prepare('UPDATE pengaturan_aplikasi SET wajib_gps_absensi = 1 WHERE id = 1').run();
+      const rejectRes = await fetch(`${baseUrl}/api/v1/attendance/session`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          urutanSesi: 1,
+          lat: null,
+          lng: null,
+          accuracyMeter: null,
+          tipeAktivitas: 'CHECK_IN',
+          deskripsiAktivitas: 'Uji wajib GPS aktif',
+        }),
+      });
+      assert.equal(rejectRes.status, 400);
+
+      // 2. With wajib_gps_absensi = 0, missing GPS must succeed (201)
+      db.prepare('UPDATE pengaturan_aplikasi SET wajib_gps_absensi = 0 WHERE id = 1').run();
+      const todayRes = await fetch(`${baseUrl}/api/v1/attendance/today`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const todayJson = (await todayRes.json()) as { wajibGpsAbsensi: boolean };
+      assert.equal(todayJson.wajibGpsAbsensi, false);
+
+      const allowRes = await fetch(`${baseUrl}/api/v1/attendance/session`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          urutanSesi: 1,
+          lat: null,
+          lng: null,
+          accuracyMeter: null,
+          tipeAktivitas: 'CHECK_IN',
+          deskripsiAktivitas: 'Uji wajib GPS nonaktif',
+        }),
+      });
+      assert.equal(allowRes.status, 201);
+      const allowJson = (await allowRes.json()) as { sessionId: number };
+      createdSessionIds.push(allowJson.sessionId);
+    }
+  } finally {
+    db.prepare('UPDATE pengaturan_aplikasi SET wajib_gps_absensi = ? WHERE id = 1').run(
+      originalSetting.wajib_gps_absensi
+    );
+    for (const sid of createdSessionIds) {
+      db.prepare('DELETE FROM absensi_sesi WHERE id = ?').run(sid);
+    }
+    db.prepare('DELETE FROM kebijakan_absensi WHERE id = ?').run(testPolicyId);
+    server.close();
+  }
+});
+
 
 

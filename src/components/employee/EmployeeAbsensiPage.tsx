@@ -40,6 +40,7 @@ interface TodayResponse {
   serverWindowState?: SessionWindowState | null;
   serverSessionWindowStates?: SessionWindowState[];
   serverMinutesUntilStart?: number;
+  wajibGpsAbsensi?: boolean;
   karyawan: Karyawan;
   day: ResolvedDay;
 }
@@ -457,33 +458,36 @@ export function EmployeeAbsensiPage({
       return;
     }
 
-    if (gpsStatus !== 'ok' || !coords) {
-      setCameraError(gpsError || 'Deteksi lokasi GPS terlebih dahulu sebelum membuka kamera.');
-      return;
-    }
-    const mustBeAtOffice = requiresOfficeGeofence(
-      data?.day.policySnapshot.aturanLokasi,
-      next.urutan
-    );
-    if (mustBeAtOffice) {
-      if (!isGpsAccuracyAcceptable(coords.accuracy)) {
-        setCameraError(
-          `Akurasi GPS ±${coords.accuracy}m melebihi batas ±${MAX_GPS_ACCURACY_METERS}m. Coba lagi di area lebih terbuka.`
-        );
+    const gpsRequiredBySystem = data?.wajibGpsAbsensi !== false;
+    if (gpsRequiredBySystem) {
+      if (gpsStatus !== 'ok' || !coords) {
+        setCameraError(gpsError || 'Deteksi lokasi GPS terlebih dahulu sebelum membuka kamera.');
         return;
       }
-
-      const currentDistance = haversineClient(
-        coords.lat,
-        coords.lng,
-        user.kantor_lat,
-        user.kantor_lng
+      const mustBeAtOffice = requiresOfficeGeofence(
+        data?.day.policySnapshot.aturanLokasi,
+        next.urutan
       );
-      if (!isWithinVerifiedGeofence(currentDistance, coords.accuracy, user.kantor_radius)) {
-        setCameraError(
-          `Sesi ${next.urutan} wajib di dalam radius kantor (${user.kantor_radius}m). Posisi Anda saat ini ${formatDistance(currentDistance)} (±${coords.accuracy}m).`
+      if (mustBeAtOffice) {
+        if (!isGpsAccuracyAcceptable(coords.accuracy)) {
+          setCameraError(
+            `Akurasi GPS ±${coords.accuracy}m melebihi batas ±${MAX_GPS_ACCURACY_METERS}m. Coba lagi di area lebih terbuka.`
+          );
+          return;
+        }
+
+        const currentDistance = haversineClient(
+          coords.lat,
+          coords.lng,
+          user.kantor_lat,
+          user.kantor_lng
         );
-        return;
+        if (!isWithinVerifiedGeofence(currentDistance, coords.accuracy, user.kantor_radius)) {
+          setCameraError(
+            `Sesi ${next.urutan} wajib di dalam radius kantor (${user.kantor_radius}m). Posisi Anda saat ini ${formatDistance(currentDistance)} (±${coords.accuracy}m).`
+          );
+          return;
+        }
       }
     }
 
@@ -668,56 +672,63 @@ export function EmployeeAbsensiPage({
       return;
     }
 
+    const gpsRequiredBySystem = data.wajibGpsAbsensi !== false;
     setSubmitting(true);
     setSubmitMsg({
       type: 'loading',
-      text: 'Memverifikasi lokasi GPS terbaru...',
+      text: gpsRequiredBySystem
+        ? 'Memverifikasi lokasi GPS terbaru...'
+        : 'Menyiapkan pengiriman absensi...',
     });
     try {
-      setGpsStatus('loading');
-      let freshCoords: { lat: number; lng: number; accuracy: number };
-      try {
-        freshCoords = await readCurrentGps();
-      } catch (gpsErr) {
-        const message =
-          gpsErr instanceof Error ? gpsErr.message : 'Gagal membaca lokasi GPS.';
-        stopCamera();
-        setCoords(null);
-        setGpsStatus('error');
-        setGpsError(message);
-        failSubmit(message);
-        return;
-      }
-      setCoords(freshCoords);
-      setGpsStatus('ok');
-      setGpsError(null);
-
-      const mustBeAtOffice = requiresOfficeGeofence(
-        data.day.policySnapshot.aturanLokasi,
-        nextUrutan
-      );
-      if (mustBeAtOffice) {
-        if (!isGpsAccuracyAcceptable(freshCoords.accuracy)) {
+      let freshCoords: { lat: number; lng: number; accuracy: number } | null = null;
+      if (gpsRequiredBySystem) {
+        setGpsStatus('loading');
+        try {
+          freshCoords = await readCurrentGps();
+        } catch (gpsErr) {
+          const message =
+            gpsErr instanceof Error ? gpsErr.message : 'Gagal membaca lokasi GPS.';
           stopCamera();
-          failSubmit(
-            `Akurasi GPS ±${freshCoords.accuracy}m belum memenuhi batas maksimal ±${MAX_GPS_ACCURACY_METERS}m.`
-          );
+          setCoords(null);
+          setGpsStatus('error');
+          setGpsError(message);
+          failSubmit(message);
           return;
         }
+        setCoords(freshCoords);
+        setGpsStatus('ok');
+        setGpsError(null);
 
-        const freshDistance = haversineClient(
-          freshCoords.lat,
-          freshCoords.lng,
-          user.kantor_lat,
-          user.kantor_lng
+        const mustBeAtOffice = requiresOfficeGeofence(
+          data.day.policySnapshot.aturanLokasi,
+          nextUrutan
         );
-        if (!isWithinVerifiedGeofence(freshDistance, freshCoords.accuracy, user.kantor_radius)) {
-          stopCamera();
-          failSubmit(
-            `Posisi Anda (${formatDistance(freshDistance)}, akurasi ±${freshCoords.accuracy}m) belum berada di dalam radius kantor ${user.kantor_radius}m.`
+        if (mustBeAtOffice) {
+          if (!isGpsAccuracyAcceptable(freshCoords.accuracy)) {
+            stopCamera();
+            failSubmit(
+              `Akurasi GPS ±${freshCoords.accuracy}m belum memenuhi batas maksimal ±${MAX_GPS_ACCURACY_METERS}m.`
+            );
+            return;
+          }
+
+          const freshDistance = haversineClient(
+            freshCoords.lat,
+            freshCoords.lng,
+            user.kantor_lat,
+            user.kantor_lng
           );
-          return;
+          if (!isWithinVerifiedGeofence(freshDistance, freshCoords.accuracy, user.kantor_radius)) {
+            stopCamera();
+            failSubmit(
+              `Posisi Anda (${formatDistance(freshDistance)}, akurasi ±${freshCoords.accuracy}m) belum berada di dalam radius kantor ${user.kantor_radius}m.`
+            );
+            return;
+          }
         }
+      } else if (coords) {
+        freshCoords = coords;
       }
 
       setSubmitMsg({
@@ -740,9 +751,9 @@ export function EmployeeAbsensiPage({
         method: 'POST',
         body: JSON.stringify({
           urutanSesi: nextUrutan,
-          lat: freshCoords.lat,
-          lng: freshCoords.lng,
-          accuracyMeter: freshCoords.accuracy,
+          lat: freshCoords?.lat ?? null,
+          lng: freshCoords?.lng ?? null,
+          accuracyMeter: freshCoords?.accuracy ?? null,
           tipeAktivitas: nextUrutan === 1 ? 'CHECK_IN' : tipeAktivitas,
           deskripsiAktivitas: deskripsiAktivitas.trim(),
           fotoBase64: photoDataUrl,
@@ -898,21 +909,25 @@ export function EmployeeAbsensiPage({
       (day.policySnapshot.wajibAktivitasSesiLanjut || nextSesi.wajib_aktivitas === 1)
   );
 
+  const gpsRequiredBySystem = data.wajibGpsAbsensi !== false;
   const distanceMeters = coords
     ? haversineClient(coords.lat, coords.lng, user.kantor_lat, user.kantor_lng)
     : null;
-  const sessionRequiresOffice = nextSesi
-    ? requiresOfficeGeofence(day.policySnapshot.aturanLokasi, nextSesi.urutan)
-    : true;
+  const sessionRequiresOffice =
+    gpsRequiredBySystem &&
+    (nextSesi
+      ? requiresOfficeGeofence(day.policySnapshot.aturanLokasi, nextSesi.urutan)
+      : true);
   const gpsAccuracyOk = coords !== null && isGpsAccuracyAcceptable(coords.accuracy);
   const verifiedWithinRadius =
     distanceMeters !== null &&
     coords !== null &&
     isWithinVerifiedGeofence(distanceMeters, coords.accuracy, user.kantor_radius);
   const canCheckInByLocation =
-    gpsStatus === 'ok' &&
-    coords !== null &&
-    (!sessionRequiresOffice || (gpsAccuracyOk && verifiedWithinRadius));
+    !gpsRequiredBySystem ||
+    (gpsStatus === 'ok' &&
+      coords !== null &&
+      (!sessionRequiresOffice || (gpsAccuracyOk && verifiedWithinRadius)));
 
   const step1Done = canCheckInByLocation;
   const step2Done = !photoRequired || Boolean(photoDataUrl);
@@ -985,14 +1000,19 @@ export function EmployeeAbsensiPage({
               {day.dayLabel}
             </h1>
             <p className="text-xs text-white/80 mt-0.5">
-              {day.policySnapshot.policyName} · Min. {day.policySnapshot.minSesiHadir} dari{' '}
-              {day.policySnapshot.jumlahSesi} sesi
+              {day.policySnapshot.policyId !== null && day.policySnapshot.jumlahSesi > 0
+                ? `${day.policySnapshot.policyName} · Min. ${day.policySnapshot.minSesiHadir} dari ${day.policySnapshot.jumlahSesi} sesi`
+                : day.upcomingPolicy
+                  ? `Kebijakan "${day.upcomingPolicy.policyName}" mulai berlaku ${day.upcomingPolicy.berlakuMulai}`
+                  : 'Belum ada kebijakan sesi aktif hari ini'}
             </p>
           </div>
           <div className="flex items-center sm:flex-col sm:items-end justify-between gap-2 shrink-0">
             <StatusBadge status={day.operationalStatus} size="md" />
             <span className="font-mono text-xs text-white/90 tabular-nums">
-              {liveWibHm} WIB · {day.sessionsCompleted}/{day.policySnapshot.jumlahSesi} Sesi
+              {day.policySnapshot.policyId !== null && day.policySnapshot.jumlahSesi > 0
+                ? `${liveWibHm} WIB · ${day.sessionsCompleted}/${day.policySnapshot.jumlahSesi} Sesi`
+                : `${liveWibHm} WIB · Belum Berlaku`}
             </span>
           </div>
         </div>
@@ -1005,6 +1025,70 @@ export function EmployeeAbsensiPage({
           </div>
         )}
       </div>
+
+      {/* Scheduled Policy Not Yet Effective Notice (No Active Policy Today) */}
+      {day.dayType === 'HARI_KERJA' && !day.mustCheckIn && day.policySnapshot.policyId === null && (
+        <div className="bg-amber-50 dark:bg-amber-950/35 border border-amber-200 dark:border-amber-800/80 rounded-2xl p-4 sm:p-5 space-y-4">
+          <div className="flex items-start gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/70 text-amber-700 dark:text-amber-200 flex items-center justify-center shrink-0">
+              <Clock className="w-5 h-5" />
+            </div>
+            <div className="min-w-0 space-y-1">
+              <h2 className="font-display text-base font-bold text-amber-950 dark:text-amber-100">
+                {day.upcomingPolicy
+                  ? 'Kebijakan Sesi Belum Berlaku — Tidak Perlu Absensi Hari Ini'
+                  : 'Belum Ada Kebijakan Sesi Aktif'}
+              </h2>
+              <p className="text-xs sm:text-sm text-amber-900 dark:text-amber-200 leading-relaxed">
+                {day.upcomingPolicy
+                  ? `Jadwal absensi "${day.upcomingPolicy.policyName}" baru mulai berlaku pada tanggal ${day.upcomingPolicy.berlakuMulai}. Sebelum tanggal tersebut, sesi absensi tidak ditampilkan dan hari ini tidak dihitung Tidak Hadir.`
+                  : 'Saat ini belum ada kebijakan sesi absensi yang berlaku untuk akun Anda. Hubungi Admin Operasional bila diperlukan.'}
+              </p>
+            </div>
+          </div>
+
+          {day.upcomingPolicy && (
+            <div className="bg-white/90 dark:bg-slate-900/80 border border-amber-200/80 dark:border-amber-800/60 rounded-xl p-3.5 space-y-2.5 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="font-bold text-slate-900 dark:text-slate-100">
+                  Pratinjau Jadwal Mendatang · {day.upcomingPolicy.policyName}
+                </p>
+                <span className="font-mono font-semibold text-amber-800 dark:text-amber-300">
+                  Mulai {day.upcomingPolicy.berlakuMulai}
+                </span>
+              </div>
+              <p className="text-slate-600 dark:text-slate-400">
+                Target minimal hadir:{' '}
+                <strong className="font-mono text-slate-900 dark:text-slate-100">
+                  {day.upcomingPolicy.minSesiHadir} dari {day.upcomingPolicy.jumlahSesi} sesi
+                </strong>
+              </p>
+              <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                {day.upcomingPolicy.sesiList.map((s) => (
+                  <div key={s.urutan} className="py-1.5 flex items-center justify-between gap-2">
+                    <span className="text-slate-700 dark:text-slate-300">{s.nama}</span>
+                    <span className="font-mono tabular-nums text-slate-900 dark:text-slate-100 shrink-0">
+                      {s.jam_mulai}–{s.jam_selesai} WIB
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Info Banner When Today Uses Active Policy & Newer Scheduled Policy Will Start Soon */}
+      {day.mustCheckIn && day.upcomingPolicy && day.upcomingPolicy.policyId !== day.policySnapshot.policyId && (
+        <div className="bg-sky-50 dark:bg-sky-950/35 border border-sky-200 dark:border-sky-800/70 rounded-xl px-4 py-3 flex items-start gap-2.5 text-xs text-sky-900 dark:text-sky-200">
+          <Clock className="w-4 h-4 text-sky-700 dark:text-sky-400 shrink-0 mt-0.5" />
+          <span>
+            Jadwal baru <strong>{day.upcomingPolicy.policyName}</strong> ({day.upcomingPolicy.jumlahSesi} sesi) dijadwalkan mulai berlaku pada{' '}
+            <strong className="font-mono">{day.upcomingPolicy.berlakuMulai}</strong>. Hari ini masih mengikuti kebijakan aktif{' '}
+            <strong>{day.policySnapshot.policyName}</strong>.
+          </span>
+        </div>
+      )}
 
       {/* Special Day Notices */}
       {day.dayType === 'HARI_LIBUR' && day.holidayEmergencyRequest?.status === 'PENDING' && (
@@ -1416,14 +1500,16 @@ export function EmployeeAbsensiPage({
                         </span>
                         <div>
                           <p className="text-xs font-bold text-slate-900 dark:text-slate-100">
-                            Deteksi Lokasi GPS
+                            Deteksi Lokasi GPS {!gpsRequiredBySystem && '(Opsional)'}
                           </p>
                           <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                            {sessionRequiresOffice
-                              ? `Wajib di dalam radius ${user.kantor_radius}m kantor`
-                              : day.policySnapshot.aturanLokasi === 'BEBAS_LOKASI'
-                                ? 'Lokasi fleksibel (kantor atau lapangan) · Koordinat GPS tetap direkam sebagai bukti'
-                                : 'Sesi fleksibel · Boleh dari lokasi tugas lapangan'}
+                            {!gpsRequiredBySystem
+                              ? 'Validasi GPS & geofence sedang dinonaktifkan di Pengaturan Sistem'
+                              : sessionRequiresOffice
+                                ? `Wajib di dalam radius ${user.kantor_radius}m kantor`
+                                : day.policySnapshot.aturanLokasi === 'BEBAS_LOKASI'
+                                  ? 'Lokasi fleksibel (kantor atau lapangan) · Koordinat GPS tetap direkam sebagai bukti'
+                                  : 'Sesi fleksibel · Boleh dari lokasi tugas lapangan'}
                           </p>
                         </div>
                       </div>
