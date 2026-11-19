@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Calendar, Image as ImageIcon, MapPin, ShieldAlert, X } from 'lucide-react';
+import { Calendar, Download, Image as ImageIcon, Loader2, MapPin, ShieldAlert, X } from 'lucide-react';
 import { apiFetch, getAuthorizedPhotoUrl } from '../../lib/api';
+import { exportEmployeeMonthlySlipPng } from '../../lib/employee-slip';
 import { getServerWibYearMonth, useServerClock } from '../../lib/server-clock-client';
 import type { AbsensiSesiRecord, MonthlySummary } from '../../shared/types';
 import { getHistoryCalendarStatus, type HistoryCalendarStatus } from '../../shared/history-calendar';
@@ -75,6 +76,21 @@ export function EmployeeHistoryPage() {
   const [error, setError] = useState<string | null>(null);
   const [previewSession, setPreviewSession] = useState<AbsensiSesiRecord | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [exportingSlip, setExportingSlip] = useState(false);
+  const [slipError, setSlipError] = useState<string | null>(null);
+
+  const handleDownloadSlip = async () => {
+    if (!summary || exportingSlip) return;
+    setExportingSlip(true);
+    setSlipError(null);
+    try {
+      await exportEmployeeMonthlySlipPng(summary);
+    } catch (err) {
+      setSlipError(err instanceof Error ? err.message : 'Gagal membuat slip kehadiran PNG.');
+    } finally {
+      setExportingSlip(false);
+    }
+  };
 
   useEffect(() => {
     if (!bulan && serverYearMonth) {
@@ -148,20 +164,41 @@ export function EmployeeHistoryPage() {
             Ringkasan HARI MASUK dan bukti sesi absensi berdasarkan resolver server.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
-          <input
-            type="month"
-            value={bulan}
-            onChange={(e) => {
-              setBulan(e.target.value);
-              setSelectedDate(null);
-            }}
-            aria-label="Pilih bulan rekap"
-            className="min-h-[44px] sm:h-10 px-3 text-sm font-mono bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 w-full sm:w-auto"
-          />
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          <div className="flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+            <input
+              type="month"
+              value={bulan}
+              onChange={(e) => {
+                setBulan(e.target.value);
+                setSelectedDate(null);
+              }}
+              aria-label="Pilih bulan rekap"
+              className="min-h-[44px] sm:h-10 px-3 text-sm font-mono bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 w-full sm:w-auto"
+            />
+          </div>
+          <button
+            type="button"
+            disabled={loading || !summary || exportingSlip}
+            onClick={() => void handleDownloadSlip()}
+            className="min-h-[44px] sm:h-10 px-3.5 rounded-lg bg-[#c0392b] hover:bg-[#a93226] disabled:opacity-50 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 shadow-xs transition-colors whitespace-nowrap"
+          >
+            {exportingSlip ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Download className="w-3.5 h-3.5" />
+            )}
+            <span>{exportingSlip ? 'Menyiapkan Slip...' : 'Unduh Slip PNG'}</span>
+          </button>
         </div>
       </div>
+
+      {slipError && (
+        <div role="alert" className="bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 rounded-xl p-3 text-xs text-red-800 dark:text-red-200">
+          {slipError}
+        </div>
+      )}
 
       {loading && (
         <div className="space-y-4">

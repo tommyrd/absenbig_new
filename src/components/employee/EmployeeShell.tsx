@@ -18,6 +18,7 @@ import { shouldOpenAttendanceOnEntry } from '../../shared/employee-entry';
 import { ServerClock } from '../ServerClock';
 import { ThemeToggle } from '../ThemeToggle';
 import { UserAvatar } from '../UserAvatar';
+import { PWAInstallButton } from '../PWAInstallButton';
 import { AttendanceFeedView } from '../AttendanceFeedView';
 import { EmployeeAbsensiPage, type AttendanceSubmitResult } from './EmployeeAbsensiPage';
 import { EmployeeHistoryPage } from './EmployeeHistoryPage';
@@ -408,6 +409,7 @@ export function EmployeeShell({
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <PWAInstallButton onDark />
           <ServerClock compact onDark />
           <ThemeToggle onDark />
           <button

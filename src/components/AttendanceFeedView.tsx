@@ -3,10 +3,13 @@ import {
   Camera,
   Check,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   Copy,
   Download,
   ExternalLink,
+  Image as ImageIcon,
   Info,
   Loader2,
   MapPin,
@@ -19,6 +22,7 @@ import {
   X,
 } from 'lucide-react';
 import { apiFetch, buildApiUrl, getAuthorizedPhotoUrl, getStoredToken } from '../lib/api';
+import { canCopyImageToClipboard, copyPngFileToClipboard } from '../lib/clipboard-image';
 import type {
   AttendanceFeedPost,
   AttendanceFeedRosterItem,
@@ -143,9 +147,11 @@ export function AttendanceFeedView({
   const [sharePreview, setSharePreview] = useState<SharePreviewState | null>(null);
   const [shareActionBusy, setShareActionBusy] = useState(false);
   const [captionCopied, setCaptionCopied] = useState(false);
+  const [imageCopied, setImageCopied] = useState(false);
   const [shareModalNotice, setShareModalNotice] = useState<string | null>(null);
   const [shareNotice, setShareNotice] = useState<string | null>(null);
   const focusedPostRef = useRef<number | null>(null);
+  const supportsImageCopy = canCopyImageToClipboard();
 
   const loadFeed = useCallback(async () => {
     setError(null);
@@ -232,6 +238,7 @@ export function AttendanceFeedView({
   const closeSharePreview = useCallback(() => {
     setSharePreview(null);
     setCaptionCopied(false);
+    setImageCopied(false);
     setShareModalNotice(null);
   }, []);
 
@@ -241,6 +248,7 @@ export function AttendanceFeedView({
     setShareNotice(null);
     setShareModalNotice(null);
     setCaptionCopied(false);
+    setImageCopied(false);
     try {
       const file = await createAttendanceShareImage(post);
       const caption = buildAttendanceShareCaption(post);
@@ -284,6 +292,18 @@ export function AttendanceFeedView({
       window.setTimeout(() => setCaptionCopied(false), 2500);
     } else {
       setShareModalNotice('Tidak dapat menyalin otomatis. Silakan blok dan salin teks caption di atas.');
+    }
+  };
+
+  const handleCopyShareImage = async () => {
+    if (!sharePreview) return;
+    const copied = await copyPngFileToClipboard(sharePreview.file);
+    if (copied) {
+      setImageCopied(true);
+      setShareModalNotice('Gambar PNG berhasil disalin ke clipboard! Tinggal Ctrl+V / tempel ke WhatsApp Web.');
+      window.setTimeout(() => setImageCopied(false), 2500);
+    } else {
+      setShareModalNotice('Browser ini membatasi salin gambar langsung. Gunakan Unduh PNG.');
     }
   };
 
@@ -359,6 +379,32 @@ export function AttendanceFeedView({
   const selectedPerson = selectedEmpId
     ? sortedRoster.find((r) => r.karyawanId === selectedEmpId) || null
     : null;
+
+  const lightboxIndex = lightboxPost
+    ? filteredPosts.findIndex((p) => p.id === lightboxPost.id)
+    : -1;
+
+  const navigateLightbox = useCallback(
+    (delta: -1 | 1) => {
+      if (!lightboxPost || filteredPosts.length <= 1) return;
+      const idx = filteredPosts.findIndex((p) => p.id === lightboxPost.id);
+      if (idx === -1) return;
+      const nextIdx = (idx + delta + filteredPosts.length) % filteredPosts.length;
+      setLightboxPost(filteredPosts[nextIdx]);
+    },
+    [filteredPosts, lightboxPost]
+  );
+
+  useEffect(() => {
+    if (!lightboxPost) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setLightboxPost(null);
+      else if (e.key === 'ArrowLeft') navigateLightbox(-1);
+      else if (e.key === 'ArrowRight') navigateLightbox(1);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [lightboxPost, navigateLightbox]);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 xl:gap-8 items-start">
@@ -1081,7 +1127,7 @@ export function AttendanceFeedView({
             className="bg-white dark:bg-slate-900 rounded-2xl max-w-xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden max-h-[calc(100dvh-1.5rem)] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
+            <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
               <div className="flex items-center gap-2.5 min-w-0">
                 <UserAvatar
                   karyawanId={lightboxPost.karyawanId}
@@ -1097,17 +1143,44 @@ export function AttendanceFeedView({
                   </p>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
                     {lightboxPost.namaSesi} · {lightboxPost.tanggal} {lightboxPost.jamWib} WIB
+                    {lightboxIndex >= 0 && filteredPosts.length > 1
+                      ? ` · ${lightboxIndex + 1}/${filteredPosts.length}`
+                      : ''}
                   </p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setLightboxPost(null)}
-                className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-full hover:bg-slate-100 dark:hover:bg-slate-800"
-                aria-label="Tutup pratinjau"
-              >
-                <X className="w-5 h-5 text-slate-500 dark:text-slate-400" />
-              </button>
+              <div className="flex items-center gap-1 shrink-0">
+                {filteredPosts.length > 1 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => navigateLightbox(-1)}
+                      className="min-w-[36px] min-h-[36px] rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-700 dark:text-slate-200"
+                      aria-label="Foto sebelumnya"
+                      title="Sebelumnya (Panah Kiri)"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => navigateLightbox(1)}
+                      className="min-w-[36px] min-h-[36px] rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-700 dark:text-slate-200"
+                      aria-label="Foto berikutnya"
+                      title="Berikutnya (Panah Kanan)"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setLightboxPost(null)}
+                  className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-full hover:bg-slate-100 dark:hover:bg-slate-800"
+                  aria-label="Tutup pratinjau"
+                >
+                  <X className="w-5 h-5 text-slate-500 dark:text-slate-400" />
+                </button>
+              </div>
             </div>
 
             <div className="bg-slate-950 flex-none flex items-center justify-center max-h-[48dvh] overflow-hidden">
@@ -1295,7 +1368,21 @@ export function AttendanceFeedView({
             </div>
 
             {/* Modal Footer Actions */}
-            <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/90 flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 shrink-0">
+            <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/90 flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center justify-end gap-2 shrink-0">
+              {supportsImageCopy && (
+                <button
+                  type="button"
+                  onClick={() => void handleCopyShareImage()}
+                  className="min-h-[42px] px-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center justify-center gap-1.5"
+                >
+                  {imageCopied ? (
+                    <Check className="w-4 h-4 text-emerald-600" />
+                  ) : (
+                    <ImageIcon className="w-4 h-4" />
+                  )}
+                  {imageCopied ? 'Gambar Tersalin' : 'Salin Gambar'}
+                </button>
+              )}
               {sharePreview.canNativeShareFiles ? (
                 <>
                   <button

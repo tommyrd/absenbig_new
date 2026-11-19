@@ -20,6 +20,7 @@ import { ProfileSettingsPanel } from '../ProfileSettingsPanel';
 import { ServerClock } from '../ServerClock';
 import { ThemeToggle } from '../ThemeToggle';
 import { UserAvatar } from '../UserAvatar';
+import { PWAInstallButton } from '../PWAInstallButton';
 import { AdminApprovalTab } from './AdminApprovalTab';
 import { AdminCalendarTab } from './AdminCalendarTab';
 import { AdminCheckinOverrideTab } from './AdminCheckinOverrideTab';
@@ -245,6 +246,7 @@ export function AdminShell({
             </span>
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <PWAInstallButton />
             <ServerClock compact />
             <ThemeToggle />
             <button

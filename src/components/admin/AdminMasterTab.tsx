@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { Building2, Edit3, Plus, Trash2, Users, X } from 'lucide-react';
+import { Building2, Edit3, MapPin, Plus, Trash2, Users, X } from 'lucide-react';
 import { apiFetch } from '../../lib/api';
 import type { BidangKerja, Kantor, Karyawan, Role } from '../../shared/types';
 import { DataTable, type ColumnDef } from '../DataTable';
+import { OfficeGeofenceMap } from '../OfficeGeofenceMap';
 import { UserAvatar } from '../UserAvatar';
 
 export function AdminMasterTab() {
@@ -51,6 +52,7 @@ export function AdminMasterTab() {
   const [deletingItem, setDeletingItem] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteNotice, setDeleteNotice] = useState<string | null>(null);
+  const [previewMapOfficeId, setPreviewMapOfficeId] = useState<number | null>(null);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -551,13 +553,36 @@ export function AdminMasterTab() {
                     {o.lat}, {o.lng}
                   </p>
                 </div>
-                <div>
-                  <span className="text-slate-400 dark:text-slate-500">Aturan Absensi:</span>
-                  <p className="font-mono text-slate-800 dark:text-slate-200 mt-0.5">
-                    {o.radius_meter}m · Wajib dalam radius
-                  </p>
+                <div className="flex items-end justify-between gap-2">
+                  <div>
+                    <span className="text-slate-400 dark:text-slate-500">Aturan Absensi:</span>
+                    <p className="font-mono text-slate-800 dark:text-slate-200 mt-0.5">
+                      {o.radius_meter}m · Wajib dalam radius
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPreviewMapOfficeId((prev) => (prev === o.id ? null : o.id))
+                    }
+                    className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1 shrink-0"
+                  >
+                    <MapPin className="w-3.5 h-3.5 text-[#c0392b] dark:text-brand-400" />
+                    {previewMapOfficeId === o.id ? 'Tutup Peta' : 'Lihat Peta'}
+                  </button>
                 </div>
               </div>
+              {previewMapOfficeId === o.id && (
+                <div className="pt-1">
+                  <OfficeGeofenceMap
+                    lat={o.lat}
+                    lng={o.lng}
+                    radiusMeter={o.radius_meter}
+                    interactive={false}
+                    heightClass="h-44"
+                  />
+                </div>
+              )}
             </div>
             );
           })}
@@ -799,7 +824,7 @@ export function AdminMasterTab() {
           onClick={() => setOfficeModal(false)}
         >
           <div
-            className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[92vh] flex flex-col"
+            className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-xl w-full border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[92vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
@@ -836,29 +861,53 @@ export function AdminMasterTab() {
                   />
                 </div>
               )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Nama Kantor
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={officeForm.nama}
+                    onChange={(e) => setOfficeForm({ ...officeForm, nama: e.target.value })}
+                    className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Alamat
+                  </label>
+                  <input
+                    type="text"
+                    value={officeForm.alamat}
+                    onChange={(e) => setOfficeForm({ ...officeForm, alamat: e.target.value })}
+                    className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg"
+                  />
+                </div>
+              </div>
+
+              {/* Interactive Geofence Map Picker */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Nama Kantor
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Peta Titik Kantor & Radius Geofence
                 </label>
-                <input
-                  type="text"
-                  required
-                  value={officeForm.nama}
-                  onChange={(e) => setOfficeForm({ ...officeForm, nama: e.target.value })}
-                  className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg"
+                <OfficeGeofenceMap
+                  lat={Number(officeForm.lat)}
+                  lng={Number(officeForm.lng)}
+                  radiusMeter={Number(officeForm.radius_meter) || 250}
+                  interactive
+                  heightClass="h-52"
+                  onLocationChange={(nextLat, nextLng) =>
+                    setOfficeForm((prev) => ({
+                      ...prev,
+                      lat: String(nextLat),
+                      lng: String(nextLng),
+                    }))
+                  }
                 />
               </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Alamat
-                </label>
-                <input
-                  type="text"
-                  value={officeForm.alamat}
-                  onChange={(e) => setOfficeForm({ ...officeForm, alamat: e.target.value })}
-                  className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg"
-                />
-              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
@@ -889,28 +938,46 @@ export function AdminMasterTab() {
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Radius (Meter)
-                  </label>
-                  <input
-                    type="number"
-                    min={20}
-                    max={50000}
-                    required
-                    value={officeForm.radius_meter}
-                    onChange={(e) => setOfficeForm({ ...officeForm, radius_meter: e.target.value })}
-                    className="w-full h-11 sm:h-10 px-3 text-sm font-mono border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg"
-                  />
-                </div>
-                <div className="flex flex-col justify-end">
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Aturan Geofence
-                  </label>
-                  <div className="min-h-11 flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
-                    Wajib berada dalam radius
+              <div className="space-y-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Radius (Meter)
+                    </label>
+                    <input
+                      type="number"
+                      min={20}
+                      max={50000}
+                      required
+                      value={officeForm.radius_meter}
+                      onChange={(e) => setOfficeForm({ ...officeForm, radius_meter: e.target.value })}
+                      className="w-full h-11 sm:h-10 px-3 text-sm font-mono border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg"
+                    />
                   </div>
+                  <div className="flex flex-col justify-end">
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Aturan Geofence
+                    </label>
+                    <div className="min-h-11 sm:min-h-10 flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
+                      Wajib berada dalam radius
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-[11px] font-mono text-slate-400">50m</span>
+                  <input
+                    type="range"
+                    min={50}
+                    max={2000}
+                    step={25}
+                    value={Math.min(2000, Math.max(50, Number(officeForm.radius_meter) || 250))}
+                    onChange={(e) =>
+                      setOfficeForm((prev) => ({ ...prev, radius_meter: e.target.value }))
+                    }
+                    aria-label="Geser radius geofence"
+                    className="flex-1 accent-[#c0392b]"
+                  />
+                  <span className="text-[11px] font-mono text-slate-400">2000m</span>
                 </div>
               </div>
               <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 pt-3">

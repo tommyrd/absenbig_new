@@ -69,17 +69,40 @@ function haversineClient(lat1: number, lng1: number, lat2: number, lng2: number)
   return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
-function getWibHmFromEpoch(epochMs: number): string {
-  if (!Number.isFinite(epochMs)) return '--:--';
+function getWibHmsPartsFromEpoch(epochMs: number): { hm: string; secondsOfDay: number } {
+  if (!Number.isFinite(epochMs)) return { hm: '--:--', secondsOfDay: 0 };
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Asia/Jakarta',
     hour: '2-digit',
     minute: '2-digit',
+    second: '2-digit',
     hourCycle: 'h23',
   }).formatToParts(new Date(epochMs));
   const h = parts.find((p) => p.type === 'hour')?.value ?? '00';
   const m = parts.find((p) => p.type === 'minute')?.value ?? '00';
-  return `${h}:${m}`;
+  const s = parts.find((p) => p.type === 'second')?.value ?? '00';
+  return {
+    hm: `${h}:${m}`,
+    secondsOfDay: Number(h) * 3600 + Number(m) * 60 + Number(s),
+  };
+}
+
+function getWibHmFromEpoch(epochMs: number): string {
+  return getWibHmsPartsFromEpoch(epochMs).hm;
+}
+
+function parseHmToSeconds(hm: string): number | null {
+  const match = /^(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(hm.trim());
+  if (!match) return null;
+  return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3] || 0);
+}
+
+function formatCountdownHms(totalSeconds: number): string {
+  const safe = Math.max(0, Math.floor(totalSeconds));
+  const hrs = Math.floor(safe / 3600);
+  const mins = Math.floor((safe % 3600) / 60);
+  const secs = safe % 60;
+  return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
 function formatDurationMinutes(diffMin: number): string {
@@ -119,6 +142,7 @@ export function EmployeeAbsensiPage({
   const todayRequestIdRef = useRef(0);
   const [serverFreshnessTick, setServerFreshnessTick] = useState(0);
   const [liveWibHm, setLiveWibHm] = useState('--:--');
+  const [liveWibSecondsOfDay, setLiveWibSecondsOfDay] = useState<number | null>(null);
 
   // GPS & Live Address State
   const [coords, setCoords] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
@@ -223,9 +247,12 @@ export function EmployeeAbsensiPage({
 
       if (sync) {
         serverClockSyncRef.current = sync;
-        setLiveWibHm(getWibHmFromEpoch(getEstimatedServerEpochMs(sync, performance.now())));
+        const parts = getWibHmsPartsFromEpoch(getEstimatedServerEpochMs(sync, performance.now()));
+        setLiveWibHm(parts.hm);
+        setLiveWibSecondsOfDay(parts.secondsOfDay);
       } else if (res.serverTime) {
         setLiveWibHm(res.serverTime.slice(0, 5));
+        setLiveWibSecondsOfDay(parseHmToSeconds(res.serverTime));
       }
     } catch (err) {
       if (requestId === todayRequestIdRef.current && !silent) {
@@ -259,7 +286,9 @@ export function EmployeeAbsensiPage({
     const id = window.setInterval(() => {
       const sync = serverClockSyncRef.current;
       if (sync) {
-        setLiveWibHm(getWibHmFromEpoch(getEstimatedServerEpochMs(sync, performance.now())));
+        const parts = getWibHmsPartsFromEpoch(getEstimatedServerEpochMs(sync, performance.now()));
+        setLiveWibHm(parts.hm);
+        setLiveWibSecondsOfDay(parts.secondsOfDay);
       }
       setServerFreshnessTick((tick) => tick + 1);
     }, 1000);
@@ -799,6 +828,53 @@ export function EmployeeAbsensiPage({
     Math.round((day.sessionsCompleted / Math.max(1, day.policySnapshot.jumlahSesi)) * 100)
   );
 
+  // Live server-synced countdown for open or upcoming session
+  const sessionStartSec = nextSesi ? parseHmToSeconds(nextSesi.jam_mulai) : null;
+  const sessionEndSec = nextSesi ? parseHmToSeconds(nextSesi.jam_selesai) : null;
+  const overrideEndSec =
+    hasActiveCheckinOverride && day.checkinOverride?.berlakuSampai
+      ? parseHmToSeconds(day.checkinOverride.berlakuSampai.slice(11, 19))
+      : null;
+  const effectiveEndSec = hasActiveCheckinOverride && overrideEndSec !== null ? overrideEndSec : sessionEndSec;
+
+  const secondsUntilOpen =
+    liveWibSecondsOfDay !== null && sessionStartSec !== null && nextWindowState === 'NOT_STARTED'
+      ? Math.max(0, sessionStartSec - liveWibSecondsOfDay)
+      : null;
+  const secondsUntilClose =
+    liveWibSecondsOfDay !== null && effectiveEndSec !== null && nextSessionStarted
+      ? Math.max(0, effectiveEndSec - liveWibSecondsOfDay)
+      : null;
+  const isClosingSoon = secondsUntilClose !== null && secondsUntilClose > 0 && secondsUntilClose <= 900;
+
+  const isPotentiallyLate = Boolean(
+    nextSesi &&
+      nextSesi.urutan === 1 &&
+      liveWibSecondsOfDay !== null &&
+      sessionStartSec !== null &&
+      liveWibSecondsOfDay > sessionStartSec + day.policySnapshot.toleransiTerlambatMenit * 60
+  );
+
+  const quickContextTags =
+    nextSesi?.urutan === 1
+      ? isPotentiallyLate
+        ? ['Kendala Perjalanan', 'Tugas Lapangan Pagi', 'Koordinasi Klien', 'Kendala Perangkat']
+        : ['Masuk Kantor', 'Briefing Pagi', 'Persiapan Lapangan', 'Standby NOC']
+      : !sessionRequiresOffice
+        ? ['Instalasi Fiber', 'Maintenance Jaringan', 'Kunjungan Klien', 'Standby Monitoring NOC', 'Koordinasi Tim']
+        : ['Aktivitas Operasional', 'Monitoring Jaringan', 'Koordinasi Tim', 'Standby Kantor'];
+
+  const applyQuickTag = (tag: string) => {
+    setDeskripsiAktivitas((prev) => {
+      const trimmed = prev.trim();
+      const prefix = `[${tag}]`;
+      if (trimmed.startsWith(prefix)) return prev;
+      const cleaned = trimmed.replace(/^\[[^\]]+\]\s*/, '');
+      return cleaned ? `${prefix} ${cleaned}` : `${prefix} `;
+    });
+    if (submitMsg?.type === 'err') setSubmitMsg(null);
+  };
+
   return (
     <div className="space-y-5">
       {/* Compact Crimson Summary Banner */}
@@ -952,7 +1028,7 @@ export function EmployeeAbsensiPage({
                   {/* Active Session Header */}
                   <div className="flex items-start justify-between gap-3 pb-3.5 border-b border-slate-100 dark:border-slate-800">
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <span className="text-[11px] font-bold uppercase tracking-wider text-brand-600 dark:text-brand-400">
                           Sesi {nextSesi.urutan} dari {day.policySnapshot.jumlahSesi}
                         </span>
@@ -978,7 +1054,20 @@ export function EmployeeAbsensiPage({
                       <p className="font-mono text-xs font-bold tabular-nums text-slate-800 dark:text-slate-100">
                         {nextSesi.jam_mulai}–{nextSesi.jam_selesai}
                       </p>
-                      <p className="text-[10px] text-slate-400">WIB</p>
+                      {secondsUntilClose !== null ? (
+                        <p
+                          className={`mt-0.5 inline-flex items-center gap-1 font-mono text-[11px] font-bold tabular-nums px-2 py-0.5 rounded-md ${
+                            isClosingSoon
+                              ? 'bg-red-50 dark:bg-red-950/60 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 animate-pulse'
+                              : 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                          }`}
+                        >
+                          <Clock className="w-3 h-3" />
+                          Sisa {formatCountdownHms(secondsUntilClose)}
+                        </p>
+                      ) : (
+                        <p className="text-[10px] text-slate-400">WIB</p>
+                      )}
                     </div>
                   </div>
 
@@ -1028,16 +1117,23 @@ export function EmployeeAbsensiPage({
                   )}
 
                   {!hasActiveCheckinOverride && serverWindowFresh && nextWindowState === 'NOT_STARTED' && (
-                    <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 flex items-start gap-2.5 text-xs">
-                      <Clock className="w-4 h-4 text-amber-700 dark:text-amber-400 shrink-0 mt-0.5" />
-                      <div>
-                        <p className="font-bold text-amber-950 dark:text-amber-100">
-                          Sesi dibuka pukul {nextSesi.jam_mulai} WIB
-                        </p>
-                        <p className="text-amber-800 dark:text-amber-200 mt-0.5">
-                          Tersisa {formatDurationMinutes(minutesUntilStart)} lagi (waktu server {data.serverTime} WIB).
-                        </p>
+                    <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 flex items-start justify-between gap-3 text-xs">
+                      <div className="flex items-start gap-2.5">
+                        <Clock className="w-4 h-4 text-amber-700 dark:text-amber-400 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-bold text-amber-950 dark:text-amber-100">
+                            Sesi dibuka pukul {nextSesi.jam_mulai} WIB
+                          </p>
+                          <p className="text-amber-800 dark:text-amber-200 mt-0.5">
+                            Tersisa {formatDurationMinutes(minutesUntilStart)} lagi (waktu server {data.serverTime} WIB).
+                          </p>
+                        </div>
                       </div>
+                      {secondsUntilOpen !== null && (
+                        <span className="font-mono text-xs font-bold tabular-nums px-2.5 py-1 rounded-lg bg-amber-100 dark:bg-amber-900/60 text-amber-950 dark:text-amber-100 shrink-0">
+                          {formatCountdownHms(secondsUntilOpen)}
+                        </span>
+                      )}
                     </div>
                   )}
 
@@ -1349,7 +1445,30 @@ export function EmployeeAbsensiPage({
                       </div>
                     )}
 
-                    <div>
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mr-0.5">
+                          {isPotentiallyLate ? 'Alasan cepat:' : 'Isian cepat:'}
+                        </span>
+                        {quickContextTags.map((tag) => {
+                          const isActiveTag = deskripsiAktivitas.trim().startsWith(`[${tag}]`);
+                          return (
+                            <button
+                              key={tag}
+                              type="button"
+                              disabled={!nextSessionStarted || submitting}
+                              onClick={() => applyQuickTag(tag)}
+                              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors disabled:opacity-45 ${
+                                isActiveTag
+                                  ? 'bg-[#c0392b] text-white border-[#c0392b]'
+                                  : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-brand-400'
+                              }`}
+                            >
+                              {tag}
+                            </button>
+                          );
+                        })}
+                      </div>
                       <textarea
                         rows={2}
                         disabled={!nextSessionStarted || submitting}
@@ -1361,7 +1480,9 @@ export function EmployeeAbsensiPage({
                         }}
                         placeholder={
                           nextSesi.urutan === 1
-                            ? 'Contoh: Mulai kerja di kantor...'
+                            ? isPotentiallyLate
+                              ? 'Tuliskan alasan keterlambatan singkat...'
+                              : 'Contoh: Mulai kerja di kantor...'
                             : tipeAktivitas === 'STANDBY'
                               ? 'Contoh: Standby monitoring jaringan & tiket NOC...'
                               : 'Contoh: Instalasi fiber & pengecekan perangkat...'

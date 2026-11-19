@@ -12,6 +12,8 @@ import { LoginView } from './components/LoginView';
 import { EmployeeShell } from './components/employee/EmployeeShell';
 import { AdminShell } from './components/admin/AdminShell';
 import { SuperadminConsole } from './components/superadmin/SuperadminConsole';
+import { OfflineIndicator } from './components/OfflineIndicator';
+import { ScrollToTopButton } from './components/ScrollToTopButton';
 
 export default function App() {
   useTheme();
@@ -84,12 +86,11 @@ export default function App() {
     );
   }
 
+  let content = null;
   if (!user) {
-    return <LoginView settings={settings} onSuccess={(u) => setUser(u)} />;
-  }
-
-  if (user.role === 'SUPERADMIN') {
-    return (
+    content = <LoginView settings={settings} onSuccess={(u) => setUser(u)} />;
+  } else if (user.role === 'SUPERADMIN') {
+    content = (
       <SuperadminConsole
         user={user}
         settings={settings}
@@ -98,11 +99,18 @@ export default function App() {
         onLogout={handleLogout}
       />
     );
-  }
-
-  if (user.role === 'ADMIN') {
-    return (
+  } else if (user.role === 'ADMIN') {
+    content = (
       <AdminShell
+        user={user}
+        settings={settings}
+        onUserUpdated={(u) => setUser(u)}
+        onLogout={handleLogout}
+      />
+    );
+  } else {
+    content = (
+      <EmployeeShell
         user={user}
         settings={settings}
         onUserUpdated={(u) => setUser(u)}
@@ -112,11 +120,10 @@ export default function App() {
   }
 
   return (
-    <EmployeeShell
-      user={user}
-      settings={settings}
-      onUserUpdated={(u) => setUser(u)}
-      onLogout={handleLogout}
-    />
+    <>
+      {content}
+      <OfflineIndicator />
+      <ScrollToTopButton />
+    </>
   );
 }

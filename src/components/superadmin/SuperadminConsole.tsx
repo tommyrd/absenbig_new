@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Camera,
+  ChevronLeft,
+  ChevronRight,
   Download,
   Eye,
   FileSpreadsheet,
@@ -36,6 +38,7 @@ import { ServerClock } from '../ServerClock';
 import { StatusBadge } from '../StatusBadge';
 import { ThemeToggle } from '../ThemeToggle';
 import { UserAvatar } from '../UserAvatar';
+import { PWAInstallButton } from '../PWAInstallButton';
 import { SuperadminAccountsTab } from './SuperadminAccountsTab';
 import { SuperadminSettingsTab } from './SuperadminSettingsTab';
 
@@ -127,6 +130,33 @@ export function SuperadminConsole({
 
   const [selectedAudit, setSelectedAudit] = useState<AuditLog | null>(null);
   const [selectedEvidence, setSelectedEvidence] = useState<EvidenceRow | null>(null);
+
+  const evidenceList = overview?.recentEvidence || [];
+  const selectedEvidenceIdx = selectedEvidence
+    ? evidenceList.findIndex((item) => item.id === selectedEvidence.id)
+    : -1;
+
+  const navigateEvidence = useCallback(
+    (delta: -1 | 1) => {
+      if (!selectedEvidence || evidenceList.length <= 1) return;
+      const idx = evidenceList.findIndex((item) => item.id === selectedEvidence.id);
+      if (idx === -1) return;
+      const nextIdx = (idx + delta + evidenceList.length) % evidenceList.length;
+      setSelectedEvidence(evidenceList[nextIdx]);
+    },
+    [evidenceList, selectedEvidence]
+  );
+
+  useEffect(() => {
+    if (!selectedEvidence) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelectedEvidence(null);
+      else if (e.key === 'ArrowLeft') navigateEvidence(-1);
+      else if (e.key === 'ArrowRight') navigateEvidence(1);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [selectedEvidence, navigateEvidence]);
 
   useEffect(() => {
     if (!bulan && serverYearMonth) {
@@ -648,6 +678,7 @@ export function SuperadminConsole({
                 className="h-9 px-2.5 text-xs font-mono border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 hidden xl:block"
               />
             )}
+            <PWAInstallButton />
             <ServerClock compact />
             <ThemeToggle />
             <button
@@ -1006,34 +1037,62 @@ export function SuperadminConsole({
         </div>
       )}
 
-      {/* Photo Proof Lightbox */}
+      {/* Photo Proof Lightbox with Prev/Next Gallery Navigation */}
       {selectedEvidence && (
         <div
-          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
           onClick={() => setSelectedEvidence(null)}
         >
           <div
-            className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-lg w-full overflow-hidden border border-slate-200 dark:border-slate-800 max-h-[92vh] flex flex-col"
+            className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-xl w-full overflow-hidden border border-slate-200 dark:border-slate-800 max-h-[92vh] flex flex-col shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+            <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
                   {selectedEvidence.nama_lengkap} · {selectedEvidence.nama_sesi}
                 </p>
                 <p className="text-xs font-mono text-slate-500 dark:text-slate-400">
                   {selectedEvidence.tanggal} · {selectedEvidence.waktu_server.slice(11, 19)} WIB
+                  {selectedEvidenceIdx >= 0 && evidenceList.length > 1
+                    ? ` · ${selectedEvidenceIdx + 1}/${evidenceList.length}`
+                    : ''}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setSelectedEvidence(null)}
-                className="min-w-[40px] min-h-[40px] flex items-center justify-center"
-              >
-                <X className="w-5 h-5 text-slate-500 dark:text-slate-400" />
-              </button>
+              <div className="flex items-center gap-1 shrink-0">
+                {evidenceList.length > 1 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => navigateEvidence(-1)}
+                      className="min-w-[36px] min-h-[36px] rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-700 dark:text-slate-200"
+                      aria-label="Bukti sebelumnya"
+                      title="Sebelumnya (Panah Kiri)"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => navigateEvidence(1)}
+                      className="min-w-[36px] min-h-[36px] rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-700 dark:text-slate-200"
+                      aria-label="Bukti berikutnya"
+                      title="Berikutnya (Panah Kanan)"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setSelectedEvidence(null)}
+                  className="min-w-[36px] min-h-[36px] rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center"
+                  aria-label="Tutup pratinjau"
+                >
+                  <X className="w-5 h-5 text-slate-500 dark:text-slate-400" />
+                </button>
+              </div>
             </div>
-            <div className="bg-slate-950 flex items-center justify-center max-h-[60vh]">
+            <div className="relative bg-slate-950 flex items-center justify-center max-h-[60vh]">
               <img
                 src={getAuthorizedPhotoUrl(selectedEvidence.id)}
                 alt="Bukti absensi"
@@ -1041,6 +1100,10 @@ export function SuperadminConsole({
               />
             </div>
             <div className="p-4 text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/80 space-y-1">
+              <p>
+                <strong>Kantor & Bidang:</strong> {selectedEvidence.kantor_nama.split('(')[0].trim()} ·{' '}
+                {selectedEvidence.bidang_nama}
+              </p>
               <p>
                 <strong>Aktivitas:</strong> {selectedEvidence.tipe_aktivitas} —{' '}
                 {selectedEvidence.deskripsi_aktivitas}
