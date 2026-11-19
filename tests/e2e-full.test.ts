@@ -703,3 +703,126 @@ test('6. Strict Role Separation: SUPERADMIN vs ADMIN Operasional vs KARYAWAN (on
   assert.equal(adminTargetSelfReq.status, 403);
 });
 
+test('7. Kebijakan 1 Sesi (Masuk Saja): single check-in completes daily attendance as HADIR', async () => {
+  const db = getDb();
+  const today = getWibDateString();
+  const dewiLogin = await loginAs('dewi', 'bignet123');
+  const dewiToken = dewiLogin.token;
+  const dewiKaryawanId = Number(dewiLogin.user.karyawan_id);
+  const dewiLat = Number(dewiLogin.user.kantor_lat);
+  const dewiLng = Number(dewiLogin.user.kantor_lng);
+
+  // Clean today's attendance & requests for Dewi so test starts fresh
+  db.prepare(`DELETE FROM absensi_sesi WHERE karyawan_id = ? AND tanggal = ?`).run(dewiKaryawanId, today);
+  db.prepare(`DELETE FROM pengajuan WHERE karyawan_id = ? AND tanggal_mulai <= ? AND tanggal_akhir >= ?`).run(
+    dewiKaryawanId,
+    today,
+    today
+  );
+
+  // Create a 1-session KARYAWAN policy for Dewi
+  const createOneSession = await apiJson<{ id: number }>('/api/v1/policies', {
+    method: 'POST',
+    token: adminToken,
+    body: {
+      level: 'KARYAWAN',
+      karyawan_id: dewiKaryawanId,
+      nama: 'Kebijakan 1 Sesi Masuk Saja (Uji)',
+      jumlah_sesi: 1,
+      min_sesi_hadir: 1,
+      toleransi_terlambat_menit: 15,
+      aturan_lokasi: 'SESI_PERTAMA_KANTOR',
+      wajib_foto_semua_sesi: true,
+      wajib_aktivitas_sesi_lanjut: false,
+      berlaku_mulai: '2026-01-01',
+      sesi: [
+        {
+          urutan: 1,
+          nama: 'Sesi 1 · Masuk',
+          jam_mulai: '00:00',
+          jam_selesai: '23:59',
+          wajib_foto: 1,
+          wajib_aktivitas: 0,
+          aktif: 1,
+        },
+      ],
+    },
+  });
+  assert.equal(createOneSession.status, 201, `Create 1-session policy failed: ${JSON.stringify(createOneSession.data)}`);
+
+  // Verify Dewi's day resolves to 1 session required
+  const beforeCheckin = await apiJson<{
+    day: {
+      operationalStatus: string;
+      sessionsCompleted: number;
+      policySnapshot: { jumlahSesi: number; minSesiHadir: number; sesiList: Array<{ urutan: number }> };
+    };
+  }>('/api/v1/attendance/today', { token: dewiToken });
+  assert.equal(beforeCheckin.status, 200);
+  assert.equal(beforeCheckin.data.day.policySnapshot.jumlahSesi, 1);
+  assert.equal(beforeCheckin.data.day.policySnapshot.minSesiHadir, 1);
+  assert.equal(beforeCheckin.data.day.policySnapshot.sesiList.length, 1);
+  assert.equal(beforeCheckin.data.day.sessionsCompleted, 0);
+
+  // Submit Sesi 1 check-in inside office geofence
+  resetLimiters();
+  const checkin = await apiJson<{ ok: boolean }>('/api/v1/attendance/session', {
+    method: 'POST',
+    token: dewiToken,
+    body: {
+      urutanSesi: 1,
+      lat: dewiLat,
+      lng: dewiLng,
+      accuracyMeter: 10,
+      tipeAktivitas: 'CHECK_IN',
+      deskripsiAktivitas: 'Masuk pagi 1 sesi',
+      fotoBase64: SAMPLE_PNG_BASE64,
+      fotoSource: 'BROWSER_CAMERA',
+    },
+  });
+  assert.equal(checkin.status, 201, `1-session check-in failed: ${JSON.stringify(checkin.data)}`);
+
+  // Verify daily attendance is immediately HADIR & DIHITUNG_MASUK after 1 check-in
+  const afterCheckin = await apiJson<{
+    day: { operationalStatus: string; payrollStatus: string; sessionsCompleted: number };
+  }>('/api/v1/attendance/today', { token: dewiToken });
+  assert.equal(afterCheckin.status, 200);
+  assert.equal(afterCheckin.data.day.sessionsCompleted, 1);
+  assert.equal(afterCheckin.data.day.operationalStatus, 'HADIR');
+  assert.equal(afterCheckin.data.day.payrollStatus, 'DIHITUNG_MASUK');
+
+  // Verify attempting a second check-in is rejected because 1/1 is complete
+  const secondAttempt = await apiJson<{ error: string }>('/api/v1/attendance/session', {
+    method: 'POST',
+    token: dewiToken,
+    body: {
+      urutanSesi: 2,
+      lat: dewiLat,
+      lng: dewiLng,
+      accuracyMeter: 10,
+      tipeAktivitas: 'AKTIVITAS',
+      deskripsiAktivitas: 'Coba sesi kedua',
+      fotoBase64: SAMPLE_PNG_BASE64,
+      fotoSource: 'BROWSER_CAMERA',
+    },
+  });
+  assert.equal(secondAttempt.status, 400);
+
+  // Also verify 1-session Kerja Khusus assignment succeeds
+  const kkOne = await apiJson<{ id: number }>('/api/v1/special-work', {
+    method: 'POST',
+    token: adminToken,
+    body: {
+      karyawan_id: dewiKaryawanId,
+      tanggal: '2026-12-27',
+      nama_project: 'Standby 1 Sesi',
+      keterangan: 'Uji kerja khusus 1 sesi',
+      jumlah_sesi: 1,
+      min_sesi_hadir: 1,
+      berhak_off_pengganti: false,
+    },
+  });
+  assert.equal(kkOne.status, 201);
+});
+
+

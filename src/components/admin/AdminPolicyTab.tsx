@@ -7,7 +7,7 @@ import type { AttendanceLocationRule, BidangKerja, Karyawan, KebijakanAbsensi, P
 function makeDefaultSesi(count: number, wajibFoto = true, wajibAktivitas = true): SesiConfig[] {
   return Array.from({ length: count }).map((_, i) => ({
     urutan: i + 1,
-    nama: `Sesi ${i + 1}`,
+    nama: count === 1 ? 'Sesi 1 · Masuk' : `Sesi ${i + 1}`,
     jam_mulai: i === 0 ? '08:00' : i === 1 ? '12:00' : i === 2 ? '15:00' : '17:00',
     jam_selesai: i === 0 ? '09:30' : i === 1 ? '14:00' : i === 2 ? '16:30' : '19:30',
     wajib_foto: wajibFoto ? 1 : 0,
@@ -417,9 +417,11 @@ export function AdminPolicyTab() {
                 <div className="rounded-lg border border-brand-100 dark:border-brand-900/60 bg-brand-50/60 dark:bg-brand-950/20 px-3 py-2.5 text-xs">
                   <p className="font-semibold text-slate-800 dark:text-slate-200">Aturan Lokasi Absensi</p>
                   <p className="mt-1 text-slate-600 dark:text-slate-300">
-                    {p.aturan_lokasi === 'SEMUA_SESI_KANTOR'
-                      ? 'Semua sesi wajib dilakukan di dalam radius kantor.'
-                      : 'Sesi 1 wajib di kantor; Sesi 2 dan seterusnya boleh dari lokasi lain.'}
+                    {p.jumlah_sesi === 1
+                      ? 'Absensi 1x saat masuk (wajib dilakukan di dalam radius kantor).'
+                      : p.aturan_lokasi === 'SEMUA_SESI_KANTOR'
+                        ? 'Semua sesi wajib dilakukan di dalam radius kantor.'
+                        : 'Sesi 1 wajib di kantor; Sesi 2 dan seterusnya boleh dari lokasi lain.'}
                   </p>
                 </div>
 
@@ -438,9 +440,13 @@ export function AdminPolicyTab() {
                 </div>
 
                 <div className="pt-2 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-400 flex flex-wrap gap-x-3 gap-y-1">
-                  <span>Foto Semua Sesi: <strong className="text-slate-900 dark:text-slate-200">{p.wajib_foto_semua_sesi ? 'Wajib' : 'Opsional'}</strong></span>
-                  <span>·</span>
-                  <span>Aktivitas Sesi 2+: <strong className="text-slate-900 dark:text-slate-200">{p.wajib_aktivitas_sesi_lanjut ? 'Wajib' : 'Opsional'}</strong></span>
+                  <span>Foto {p.jumlah_sesi === 1 ? 'Masuk' : 'Semua Sesi'}: <strong className="text-slate-900 dark:text-slate-200">{p.wajib_foto_semua_sesi ? 'Wajib' : 'Opsional'}</strong></span>
+                  {p.jumlah_sesi > 1 && (
+                    <>
+                      <span>·</span>
+                      <span>Aktivitas Sesi 2+: <strong className="text-slate-900 dark:text-slate-200">{p.wajib_aktivitas_sesi_lanjut ? 'Wajib' : 'Opsional'}</strong></span>
+                    </>
+                  )}
                   <span>·</span>
                   <span>Libur Dibayar: <strong className="text-slate-900 dark:text-slate-200">{p.libur_dihitung_masuk ? 'Ya' : 'Tidak'}</strong></span>
                   <span>·</span>
@@ -575,6 +581,7 @@ export function AdminPolicyTab() {
                     onChange={(e) => handleCountChange(Number(e.target.value))}
                     className="w-full min-h-[44px] sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
                   >
+                    <option value={1}>1 Sesi (Masuk Saja)</option>
                     <option value={2}>2 Sesi</option>
                     <option value={3}>3 Sesi</option>
                     <option value={4}>4 Sesi</option>
@@ -627,9 +634,11 @@ export function AdminPolicyTab() {
                   </select>
                 </div>
                 <p className="text-[11px] leading-relaxed text-slate-600 dark:text-slate-400">
-                  {form.aturan_lokasi === 'SEMUA_SESI_KANTOR'
-                    ? 'Karyawan harus melakukan seluruh absensi dalam radius kantor. Lokasi dengan GPS tidak akurat akan ditolak.'
-                    : 'Pengaturan default perusahaan: absensi pertama wajib dalam radius kantor. Sesi 2 dan seterusnya boleh dari lokasi kerja lain; koordinat dan alamat lokasi tetap direkam.'}
+                  {form.jumlah_sesi === 1
+                    ? 'Mode 1 Sesi: karyawan cukup absen 1x saat awal masuk di dalam radius kantor. Setelah absen Sesi 1 selesai, status kehadiran hari tersebut langsung HADIR.'
+                    : form.aturan_lokasi === 'SEMUA_SESI_KANTOR'
+                      ? 'Karyawan harus melakukan seluruh absensi dalam radius kantor. Lokasi dengan GPS tidak akurat akan ditolak.'
+                      : 'Pengaturan default perusahaan: absensi pertama wajib dalam radius kantor. Sesi 2 dan seterusnya boleh dari lokasi kerja lain; koordinat dan alamat lokasi tetap direkam.'}
                 </p>
               </div>
 
@@ -687,17 +696,19 @@ export function AdminPolicyTab() {
                       onChange={(e) => handleToggleWajibFoto(e.target.checked)}
                       className="w-4 h-4 accent-brand-600"
                     />
-                    Wajib foto semua sesi
+                    {form.jumlah_sesi === 1 ? 'Wajib foto saat masuk' : 'Wajib foto semua sesi'}
                   </label>
-                  <label className="flex items-center gap-2 min-h-[32px]">
-                    <input
-                      type="checkbox"
-                      checked={form.wajib_aktivitas_sesi_lanjut}
-                      onChange={(e) => handleToggleWajibAktivitas(e.target.checked)}
-                      className="w-4 h-4 accent-brand-600"
-                    />
-                    Wajib aktivitas Sesi 2+
-                  </label>
+                  {form.jumlah_sesi > 1 && (
+                    <label className="flex items-center gap-2 min-h-[32px]">
+                      <input
+                        type="checkbox"
+                        checked={form.wajib_aktivitas_sesi_lanjut}
+                        onChange={(e) => handleToggleWajibAktivitas(e.target.checked)}
+                        className="w-4 h-4 accent-brand-600"
+                      />
+                      Wajib aktivitas Sesi 2+
+                    </label>
+                  )}
                   <label className="flex items-center gap-2 min-h-[32px]">
                     <input
                       type="checkbox"

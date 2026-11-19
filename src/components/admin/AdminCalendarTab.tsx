@@ -105,7 +105,11 @@ export function AdminCalendarTab() {
         body: JSON.stringify({
           status_hari: 'HARI_KERJA',
           jumlah_sesi_khusus: count,
-          keterangan: count ? `Setengah Hari (${count} Sesi)` : 'Hari Kerja Reguler',
+          keterangan: count
+            ? count === 1
+              ? 'Khusus 1 Sesi (Masuk Saja)'
+              : `Setengah Hari (${count} Sesi)`
+            : 'Hari Kerja Reguler',
         }),
       });
       await loadAll();
@@ -320,6 +324,7 @@ export function AdminCalendarTab() {
                                 className="min-h-[40px] sm:h-8 px-2 border border-slate-200 dark:border-slate-700 rounded-md bg-white dark:bg-slate-800 text-xs text-slate-700 dark:text-slate-200"
                               >
                                 <option value="">Ikuti Policy</option>
+                                <option value="1">Khusus 1 Sesi</option>
                                 <option value="2">Khusus 2 Sesi</option>
                                 <option value="3">Khusus 3 Sesi</option>
                                 <option value="4">Khusus 4 Sesi</option>
@@ -665,6 +670,7 @@ export function AdminCalendarTab() {
                     }
                     className="w-full min-h-[44px] sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
                   >
+                    <option value={1}>1 Sesi (Masuk Saja)</option>
                     <option value={2}>2 Sesi</option>
                     <option value={3}>3 Sesi</option>
                     <option value={4}>4 Sesi</option>
