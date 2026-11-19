@@ -56,9 +56,7 @@ export function getDb(): DatabaseSync {
   if (countRow.c === 0) {
     if (!isProd && process.env.SEED_DEMO_DATA !== 'false') {
       seedDemoDataset(db);
-    } else if (process.env.SEED_DEMO_DATA === 'true' && !isProd) {
-      seedDemoDataset(db);
-    } else if (isProd && process.env.BOOTSTRAP_SUPERADMIN_PASSWORD) {
+    } else if (process.env.BOOTSTRAP_SUPERADMIN_PASSWORD?.trim()) {
       const res = seedProductionBaseline(db);
       if (res.seeded) {
         console.log(
@@ -68,8 +66,8 @@ export function getDb(): DatabaseSync {
     }
   }
 
-  // Enforce demo login disabled in production unless explicitly overridden by Superadmin/env
-  if (isProd && process.env.ALLOW_DEMO_LOGIN !== 'true') {
+  // Enforce demo login disabled in production or whenever ALLOW_DEMO_LOGIN=false
+  if ((isProd && process.env.ALLOW_DEMO_LOGIN !== 'true') || process.env.ALLOW_DEMO_LOGIN === 'false') {
     db.prepare(`UPDATE pengaturan_aplikasi SET izin_demo_login = 0 WHERE id = 1 AND izin_demo_login != 0`).run();
   }
 
