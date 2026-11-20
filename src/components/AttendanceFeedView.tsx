@@ -857,11 +857,11 @@ export function AttendanceFeedView({
                       </div>
                     </header>
 
-                    {/* B. Full-Bleed Instagram Photo Frame */}
+                    {/* B. Full Uncropped Attendance Photo Frame */}
                     <button
                       type="button"
                       onClick={() => setLightboxPost(post)}
-                      className="group relative w-full aspect-[4/3] block bg-slate-100 dark:bg-slate-950 overflow-hidden text-left border-y border-slate-100 dark:border-slate-800/80"
+                      className="group relative w-full block bg-slate-950 overflow-hidden text-left border-y border-slate-100 dark:border-slate-800/80"
                       aria-label={`Lihat bukti foto absensi ${post.namaLengkap}, ${post.namaSesi}`}
                     >
                       {post.hasFoto && !photoBroken ? (
@@ -872,11 +872,11 @@ export function AttendanceFeedView({
                           onError={() =>
                             setFailedPhotoIds((prev) => ({ ...prev, [post.id]: true }))
                           }
-                          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.015]"
+                          className="w-full max-h-[520px] object-contain mx-auto transition-transform duration-300 group-hover:scale-[1.01]"
                           loading="lazy"
                         />
                       ) : (
-                        <div className="w-full h-full flex flex-col items-center justify-center bg-slate-100 dark:bg-slate-900 text-slate-400 p-6 text-center">
+                        <div className="w-full aspect-[4/3] flex flex-col items-center justify-center bg-slate-100 dark:bg-slate-900 text-slate-400 p-6 text-center">
                           <Camera className="w-8 h-8 mb-2 opacity-60" />
                           <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
                             {post.namaLengkap}
@@ -957,14 +957,9 @@ export function AttendanceFeedView({
                         </div>
                       </div>
 
-                      {/* Row 2: Caption */}
-                      <div className="text-[13px] leading-relaxed text-slate-800 dark:text-slate-200 break-words">
-                        <span className="font-bold text-slate-900 dark:text-white mr-1.5">
-                          {post.namaLengkap}
-                        </span>
-                        <span className="whitespace-pre-wrap">
-                          {post.deskripsiAktivitas.trim() || 'Melakukan absensi kerja.'}
-                        </span>
+                      {/* Row 2: Highlighted Activity Caption (without repeating employee name) */}
+                      <div className="rounded-lg border-l-[3px] border-brand-500 bg-brand-50/50 dark:bg-brand-950/30 px-3 py-2 text-[13px] sm:text-[13.5px] font-semibold leading-relaxed text-slate-900 dark:text-slate-100 break-words whitespace-pre-wrap">
+                        {post.deskripsiAktivitas.trim() || 'Melakukan absensi kerja.'}
                       </div>
 
                       {/* Row 3: Complete Location & Office/Region Verification Detail Card */}

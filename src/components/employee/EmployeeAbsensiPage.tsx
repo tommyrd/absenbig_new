@@ -218,6 +218,9 @@ export function EmployeeAbsensiPage({
   const cameraRequestIdRef = useRef(0);
   const activeFacingRef = useRef<'user' | 'environment'>('user');
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
+  const [cameraOrientation, setCameraOrientation] = useState<'portrait' | 'landscape'>(() =>
+    typeof window !== 'undefined' && window.innerHeight > window.innerWidth ? 'portrait' : 'landscape'
+  );
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraLoading, setCameraLoading] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
@@ -340,6 +343,9 @@ export function EmployeeAbsensiPage({
     const videoTrack = stream.getVideoTracks()[0];
     const markReady = () => {
       if (active) {
+        if (video.videoWidth > 0 && video.videoHeight > 0) {
+          setCameraOrientation(video.videoHeight > video.videoWidth ? 'portrait' : 'landscape');
+        }
         setCameraReady(true);
         setCameraError(null);
       }
@@ -352,6 +358,7 @@ export function EmployeeAbsensiPage({
       }
     };
     video.srcObject = stream;
+    video.addEventListener('loadedmetadata', markReady);
     video.addEventListener('loadeddata', markReady);
     videoTrack?.addEventListener('ended', handleTrackEnded);
 
@@ -364,6 +371,7 @@ export function EmployeeAbsensiPage({
 
     return () => {
       active = false;
+      video.removeEventListener('loadedmetadata', markReady);
       video.removeEventListener('loadeddata', markReady);
       videoTrack?.removeEventListener('ended', handleTrackEnded);
       if (video.srcObject === stream) {
@@ -544,11 +552,13 @@ export function EmployeeAbsensiPage({
     setCameraLoading(true);
     setCameraReady(false);
     try {
+      const isPortraitViewport =
+        typeof window !== 'undefined' && window.innerHeight > window.innerWidth;
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: requestedFacing },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+          width: { ideal: isPortraitViewport ? 960 : 1280 },
+          height: { ideal: isPortraitViewport ? 1280 : 960 },
         },
         audio: false,
       });
@@ -558,7 +568,9 @@ export function EmployeeAbsensiPage({
         return;
       }
 
-      const actualFacing = stream.getVideoTracks()[0]?.getSettings().facingMode;
+      const videoTrack = stream.getVideoTracks()[0];
+      const trackSettings = videoTrack?.getSettings();
+      const actualFacing = trackSettings?.facingMode;
       if (isExplicitSwitch && actualFacing && actualFacing !== requestedFacing) {
         stream.getTracks().forEach((track) => track.stop());
         setCameraError(
@@ -567,6 +579,32 @@ export function EmployeeAbsensiPage({
             : 'Kamera depan tidak tersedia di perangkat ini. Gunakan kamera belakang.'
         );
         return;
+      }
+
+      if (videoTrack && typeof videoTrack.getCapabilities === 'function') {
+        try {
+          const capabilities = videoTrack.getCapabilities() as MediaTrackCapabilities & {
+            zoom?: { min?: number; max?: number };
+          };
+          if (typeof capabilities.zoom?.min === 'number') {
+            await videoTrack.applyConstraints({
+              advanced: [{ zoom: capabilities.zoom.min } as MediaTrackConstraintSet],
+            });
+          }
+        } catch {
+          // Ignore when device/browser does not support programmatic zoom reset
+        }
+      }
+
+      if (
+        typeof trackSettings?.width === 'number' &&
+        typeof trackSettings?.height === 'number' &&
+        trackSettings.width > 0 &&
+        trackSettings.height > 0
+      ) {
+        setCameraOrientation(trackSettings.height > trackSettings.width ? 'portrait' : 'landscape');
+      } else {
+        setCameraOrientation(isPortraitViewport ? 'portrait' : 'landscape');
       }
 
       const resolvedFacing: 'user' | 'environment' =
@@ -1763,11 +1801,11 @@ export function EmployeeAbsensiPage({
 
                     {photoDataUrl ? (
                       <div className="space-y-2.5">
-                        <div className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-950 aspect-[4/3] max-h-72 mx-auto flex items-center justify-center">
+                        <div className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-950 max-h-[420px] mx-auto flex items-center justify-center">
                           <img
                             src={photoDataUrl}
                             alt="Pratinjau foto absensi"
-                            className="w-full h-full object-cover"
+                            className="w-full max-h-[420px] object-contain"
                           />
                         </div>
                         <div className="grid grid-cols-2 gap-2">
@@ -1798,13 +1836,19 @@ export function EmployeeAbsensiPage({
                             {cameraError}
                           </p>
                         )}
-                        <div className="relative rounded-xl overflow-hidden border border-slate-300 dark:border-slate-700 bg-black aspect-[4/3] max-h-72 mx-auto">
+                        <div
+                          className={`relative rounded-xl overflow-hidden border border-slate-300 dark:border-slate-700 bg-black mx-auto flex items-center justify-center ${
+                            cameraOrientation === 'portrait'
+                              ? 'aspect-[3/4] max-w-[320px] w-full'
+                              : 'aspect-[4/3] max-h-80 w-full'
+                          }`}
+                        >
                           <video
                             ref={videoRef}
                             autoPlay
                             playsInline
                             muted
-                            className={`w-full h-full object-cover ${
+                            className={`w-full h-full object-contain ${
                               facingMode === 'user'
                                 ? '[-webkit-transform:scaleX(-1)] [transform:scaleX(-1)]'
                                 : ''
@@ -1819,31 +1863,57 @@ export function EmployeeAbsensiPage({
                           {/* Face-Guide Oval (Front) or Viewfinder Frame (Rear) */}
                           {facingMode === 'user' ? (
                             <svg
-                              viewBox="0 0 400 300"
+                              viewBox={cameraOrientation === 'portrait' ? '0 0 300 400' : '0 0 400 300'}
+                              preserveAspectRatio="xMidYMid meet"
                               className="pointer-events-none absolute inset-0 w-full h-full"
                               aria-hidden="true"
                             >
-                              <ellipse
-                                cx="200"
-                                cy="142"
-                                rx="78"
-                                ry="102"
-                                fill="none"
-                                stroke="rgba(255,255,255,0.72)"
-                                strokeWidth="2.5"
-                                strokeDasharray="8 6"
-                              />
-                              <path
-                                d="M126 248 Q200 220 274 248"
-                                fill="none"
-                                stroke="rgba(255,255,255,0.45)"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                              />
+                              {cameraOrientation === 'portrait' ? (
+                                <>
+                                  <ellipse
+                                    cx="150"
+                                    cy="168"
+                                    rx="82"
+                                    ry="108"
+                                    fill="none"
+                                    stroke="rgba(255,255,255,0.72)"
+                                    strokeWidth="2.5"
+                                    strokeDasharray="8 6"
+                                  />
+                                  <path
+                                    d="M62 326 Q150 284 238 326"
+                                    fill="none"
+                                    stroke="rgba(255,255,255,0.45)"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                  />
+                                </>
+                              ) : (
+                                <>
+                                  <ellipse
+                                    cx="200"
+                                    cy="142"
+                                    rx="78"
+                                    ry="102"
+                                    fill="none"
+                                    stroke="rgba(255,255,255,0.72)"
+                                    strokeWidth="2.5"
+                                    strokeDasharray="8 6"
+                                  />
+                                  <path
+                                    d="M126 248 Q200 220 274 248"
+                                    fill="none"
+                                    stroke="rgba(255,255,255,0.45)"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                  />
+                                </>
+                              )}
                             </svg>
                           ) : (
                             <svg
                               viewBox="0 0 400 300"
+                              preserveAspectRatio="xMidYMid meet"
                               className="pointer-events-none absolute inset-0 w-full h-full"
                               aria-hidden="true"
                             >
