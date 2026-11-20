@@ -382,7 +382,7 @@ export function evaluateAttendanceLocation(
     if (wajibDiKantor && !matched) {
       return buildResult({
         allowed: false,
-        errorMessage: `Absensi ditolak. Sesi ${sessionNumber} wajib berada di kantor (${primaryOffice.nama}). Jarak titik GPS ${nearest?.jarak_meter ?? 0}m dengan estimasi akurasi ±${Math.ceil(accuracyMeter!)}m belum dapat dipastikan di dalam radius kantor ${primaryOffice.radius_meter}m.`,
+        errorMessage: `Absensi ditolak. Sesi ${sessionNumber} wajib berada di kantor (${primaryOffice.nama}). Jarak Anda saat ini ${nearest?.jarak_meter ?? 0}m, melebihi batas radius kantor ${primaryOffice.radius_meter}m (akurasi GPS ±${Math.ceil(accuracyMeter!)}m).`,
         statusWilayah,
         dalamGeofence: false,
         geofenceExempted: false,

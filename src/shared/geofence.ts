@@ -10,8 +10,12 @@ export function isGpsAccuracyAcceptable(accuracyMeters: unknown): accuracyMeters
 }
 
 /**
- * Require the reported accuracy margin to remain fully inside the configured
- * office radius. This intentionally errs on the safe side near the boundary.
+ * Validates that the GPS accuracy is acceptable (<= MAX_GPS_ACCURACY_METERS)
+ * and that the measured coordinate is within the configured office radius.
+ *
+ * Note: Indoor mobile GPS routinely reports ±20m–±65m accuracy; adding accuracy
+ * on top of distance (`distance + accuracy <= radius`) makes tight radii like
+ * 50m unusable even for employees standing right inside the office.
  */
 export function isWithinVerifiedGeofence(
   distanceMeters: number,
@@ -23,9 +27,9 @@ export function isWithinVerifiedGeofence(
     Number.isFinite(accuracyMeters) &&
     Number.isFinite(radiusMeters) &&
     distanceMeters >= 0 &&
-    accuracyMeters >= 0 &&
+    isGpsAccuracyAcceptable(accuracyMeters) &&
     radiusMeters > 0 &&
-    distanceMeters + accuracyMeters <= radiusMeters
+    distanceMeters <= radiusMeters
   );
 }
 

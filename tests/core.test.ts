@@ -281,7 +281,7 @@ test('History calendar reflects attendance status and final Admin Override', () 
   );
 });
 
-test('GPS accuracy and radius uncertainty are validated conservatively', () => {
+test('GPS accuracy and office geofence radius are validated accurately for indoor and outdoor fixes', () => {
   assert.equal(MAX_GPS_ACCURACY_METERS, 100);
   assert.equal(isGpsAccuracyAcceptable(10), true);
   assert.equal(isGpsAccuracyAcceptable(100), true);
@@ -289,10 +289,15 @@ test('GPS accuracy and radius uncertainty are validated conservatively', () => {
   assert.equal(isGpsAccuracyAcceptable(Number.NaN), false);
   assert.equal(isGpsAccuracyAcceptable(null), false);
 
+  // Indoor check-in inside a tight 50m office radius (e.g., 9m distance with ±45m mobile GPS accuracy) MUST pass
+  assert.equal(isWithinVerifiedGeofence(9, 45, 50), true);
+  assert.equal(isWithinVerifiedGeofence(50, 65, 50), true);
+  assert.equal(isWithinVerifiedGeofence(51, 10, 50), false);
+  assert.equal(isWithinVerifiedGeofence(9, 101, 50), false);
+
   assert.equal(isWithinVerifiedGeofence(100, 10, 250), true);
-  assert.equal(isWithinVerifiedGeofence(200, 50, 250), true);
-  assert.equal(isWithinVerifiedGeofence(201, 50, 250), false);
-  assert.equal(isWithinVerifiedGeofence(241, 10, 250), false);
+  assert.equal(isWithinVerifiedGeofence(250, 50, 250), true);
+  assert.equal(isWithinVerifiedGeofence(251, 10, 250), false);
 });
 
 test('Policy Hierarchy resolves KARYAWAN > BIDANG > DEFAULT', () => {
