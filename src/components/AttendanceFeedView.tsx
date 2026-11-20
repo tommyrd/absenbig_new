@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertTriangle,
   Camera,
   Check,
   CheckCircle2,
@@ -18,6 +19,7 @@ import {
   Search,
   Share2,
   SlidersHorizontal,
+  Trash2,
   Users,
   X,
 } from 'lucide-react';
@@ -156,8 +158,13 @@ export function AttendanceFeedView({
   const [imageCopied, setImageCopied] = useState(false);
   const [shareModalNotice, setShareModalNotice] = useState<string | null>(null);
   const [shareNotice, setShareNotice] = useState<string | null>(null);
+  const [deleteTargetPost, setDeleteTargetPost] = useState<AttendanceFeedPost | null>(null);
+  const [deleteReason, setDeleteReason] = useState('');
+  const [deletingPost, setDeletingPost] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const focusedPostRef = useRef<number | null>(null);
   const supportsImageCopy = canCopyImageToClipboard();
+  const canDeletePosts = user.role === 'SUPERADMIN';
 
   const loadFeed = useCallback(async () => {
     setError(null);
@@ -174,6 +181,42 @@ export function AttendanceFeedView({
       setLoading(false);
     }
   }, [scope, kantorFilter, bidangFilter]);
+
+  const openDeletePostModal = (post: AttendanceFeedPost) => {
+    setDeleteTargetPost(post);
+    setDeleteReason('');
+    setDeleteError(null);
+  };
+
+  const confirmDeletePost = async () => {
+    if (!deleteTargetPost || deletingPost) return;
+    const cleanReason = deleteReason.trim();
+    if (cleanReason.length < 3) {
+      setDeleteError('Alasan penghapusan wajib diisi minimal 3 karakter.');
+      return;
+    }
+    setDeletingPost(true);
+    setDeleteError(null);
+    try {
+      await apiFetch(`/api/v1/attendance/sessions/${deleteTargetPost.id}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ alasan: cleanReason }),
+      });
+      const deletedName = deleteTargetPost.namaLengkap;
+      const deletedSesi = deleteTargetPost.namaSesi;
+      if (lightboxPost?.id === deleteTargetPost.id) {
+        setLightboxPost(null);
+      }
+      setDeleteTargetPost(null);
+      setDeleteReason('');
+      setShareNotice(`Postingan ${deletedName} (${deletedSesi}) berhasil dihapus dan dicatat ke Audit Trail.`);
+      await loadFeed();
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Gagal menghapus postingan absensi.');
+    } finally {
+      setDeletingPost(false);
+    }
+  };
 
   const loadDirectory = useCallback(async () => {
     try {
@@ -843,49 +886,26 @@ export function AttendanceFeedView({
                       )}
                     </button>
 
-                    {/* C. Instagram Action & Verification Bar */}
-                    <div className="px-3.5 sm:px-4 pt-3 pb-3.5 space-y-2.5">
+                    {/* C. Clean Action Bar + Structured Location Strip + Caption + Footer */}
+                    <div className="px-3.5 sm:px-4 pt-3 pb-3.5 space-y-3">
+                      {/* Row 1: Compact Timeliness Status (Left) & Crisp Action Icons (Right) */}
                       <div className="flex items-center justify-between gap-2">
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs min-w-0">
-                          <span
-                            className={`inline-flex items-center gap-1 font-semibold ${
-                              post.statusKetepatan === 'TERLAMBAT'
-                                ? 'text-amber-700 dark:text-amber-400'
-                                : 'text-emerald-700 dark:text-emerald-400'
-                            }`}
-                          >
-                            {post.statusKetepatan === 'TERLAMBAT' ? (
-                              <Clock className="w-3.5 h-3.5 shrink-0" />
-                            ) : (
-                              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                            )}
-                            {post.statusKetepatan === 'TERLAMBAT'
-                              ? `Terlambat ${post.keterlambatanMenit}m`
-                              : 'Tepat waktu'}
-                          </span>
-
-                          {post.statusWilayahAbsensi === 'DI_LUAR_WILAYAH' ? (
-                            <span className="inline-flex items-center gap-1 font-medium text-sky-700 dark:text-sky-300">
-                              <MapPin className="w-3.5 h-3.5 shrink-0" />
-                              Di luar wilayah · Bebas geofence
-                            </span>
-                          ) : post.jarakKantorMeter !== null ? (
-                            <span
-                              className={`inline-flex items-center gap-1 font-medium ${
-                                post.dalamGeofence
-                                  ? 'text-slate-600 dark:text-slate-300'
-                                  : 'text-rose-600 dark:text-rose-400'
-                              }`}
-                            >
-                              <MapPin className="w-3.5 h-3.5 shrink-0" />
-                              {post.dalamGeofence ? 'Dalam radius' : 'Luar radius'}
-                              {post.kantorValidasiNama ? ` (${post.kantorValidasiNama})` : ''} ·{' '}
-                              <span className="font-mono tabular-nums">
-                                {formatDistance(post.jarakKantorMeter)}
-                              </span>
-                            </span>
-                          ) : null}
-                        </div>
+                        <span
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap ${
+                            post.statusKetepatan === 'TERLAMBAT'
+                              ? 'bg-amber-50 text-amber-800 border border-amber-200/80 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800/60'
+                              : 'bg-emerald-50 text-emerald-800 border border-emerald-200/80 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800/60'
+                          }`}
+                        >
+                          {post.statusKetepatan === 'TERLAMBAT' ? (
+                            <Clock className="w-3.5 h-3.5 shrink-0" />
+                          ) : (
+                            <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                          )}
+                          {post.statusKetepatan === 'TERLAMBAT'
+                            ? `Terlambat ${post.keterlambatanMenit}m`
+                            : 'Tepat waktu'}
+                        </span>
 
                         <div className="flex items-center gap-1 shrink-0">
                           {mapsUrl && (
@@ -913,7 +933,7 @@ export function AttendanceFeedView({
                             type="button"
                             onClick={() => void handleSharePost(post)}
                             disabled={sharingPostId !== null}
-                            className="h-8 px-2.5 rounded-full text-slate-700 dark:text-slate-200 hover:bg-brand-50 dark:hover:bg-brand-950/50 hover:text-brand-600 dark:hover:text-brand-300 disabled:opacity-50 inline-flex items-center gap-1.5 text-xs font-semibold transition-colors"
+                            className="h-8 px-2.5 rounded-full text-slate-700 dark:text-slate-200 hover:bg-brand-50 dark:hover:bg-brand-950/50 hover:text-brand-600 dark:hover:text-brand-300 disabled:opacity-50 inline-flex items-center gap-1.5 text-xs font-semibold transition-colors whitespace-nowrap"
                             aria-label={`Bagikan kartu absensi ${post.namaLengkap}`}
                           >
                             {sharingPostId === post.id ? (
@@ -923,10 +943,21 @@ export function AttendanceFeedView({
                             )}
                             <span>{sharingPostId === post.id ? '...' : 'Bagikan'}</span>
                           </button>
+                          {canDeletePosts && (
+                            <button
+                              type="button"
+                              onClick={() => openDeletePostModal(post)}
+                              className="h-8 w-8 rounded-full text-slate-400 dark:text-slate-500 hover:bg-red-50 dark:hover:bg-red-950/60 hover:text-red-600 dark:hover:text-red-400 flex items-center justify-center transition-colors"
+                              title="Hapus postingan absensi (Superadmin)"
+                              aria-label={`Hapus postingan absensi ${post.namaLengkap}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </div>
 
-                      {/* D. Classic Instagram Inline Caption */}
+                      {/* Row 2: Caption */}
                       <div className="text-[13px] leading-relaxed text-slate-800 dark:text-slate-200 break-words">
                         <span className="font-bold text-slate-900 dark:text-white mr-1.5">
                           {post.namaLengkap}
@@ -936,20 +967,64 @@ export function AttendanceFeedView({
                         </span>
                       </div>
 
-                      {/* E. Full Resolved Location Line (clean, scannable) */}
-                      {post.lokasiAktualAlamat && (
-                        <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400 flex items-start gap-1.5">
-                          <MapPin className="w-3.5 h-3.5 shrink-0 mt-0.5 text-slate-400" />
-                          <span className="line-clamp-2">{post.lokasiAktualAlamat}</span>
-                        </p>
+                      {/* Row 3: Structured Office/Region Verification & Location Card */}
+                      {(post.statusWilayahAbsensi === 'DI_LUAR_WILAYAH' ||
+                        post.jarakKantorMeter !== null ||
+                        post.lokasiAktualAlamat) && (
+                        <div className="rounded-xl bg-slate-50/90 dark:bg-slate-800/50 border border-slate-200/75 dark:border-slate-700/70 px-3 py-2 space-y-1">
+                          {post.statusWilayahAbsensi === 'DI_LUAR_WILAYAH' ? (
+                            <div className="flex items-center justify-between gap-2 text-[11px]">
+                              <span className="inline-flex items-center gap-1.5 font-semibold text-sky-700 dark:text-sky-300 min-w-0">
+                                <MapPin className="w-3.5 h-3.5 shrink-0" />
+                                <span className="truncate">
+                                  Di luar wilayah{post.wilayahTerdeteksiNama ? ` · ${post.wilayahTerdeteksiNama}` : ''}
+                                </span>
+                              </span>
+                              <span className="shrink-0 whitespace-nowrap font-semibold text-[10px] px-2 py-0.5 rounded-md bg-sky-100/80 dark:bg-sky-950/70 text-sky-800 dark:text-sky-200">
+                                Bebas geofence
+                              </span>
+                            </div>
+                          ) : post.jarakKantorMeter !== null ? (
+                            <div className="flex items-center justify-between gap-2.5 text-[11px]">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <MapPin
+                                  className={`w-3.5 h-3.5 shrink-0 ${
+                                    post.dalamGeofence
+                                      ? 'text-emerald-600 dark:text-emerald-400'
+                                      : 'text-rose-600 dark:text-rose-400'
+                                  }`}
+                                />
+                                <span className="truncate font-semibold text-slate-700 dark:text-slate-200">
+                                  {post.kantorValidasiNama || post.kantorNama}
+                                </span>
+                              </div>
+                              <span
+                                className={`shrink-0 whitespace-nowrap font-mono tabular-nums text-[11px] font-bold px-2 py-0.5 rounded-md border ${
+                                  post.dalamGeofence
+                                    ? 'bg-white dark:bg-slate-900 border-emerald-200 dark:border-emerald-800/70 text-emerald-700 dark:text-emerald-300'
+                                    : 'bg-rose-50 dark:bg-rose-950/60 border-rose-200 dark:border-rose-800/70 text-rose-700 dark:text-rose-300'
+                                }`}
+                              >
+                                {post.dalamGeofence ? 'Dalam radius · ' : 'Luar radius · '}
+                                {formatDistance(post.jarakKantorMeter)}
+                              </span>
+                            </div>
+                          ) : null}
+
+                          {post.lokasiAktualAlamat && (
+                            <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400 pl-5 line-clamp-2">
+                              {post.lokasiAktualAlamat}
+                            </p>
+                          )}
+                        </div>
                       )}
 
-                      {/* F. Subtle Instagram Uppercase Meta Footer */}
-                      <div className="pt-0.5 flex items-center justify-between gap-2 text-[10px] font-medium uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                      {/* Row 4: Clean Hairline Meta Footer */}
+                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2 text-[10px] font-medium uppercase tracking-wider text-slate-400 dark:text-slate-500">
                         <span className="truncate">
                           {dateLabel} · {post.jamWib} WIB · {post.namaSesi}
                         </span>
-                        <span className="shrink-0 truncate max-w-[42%]">
+                        <span className="shrink-0 truncate max-w-[42%] font-semibold text-slate-500 dark:text-slate-400">
                           {post.bidangNama}
                         </span>
                       </div>
@@ -1544,7 +1619,19 @@ export function AttendanceFeedView({
                 </div>
               </div>
 
-              <div className="pt-1 flex justify-end">
+              <div className="pt-1 flex flex-wrap items-center justify-between gap-2">
+                {canDeletePosts ? (
+                  <button
+                    type="button"
+                    onClick={() => openDeletePostModal(lightboxPost)}
+                    className="min-h-[40px] px-3.5 rounded-xl border border-red-200 dark:border-red-900/70 bg-red-50 dark:bg-red-950/50 hover:bg-red-100 dark:hover:bg-red-900/60 text-red-700 dark:text-red-300 text-xs font-semibold inline-flex items-center gap-1.5"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Hapus Postingan
+                  </button>
+                ) : (
+                  <span />
+                )}
                 <button
                   type="button"
                   disabled={sharingPostId !== null}
@@ -1747,6 +1834,126 @@ export function AttendanceFeedView({
                   </button>
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Superadmin Audited Delete Attendance Post Modal */}
+      {deleteTargetPost && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4"
+          onClick={() => {
+            if (!deletingPost) setDeleteTargetPost(null);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-post-modal-title"
+            className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-4 py-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <h2
+                  id="delete-post-modal-title"
+                  className="font-display text-sm font-bold text-slate-900 dark:text-slate-100"
+                >
+                  Hapus Postingan Absensi
+                </h2>
+              </div>
+              <button
+                type="button"
+                disabled={deletingPost}
+                onClick={() => setDeleteTargetPost(null)}
+                className="w-8 h-8 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-500"
+                aria-label="Tutup dialog hapus"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-3.5 text-xs">
+              <div className="rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 p-3 space-y-1">
+                <p className="font-bold text-slate-900 dark:text-slate-100">
+                  {deleteTargetPost.namaLengkap}
+                </p>
+                <p className="text-slate-600 dark:text-slate-300">
+                  {deleteTargetPost.namaSesi} · {deleteTargetPost.tanggal} · {deleteTargetPost.jamWib} WIB
+                </p>
+                {deleteTargetPost.deskripsiAktivitas && (
+                  <p className="text-slate-500 dark:text-slate-400 line-clamp-2">
+                    {deleteTargetPost.deskripsiAktivitas}
+                  </p>
+                )}
+              </div>
+
+              <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
+                Tindakan ini akan menghapus data sesi absensi beserta fotonya dari Beranda & Riwayat, dan tetap dicatat secara permanen di <strong>Audit Trail</strong>.
+              </p>
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Alasan Penghapusan <span className="text-red-600">*</span>
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {['Data uji coba / testing', 'Absensi duplikat / salah kirim'].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => {
+                        setDeleteReason(preset);
+                        setDeleteError(null);
+                      }}
+                      className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-[11px] font-medium text-slate-700 dark:text-slate-300 transition-colors"
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  rows={2}
+                  value={deleteReason}
+                  onChange={(e) => {
+                    setDeleteReason(e.target.value);
+                    setDeleteError(null);
+                  }}
+                  placeholder="Contoh: Hapus data uji coba / testing aplikasi"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-red-500/30 focus:border-red-500"
+                />
+              </div>
+
+              {deleteError && (
+                <div className="p-2.5 rounded-lg bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-800/70 text-red-700 dark:text-red-300 text-xs">
+                  {deleteError}
+                </div>
+              )}
+            </div>
+
+            <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/70 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                disabled={deletingPost}
+                onClick={() => setDeleteTargetPost(null)}
+                className="min-h-[38px] px-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                disabled={deletingPost}
+                onClick={() => void confirmDeletePost()}
+                className="min-h-[38px] px-4 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-semibold inline-flex items-center gap-1.5"
+              >
+                {deletingPost ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="w-3.5 h-3.5" />
+                )}
+                {deletingPost ? 'Menghapus...' : 'Hapus Postingan'}
+              </button>
             </div>
           </div>
         </div>

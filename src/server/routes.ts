@@ -1863,6 +1863,133 @@ export function registerApiRoutes(app: Express) {
     });
   });
 
+  // 4c. Superadmin-only audited deletion of an attendance session (e.g., cleanup of testing entries)
+  app.delete('/api/v1/attendance/sessions/:id', requireRole('SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const sessionId = Number(req.params.id);
+    if (!Number.isInteger(sessionId) || sessionId <= 0) {
+      res.status(400).json({ error: 'ID sesi absensi tidak valid.' });
+      return;
+    }
+
+    const rawAlasan =
+      typeof (req.body as { alasan?: unknown } | undefined)?.alasan === 'string'
+        ? ((req.body as { alasan: string }).alasan)
+        : typeof req.query.alasan === 'string'
+          ? req.query.alasan
+          : '';
+    const alasan = rawAlasan.trim();
+    if (alasan.length < 3 || alasan.length > 300) {
+      res.status(400).json({
+        error: 'Alasan penghapusan postingan absensi wajib diisi (3 s.d. 300 karakter).',
+      });
+      return;
+    }
+
+    const existing = db
+      .prepare(
+        `SELECT s.*, k.nama_lengkap as karyawan_nama, k.kantor_id as karyawan_kantor_id
+         FROM absensi_sesi s
+         JOIN karyawan k ON k.id = s.karyawan_id
+         WHERE s.id = ?`
+      )
+      .get(sessionId) as
+      | {
+          id: number;
+          karyawan_id: number;
+          karyawan_nama: string;
+          karyawan_kantor_id: number;
+          tanggal: string;
+          urutan_sesi: number;
+          nama_sesi: string;
+          waktu_server: string;
+          status_ketepatan: string;
+          foto_path: string | null;
+          deskripsi_aktivitas: string;
+        }
+      | undefined;
+
+    if (!existing) {
+      res.status(404).json({ error: 'Postingan absensi tidak ditemukan atau sudah dihapus.' });
+      return;
+    }
+
+    const bulan = existing.tanggal.slice(0, 7);
+    const closedPeriod = db
+      .prepare(
+        `SELECT id FROM periode_payroll
+         WHERE bulan = ? AND status = 'CLOSED' AND (kantor_id IS NULL OR kantor_id = ?)`
+      )
+      .get(bulan, existing.karyawan_kantor_id);
+
+    if (closedPeriod) {
+      res.status(409).json({
+        error: `Periode payroll ${bulan} sudah berstatus CLOSED. Data absensi pada periode tertutup tidak dapat dihapus.`,
+      });
+      return;
+    }
+
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      // Clear optional FK link from late check-in override grant before deleting session
+      db.prepare(`UPDATE override_akses_absensi SET used_session_id = NULL WHERE used_session_id = ?`).run(sessionId);
+      db.prepare(`DELETE FROM absensi_lokasi_cache WHERE absensi_sesi_id = ?`).run(sessionId);
+      db.prepare(`DELETE FROM absensi_sesi WHERE id = ?`).run(sessionId);
+
+      writeAuditLog(db, {
+        actor: req.authUser!,
+        req,
+        modul: 'ABSENSI',
+        aksi: 'DELETE_ABSENSI_SESI',
+        targetEntity: 'absensi_sesi',
+        targetId: sessionId,
+        karyawanId: existing.karyawan_id,
+        tanggalTerdampak: existing.tanggal,
+        before: {
+          id: existing.id,
+          karyawan_id: existing.karyawan_id,
+          karyawan_nama: existing.karyawan_nama,
+          tanggal: existing.tanggal,
+          urutan_sesi: existing.urutan_sesi,
+          nama_sesi: existing.nama_sesi,
+          waktu_server: existing.waktu_server,
+          status_ketepatan: existing.status_ketepatan,
+          deskripsi_aktivitas: existing.deskripsi_aktivitas,
+          foto_path: existing.foto_path,
+        },
+        after: { deleted: true },
+        alasan,
+      });
+
+      db.exec('COMMIT');
+    } catch (err) {
+      try { db.exec('ROLLBACK'); } catch { /* already rolled back */ }
+      res.status(500).json({
+        error: 'Gagal menghapus postingan absensi.',
+        detail: safeErrorDetail(err),
+      });
+      return;
+    }
+
+    if (existing.foto_path) {
+      const stillReferenced = db
+        .prepare(`SELECT COUNT(*) as c FROM absensi_sesi WHERE foto_path = ?`)
+        .get(existing.foto_path) as { c: number };
+      if (stillReferenced.c === 0) {
+        try {
+          const fullPath = path.join(getPhotosDir(), path.basename(existing.foto_path));
+          if (fs.existsSync(fullPath)) {
+            fs.unlinkSync(fullPath);
+          }
+        } catch {
+          // Non-fatal file cleanup failure
+        }
+      }
+    }
+
+    broadcastWorkforceUpdate('ATTENDANCE_DELETED');
+    res.json({ ok: true, deletedId: sessionId });
+  });
+
   // 5. Attendance Photo Access (own history + today's shared Beranda feed; Admin/Superadmin all)
   app.get('/api/v1/photos/:sessionId', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const sessionId = Number(req.params.sessionId);

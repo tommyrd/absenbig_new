@@ -1104,3 +1104,64 @@ test('12. SUPERADMIN has consistent access to Master Kantor/Bidang & /auth/me re
   assert.equal((await apiJson('/api/v1/superadmin/accounts', { token: adminToken })).status, 403);
 });
 
+test('13. SUPERADMIN can delete a testing attendance session with audit trail while ADMIN and KARYAWAN get 403', async () => {
+  const empToken = await loginAs('emp_relocate', 'EmpPassword!123');
+  const existingSession = getDb()
+    .prepare(`SELECT id, foto_path FROM absensi_sesi ORDER BY id DESC LIMIT 1`)
+    .get() as { id: number; foto_path: string | null } | undefined;
+  assert.ok(existingSession);
+
+  // KARYAWAN and ADMIN cannot delete attendance sessions
+  const empDel = await apiJson(`/api/v1/attendance/sessions/${existingSession.id}`, {
+    method: 'DELETE',
+    token: empToken,
+    body: { alasan: 'Coba hapus sendiri' },
+  });
+  assert.equal(empDel.status, 403);
+
+  const adminDel = await apiJson(`/api/v1/attendance/sessions/${existingSession.id}`, {
+    method: 'DELETE',
+    token: adminToken,
+    body: { alasan: 'Coba hapus oleh operator' },
+  });
+  assert.equal(adminDel.status, 403);
+
+  // SUPERADMIN without valid reason gets 400
+  const badReasonDel = await apiJson(`/api/v1/attendance/sessions/${existingSession.id}`, {
+    method: 'DELETE',
+    token: superToken,
+    body: { alasan: 'x' },
+  });
+  assert.equal(badReasonDel.status, 400);
+
+  // SUPERADMIN with valid reason deletes session cleanly & records audit log
+  const superDel = await apiJson<{ ok: boolean; deletedId: number }>(
+    `/api/v1/attendance/sessions/${existingSession.id}`,
+    {
+      method: 'DELETE',
+      token: superToken,
+      body: { alasan: 'Data uji coba / testing' },
+    }
+  );
+  assert.equal(superDel.status, 200);
+  assert.equal(superDel.data.ok, true);
+  assert.equal(superDel.data.deletedId, existingSession.id);
+
+  // Verify row is gone from absensi_sesi and logged in audit_log
+  const stillExists = getDb()
+    .prepare(`SELECT id FROM absensi_sesi WHERE id = ?`)
+    .get(existingSession.id);
+  assert.equal(stillExists, undefined);
+
+  const delAudit = getDb()
+    .prepare(
+      `SELECT modul, aksi, target_id, alasan FROM audit_log
+       WHERE modul = 'ABSENSI' AND aksi = 'DELETE_ABSENSI_SESI' AND target_id = ?
+       ORDER BY id DESC LIMIT 1`
+    )
+    .get(String(existingSession.id)) as { modul: string; aksi: string; target_id: string; alasan: string } | undefined;
+  assert.ok(delAudit);
+  assert.equal(delAudit.alasan, 'Data uji coba / testing');
+});
+
+
