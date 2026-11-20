@@ -26,6 +26,43 @@ export type GeofenceMode = 'CATAT_DENGAN_FLAG' | 'TOLAK_LUAR_RADIUS';
 
 export type RegistrationStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 
+export type CakupanLokasiAbsensi = 'SEMUA_KANTOR_DALAM_WILAYAH' | 'KANTOR_TERTENTU';
+
+export type StatusWilayahAbsensi =
+  | 'DI_DALAM_WILAYAH'
+  | 'DI_LUAR_WILAYAH'
+  | 'BELUM_TERKONFIGURASI'
+  | 'POLYGON_BELUM_LENGKAP'
+  | 'GPS_TIDAK_TERSEDIA';
+
+export type StatusPenempatanKaryawan =
+  | 'LENGKAP'
+  | 'WILAYAH_BELUM_DIISI'
+  | 'POLYGON_WILAYAH_BELUM_LENGKAP'
+  | 'KANTOR_TERTENTU_KOSONG'
+  | 'TIDAK_DIPERLUKAN';
+
+export interface WilayahOperasional {
+  id: number;
+  kode: string;
+  nama: string;
+  kota_kabupaten: string;
+  provinsi: string;
+  aktif: number;
+  polygon_geojson: string | null;
+  keterangan: string;
+  created_at: string;
+  updated_at: string;
+  polygon_valid?: boolean;
+  polygon_error?: string | null;
+  polygon_vertex_count?: number;
+  polygon_count?: number;
+  status_konfigurasi?: 'LENGKAP' | 'POLYGON_BELUM_LENGKAP';
+  jumlah_kantor?: number;
+  jumlah_karyawan?: number;
+  can_delete?: boolean;
+}
+
 export interface Kantor {
   id: number;
   kode: string;
@@ -37,6 +74,9 @@ export interface Kantor {
   geofence_mode: GeofenceMode;
   zona_waktu: string;
   aktif: number;
+  wilayah_id?: number | null;
+  wilayah_nama?: string | null;
+  wilayah_polygon_valid?: boolean;
   can_delete?: boolean;
   jumlah_karyawan?: number;
   jumlah_pendaftaran?: number;
@@ -69,6 +109,13 @@ export interface Karyawan {
   tanggal_keluar?: string | null;
   alasan_keluar?: string;
   aktif: number;
+  wilayah_penempatan_id?: number | null;
+  wilayah_penempatan_nama?: string | null;
+  wilayah_polygon_valid?: boolean;
+  cakupan_lokasi_absensi?: CakupanLokasiAbsensi | null;
+  kantor_izin_ids?: number[];
+  kantor_izin_names?: string[];
+  status_penempatan?: StatusPenempatanKaryawan;
   user_id?: number;
   user_aktif?: number;
   kantor_nama?: string;
@@ -101,8 +148,42 @@ export interface AuthUser {
   kantor_geofence_mode: GeofenceMode;
   bidang_id: number;
   bidang_nama: string;
+  wilayah_penempatan_id?: number | null;
+  wilayah_penempatan_nama?: string | null;
+  wilayah_polygon_valid?: boolean;
+  cakupan_lokasi_absensi?: CakupanLokasiAbsensi | null;
+  status_penempatan?: StatusPenempatanKaryawan;
   has_foto_profil?: boolean;
   foto_profil_updated_at?: string | null;
+}
+
+export interface LocationValidationPreview {
+  allowed: boolean;
+  errorMessage: string | null;
+  statusWilayah: StatusWilayahAbsensi;
+  dalamGeofence: boolean;
+  geofenceExempted: boolean;
+  alasanPengecualianGeofence: string | null;
+  wajibDiKantor: boolean;
+  jarakKantorMeter: number | null;
+  wilayahPenempatanId: number | null;
+  wilayahPenempatanNama: string | null;
+  wilayahTerdeteksiId: number | null;
+  wilayahTerdeteksiNama: string | null;
+  cakupanLokasi: CakupanLokasiAbsensi | null;
+  kantorValidasiId: number | null;
+  kantorValidasiNama: string | null;
+  kantorValidasiRadius: number | null;
+  allowedOffices: {
+    id: number;
+    kode: string;
+    nama: string;
+    radius_meter: number;
+    jarak_meter: number | null;
+    dalam_geofence: boolean;
+  }[];
+  configWarning: string | null;
+  lokasiAnomaliCatatan: string | null;
 }
 
 export interface PendaftaranAkun {
@@ -142,6 +223,13 @@ export interface ManagedAccount {
   kantor_nama: string | null;
   bidang_id: number | null;
   bidang_nama: string | null;
+  wilayah_penempatan_id?: number | null;
+  wilayah_penempatan_nama?: string | null;
+  wilayah_polygon_valid?: boolean;
+  cakupan_lokasi_absensi?: CakupanLokasiAbsensi | null;
+  kantor_izin_ids?: number[];
+  kantor_izin_names?: string[];
+  status_penempatan?: StatusPenempatanKaryawan;
   tanggal_masuk: string | null;
   tanggal_keluar?: string | null;
   alasan_keluar?: string;
@@ -290,6 +378,16 @@ export interface AbsensiSesiRecord {
   jarak_kantor_meter: number | null;
   dalam_geofence: number;
   lokasi_alamat?: string | null;
+  wilayah_penempatan_id_snapshot?: number | null;
+  wilayah_penempatan_nama_snapshot?: string | null;
+  wilayah_terdeteksi_id?: number | null;
+  wilayah_terdeteksi_nama?: string | null;
+  status_wilayah_absensi?: StatusWilayahAbsensi | null;
+  cakupan_lokasi_snapshot?: CakupanLokasiAbsensi | null;
+  kantor_validasi_id?: number | null;
+  kantor_validasi_nama?: string | null;
+  alasan_pengecualian_geofence?: string | null;
+  lokasi_validasi_json?: string | null;
   ip_address: string | null;
   user_agent: string | null;
   tipe_aktivitas: 'CHECK_IN' | 'AKTIVITAS' | 'STANDBY';
@@ -492,6 +590,11 @@ export interface AttendanceFeedPost {
   keterlambatanMenit: number;
   jarakKantorMeter: number | null;
   dalamGeofence: boolean;
+  statusWilayahAbsensi?: StatusWilayahAbsensi | null;
+  wilayahPenempatanNama?: string | null;
+  wilayahTerdeteksiNama?: string | null;
+  kantorValidasiNama?: string | null;
+  alasanPengecualianGeofence?: string | null;
   lat: number | null;
   lng: number | null;
   tipeAktivitas: 'CHECK_IN' | 'AKTIVITAS' | 'STANDBY';

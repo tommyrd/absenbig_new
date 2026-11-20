@@ -115,6 +115,7 @@ test('Migration detaches legacy Superadmin from employees and archives its old p
       '015_support_holiday_emergency_work_requests',
       '016_employee_specific_holidays',
       '017_employee_offboarding_columns',
+      '018_operational_regions_and_employee_placement',
     ]);
 
     const ownerAccount = db.prepare(

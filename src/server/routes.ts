@@ -29,24 +29,31 @@ import {
 } from './security.ts';
 import { writeAuditLog } from './services/audit.ts';
 import {
+  computeEmployeePlacementStatus,
+  evaluateAttendanceLocation,
+  getEmployeeAllowedOfficeIds,
+} from './services/location-policy.ts';
+import {
   computeMonthlySummary,
   getWorkforceToday,
   haversineMeters,
   resolveDayForEmployee,
 } from './services/resolver.ts';
 import { getWibDateString, getWibIsoString, getWibTimeString, parseHmToMinutes } from './time.ts';
-import { isGpsAccuracyAcceptable, isWithinVerifiedGeofence, MAX_GPS_ACCURACY_METERS, requiresOfficeGeofence } from '../shared/geofence.ts';
 import { getSessionWindowState } from '../shared/session-window.ts';
+import { validateRegionPolygonGeoJson } from '../shared/region-geometry.ts';
 import { getGeoapifyAddress, reverseGeocodeCoordinates } from './services/reverse-geocode.ts';
 import type {
   AttendanceFeedPost,
   AttendanceFeedRosterItem,
   AuthUser,
+  CakupanLokasiAbsensi,
   Karyawan,
   KebijakanAbsensi,
   Pengajuan,
   Role,
   SesiConfig,
+  StatusWilayahAbsensi,
 } from '../shared/types.ts';
 
 // SSE clients for real-time workforce status
@@ -220,15 +227,49 @@ function isAttendanceEligibleEmployee(karyawanId: number): boolean {
 
 function getKaryawanById(id: number): Karyawan | undefined {
   const db = getDb();
-  return db
+  const row = db
     .prepare(
-      `SELECT k.*, kt.nama as kantor_nama, kt.kode as kantor_kode, b.nama as bidang_nama
+      `SELECT k.*, kt.nama as kantor_nama, kt.kode as kantor_kode, b.nama as bidang_nama,
+              w.nama as wilayah_penempatan_nama, w.aktif as wilayah_aktif, w.polygon_geojson as wilayah_polygon_geojson
        FROM karyawan k
        JOIN kantor kt ON k.kantor_id = kt.id
        JOIN bidang_kerja b ON k.bidang_id = b.id
+       LEFT JOIN wilayah_operasional w ON k.wilayah_penempatan_id = w.id
        WHERE k.id = ?`
     )
-    .get(id) as Karyawan | undefined;
+    .get(id) as (Karyawan & { wilayah_aktif?: number | null; wilayah_polygon_geojson?: string | null }) | undefined;
+  if (!row) return undefined;
+  const allowedRows = db
+    .prepare(
+      `SELECT kt.id, kt.nama, kt.aktif, kt.wilayah_id
+       FROM karyawan_kantor_izin kki
+       JOIN kantor kt ON kt.id = kki.kantor_id
+       WHERE kki.karyawan_id = ?
+       ORDER BY kt.id ASC`
+    )
+    .all(row.id) as { id: number; nama: string; aktif: number; wilayah_id: number | null }[];
+  const validAllowedCount = allowedRows.filter(
+    (o) => o.aktif === 1 && row.wilayah_penempatan_id && o.wilayah_id === row.wilayah_penempatan_id
+  ).length;
+  const polyValid =
+    Boolean(row.wilayah_penempatan_id) &&
+    Number(row.wilayah_aktif ?? 0) === 1 &&
+    validateRegionPolygonGeoJson(row.wilayah_polygon_geojson).valid;
+  const { wilayah_aktif: _wa, wilayah_polygon_geojson: _wp, ...clean } = row;
+  return {
+    ...clean,
+    wilayah_polygon_valid: polyValid,
+    kantor_izin_ids: allowedRows.map((o) => o.id),
+    kantor_izin_names: allowedRows.map((o) => o.nama),
+    status_penempatan: computeEmployeePlacementStatus({
+      role: 'KARYAWAN',
+      wilayah_penempatan_id: row.wilayah_penempatan_id,
+      wilayah_aktif: row.wilayah_aktif,
+      wilayah_polygon_geojson: row.wilayah_polygon_geojson,
+      cakupan_lokasi_absensi: row.cakupan_lokasi_absensi,
+      valid_allowed_office_count: validAllowedCount,
+    }),
+  };
 }
 
 interface ActiveCheckinOverride {
@@ -997,6 +1038,11 @@ export function registerApiRoutes(app: Express) {
       keterlambatan_menit: number;
       jarak_kantor_meter: number | null;
       dalam_geofence: number;
+      status_wilayah_absensi: StatusWilayahAbsensi | null;
+      wilayah_penempatan_nama_snapshot: string | null;
+      wilayah_terdeteksi_nama: string | null;
+      kantor_validasi_nama: string | null;
+      alasan_pengecualian_geofence: string | null;
       lat: number | null;
       lng: number | null;
       tipe_aktivitas: 'CHECK_IN' | 'AKTIVITAS' | 'STANDBY';
@@ -1029,6 +1075,11 @@ export function registerApiRoutes(app: Express) {
         keterlambatanMenit: p.keterlambatan_menit,
         jarakKantorMeter: p.jarak_kantor_meter,
         dalamGeofence: Boolean(p.dalam_geofence),
+        statusWilayahAbsensi: p.status_wilayah_absensi ?? null,
+        wilayahPenempatanNama: p.wilayah_penempatan_nama_snapshot ?? null,
+        wilayahTerdeteksiNama: p.wilayah_terdeteksi_nama ?? null,
+        kantorValidasiNama: p.kantor_validasi_nama ?? null,
+        alasanPengecualianGeofence: p.alasan_pengecualian_geofence ?? null,
         lat: p.lat,
         lng: p.lng,
         tipeAktivitas: p.tipe_aktivitas,
@@ -1330,6 +1381,44 @@ export function registerApiRoutes(app: Express) {
     });
   }));
 
+  app.post('/api/v1/attendance/check-location', requireRole('KARYAWAN'), (req: AuthenticatedRequest, res: Response) => {
+    const user = req.authUser!;
+    if (user.karyawan_id === null) {
+      res.status(403).json({ error: 'Hanya akun Karyawan yang dapat memeriksa validasi lokasi absensi.' });
+      return;
+    }
+    const emp = getKaryawanById(user.karyawan_id);
+    if (!emp) {
+      res.status(404).json({ error: 'Data karyawan tidak ditemukan.' });
+      return;
+    }
+    const { lat, lng, accuracyMeter } = req.body as {
+      lat?: number | null;
+      lng?: number | null;
+      accuracyMeter?: number | null;
+    };
+    const today = getWibDateString();
+    const day = resolveDayForEmployee(db, emp, today);
+    const expectedNext = Math.min(day.sessionsCompleted + 1, Math.max(1, day.policySnapshot.jumlahSesi));
+    const appSettingsRow = db
+      .prepare(`SELECT wajib_gps_absensi FROM pengaturan_aplikasi WHERE id = 1`)
+      .get() as { wajib_gps_absensi?: number } | undefined;
+    const wajibGpsAbsensi = appSettingsRow ? Number(appSettingsRow.wajib_gps_absensi ?? 1) === 1 : true;
+
+    const evaluation = evaluateAttendanceLocation(db, {
+      employee: emp,
+      lat,
+      lng,
+      accuracyMeter,
+      sessionNumber: expectedNext,
+      aturanLokasi: day.policySnapshot.aturanLokasi,
+      wajibGpsAbsensi,
+    });
+    const { snapshotJson: _snap, ...preview } = evaluation;
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(preview);
+  });
+
   app.post('/api/v1/attendance/session', requireRole('KARYAWAN'), asyncRoute(async (req, res) => {
     const user = req.authUser!;
     const attLimit = attendanceLimiter.consume(`att:${user.id}`);
@@ -1457,20 +1546,11 @@ export function registerApiRoutes(app: Express) {
       return;
     }
 
-    // Validate Geofence & GPS coordinates bounds (respecting Superadmin wajib_gps_absensi setting)
+    // Authoritative server-side placement region + office coverage geofence validation
     const appSettingsRow = db
       .prepare(`SELECT wajib_gps_absensi FROM pengaturan_aplikasi WHERE id = 1`)
       .get() as { wajib_gps_absensi?: number } | undefined;
     const wajibGpsAbsensi = appSettingsRow ? Number(appSettingsRow.wajib_gps_absensi ?? 1) === 1 : true;
-
-    const office = db.prepare(`SELECT lat, lng, radius_meter FROM kantor WHERE id = ?`).get(emp.kantor_id) as
-      | { lat: number; lng: number; radius_meter: number }
-      | undefined;
-
-    if (!office) {
-      res.status(400).json({ error: 'Lokasi kantor karyawan tidak ditemukan. Hubungi Admin.' });
-      return;
-    }
 
     const hasValidCoords =
       typeof lat === 'number' &&
@@ -1482,51 +1562,26 @@ export function registerApiRoutes(app: Express) {
       lng >= -180 &&
       lng <= 180;
 
-    const hasValidAccuracy =
-      typeof accuracyMeter === 'number' &&
-      Number.isFinite(accuracyMeter) &&
-      accuracyMeter >= 0;
+    const locationEval = evaluateAttendanceLocation(db, {
+      employee: emp,
+      lat,
+      lng,
+      accuracyMeter,
+      sessionNumber: expectedNext,
+      aturanLokasi: day.policySnapshot.aturanLokasi,
+      wajibGpsAbsensi,
+    });
 
-    if (wajibGpsAbsensi && !hasValidCoords) {
+    if (!locationEval.allowed) {
       res.status(400).json({
-        error: 'Lokasi GPS wajib tersedia dan valid. Absensi tidak dapat dilakukan tanpa koordinat GPS.',
+        error: locationEval.errorMessage || 'Validasi lokasi absensi ditolak.',
+        statusWilayah: locationEval.statusWilayah,
       });
       return;
     }
 
-    if (wajibGpsAbsensi && !hasValidAccuracy) {
-      res.status(400).json({
-        error: 'Informasi akurasi lokasi tidak tersedia. Aktifkan layanan lokasi perangkat dan coba kembali.',
-      });
-      return;
-    }
-
-    const jarakMeter = hasValidCoords ? haversineMeters(lat!, lng!, office.lat, office.lng) : null;
-    const accuracyAcceptable = hasValidAccuracy ? isGpsAccuracyAcceptable(accuracyMeter!) : false;
-    const dalamGeofence =
-      hasValidCoords &&
-      jarakMeter !== null &&
-      accuracyAcceptable &&
-      isWithinVerifiedGeofence(jarakMeter, accuracyMeter!, office.radius_meter)
-        ? 1
-        : 0;
-    const wajibDiKantor =
-      wajibGpsAbsensi &&
-      requiresOfficeGeofence(day.policySnapshot.aturanLokasi, expectedNext);
-
-    if (wajibDiKantor && !accuracyAcceptable) {
-      res.status(400).json({
-        error: `Sesi ini wajib dilakukan di kantor. Akurasi GPS harus maksimal ±${MAX_GPS_ACCURACY_METERS}m; hasil saat ini ±${Math.ceil(accuracyMeter!)}m. Aktifkan lokasi presisi atau gunakan perangkat GPS yang lebih akurat.`,
-      });
-      return;
-    }
-
-    if (wajibDiKantor && !dalamGeofence) {
-      res.status(400).json({
-        error: `Absensi ditolak. Sesi ${expectedNext} wajib berada di kantor. Jarak titik GPS ${jarakMeter}m dengan estimasi akurasi ±${Math.ceil(accuracyMeter!)}m belum dapat dipastikan di dalam radius kantor ${office.radius_meter}m.`,
-      });
-      return;
-    }
+    const jarakMeter = locationEval.jarakKantorMeter;
+    const dalamGeofence = locationEval.dalamGeofence ? 1 : 0;
 
     // Check lateness against session start + tolerance (emergency holiday work is flexible 00:00-23:59)
     const isHolidayEmergencySession =
@@ -1587,10 +1642,16 @@ export function registerApiRoutes(app: Express) {
           `INSERT INTO absensi_sesi (
             karyawan_id, tanggal, urutan_sesi, nama_sesi, waktu_server,
             status_ketepatan, keterlambatan_menit, lat, lng, accuracy_meter,
-            jarak_kantor_meter, dalam_geofence, lokasi_alamat, ip_address, user_agent,
+            jarak_kantor_meter, dalam_geofence, lokasi_alamat,
+            wilayah_penempatan_id_snapshot, wilayah_penempatan_nama_snapshot,
+            wilayah_terdeteksi_id, wilayah_terdeteksi_nama,
+            status_wilayah_absensi, cakupan_lokasi_snapshot,
+            kantor_validasi_id, kantor_validasi_nama,
+            alasan_pengecualian_geofence, lokasi_validasi_json,
+            ip_address, user_agent,
             tipe_aktivitas, deskripsi_aktivitas, foto_path, foto_checksum,
             policy_snapshot_json, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           emp.id,
@@ -1606,6 +1667,16 @@ export function registerApiRoutes(app: Express) {
           jarakMeter,
           dalamGeofence,
           actualLocationAddress,
+          locationEval.wilayahPenempatanId,
+          locationEval.wilayahPenempatanNama,
+          locationEval.wilayahTerdeteksiId,
+          locationEval.wilayahTerdeteksiNama,
+          locationEval.statusWilayah,
+          locationEval.cakupanLokasi,
+          locationEval.kantorValidasiId,
+          locationEval.kantorValidasiNama,
+          locationEval.alasanPengecualianGeofence,
+          locationEval.snapshotJson,
           ip,
           ua,
           actType,
@@ -1658,6 +1729,14 @@ export function registerApiRoutes(app: Express) {
           waktuServer: nowIso,
           dalamGeofence: Boolean(dalamGeofence),
           jarakMeter,
+          statusWilayahAbsensi: locationEval.statusWilayah,
+          wilayahPenempatanNama: locationEval.wilayahPenempatanNama,
+          wilayahTerdeteksiNama: locationEval.wilayahTerdeteksiNama,
+          cakupanLokasi: locationEval.cakupanLokasi,
+          kantorValidasiNama: locationEval.kantorValidasiNama,
+          geofenceExempted: locationEval.geofenceExempted,
+          alasanPengecualianGeofence: locationEval.alasanPengecualianGeofence,
+          lokasiAnomaliCatatan: locationEval.lokasiAnomaliCatatan,
           tipeAktivitas: actType,
           adminOverrideCheckin: Boolean(checkinOverride),
           overrideCheckinId: checkinOverride?.id ?? null,
@@ -2426,32 +2505,447 @@ export function registerApiRoutes(app: Express) {
     };
   };
 
+  // 8a. Master Data Wilayah Operasional
+  const getRegionDeletionUsage = (id: number) => {
+    const usage = {
+      jumlah_kantor: countMasterReferences('SELECT COUNT(*) AS total FROM kantor WHERE wilayah_id = ?', id),
+      jumlah_karyawan: countMasterReferences(
+        `SELECT COUNT(*) AS total FROM karyawan k WHERE k.wilayah_penempatan_id = ? AND COALESCE(k.is_system_archive, 0) = 0 AND ${KARYAWAN_ONLY_SQL}`,
+        id
+      ),
+    };
+    return {
+      ...usage,
+      can_delete: usage.jumlah_kantor === 0 && usage.jumlah_karyawan === 0,
+    };
+  };
+
+  const validateEmployeePlacementInput = (input: {
+    role: Role;
+    wilayah_penempatan_id?: number | string | null;
+    cakupan_lokasi_absensi?: CakupanLokasiAbsensi | string | null;
+    kantor_izin_ids?: number[] | null;
+    existingWilayahId?: number | null;
+    enforceRequiredWhenRegionsExist?: boolean;
+  }):
+    | {
+        ok: true;
+        wilayahPenempatanId: number | null;
+        cakupanLokasi: CakupanLokasiAbsensi | null;
+        kantorIzinIds: number[];
+      }
+    | { ok: false; error: string } => {
+    if (input.role !== 'KARYAWAN') {
+      return { ok: true, wilayahPenempatanId: null, cakupanLokasi: null, kantorIzinIds: [] };
+    }
+
+    const rawWilayah = input.wilayah_penempatan_id;
+    const hasWilayah =
+      rawWilayah !== undefined && rawWilayah !== null && String(rawWilayah).trim() !== '';
+    const wilayahId = hasWilayah ? Number(rawWilayah) : null;
+
+    if (!hasWilayah) {
+      const activeRegionCount = Number(
+        (db.prepare(`SELECT COUNT(*) as c FROM wilayah_operasional WHERE aktif = 1`).get() as { c: number } | undefined)?.c ?? 0
+      );
+      if (input.enforceRequiredWhenRegionsExist && activeRegionCount > 0) {
+        return {
+          ok: false,
+          error: 'Wilayah penempatan wajib dipilih untuk akun Karyawan.',
+        };
+      }
+      if (
+        input.cakupan_lokasi_absensi === 'KANTOR_TERTENTU' ||
+        (Array.isArray(input.kantor_izin_ids) && input.kantor_izin_ids.length > 0)
+      ) {
+        return {
+          ok: false,
+          error: 'Pilih wilayah penempatan terlebih dahulu sebelum menentukan kantor yang diizinkan.',
+        };
+      }
+      return { ok: true, wilayahPenempatanId: null, cakupanLokasi: null, kantorIzinIds: [] };
+    }
+
+    if (!Number.isInteger(wilayahId) || wilayahId! <= 0) {
+      return { ok: false, error: 'Wilayah penempatan tidak valid.' };
+    }
+
+    const regionRow = db
+      .prepare(`SELECT id, nama, aktif FROM wilayah_operasional WHERE id = ?`)
+      .get(wilayahId) as { id: number; nama: string; aktif: number } | undefined;
+    if (!regionRow || (regionRow.aktif !== 1 && regionRow.id !== input.existingWilayahId)) {
+      return { ok: false, error: 'Wilayah penempatan yang dipilih tidak ditemukan atau sedang nonaktif.' };
+    }
+
+    const rawCakupan = input.cakupan_lokasi_absensi || 'SEMUA_KANTOR_DALAM_WILAYAH';
+    if (rawCakupan !== 'SEMUA_KANTOR_DALAM_WILAYAH' && rawCakupan !== 'KANTOR_TERTENTU') {
+      return {
+        ok: false,
+        error: 'Mode cakupan lokasi absensi harus SEMUA_KANTOR_DALAM_WILAYAH atau KANTOR_TERTENTU.',
+      };
+    }
+
+    if (rawCakupan === 'SEMUA_KANTOR_DALAM_WILAYAH') {
+      return {
+        ok: true,
+        wilayahPenempatanId: regionRow.id,
+        cakupanLokasi: 'SEMUA_KANTOR_DALAM_WILAYAH',
+        kantorIzinIds: [],
+      };
+    }
+
+    // KANTOR_TERTENTU: strictly require at least 1 active office inside the selected wilayah
+    const rawIds = Array.isArray(input.kantor_izin_ids) ? input.kantor_izin_ids : [];
+    const uniqueIds = Array.from(
+      new Set(rawIds.map((v) => Number(v)).filter((n) => Number.isInteger(n) && n > 0))
+    );
+    if (uniqueIds.length === 0) {
+      return {
+        ok: false,
+        error: `Minimal satu kantor aktif di wilayah ${regionRow.nama} wajib dipilih untuk mode Kantor Tertentu.`,
+      };
+    }
+
+    const placeholders = uniqueIds.map(() => '?').join(',');
+    const offices = db
+      .prepare(`SELECT id, nama, aktif, wilayah_id FROM kantor WHERE id IN (${placeholders})`)
+      .all(...uniqueIds) as { id: number; nama: string; aktif: number; wilayah_id: number | null }[];
+    if (offices.length !== uniqueIds.length) {
+      return { ok: false, error: 'Salah satu kantor yang dipilih tidak ditemukan.' };
+    }
+    const invalidOffice = offices.find((o) => o.aktif !== 1 || o.wilayah_id !== regionRow.id);
+    if (invalidOffice) {
+      return {
+        ok: false,
+        error: `Kantor "${invalidOffice.nama}" tidak aktif atau tidak berada dalam wilayah penempatan ${regionRow.nama}. Admin tidak diperbolehkan memilih kantor dari wilayah lain.`,
+      };
+    }
+
+    return {
+      ok: true,
+      wilayahPenempatanId: regionRow.id,
+      cakupanLokasi: 'KANTOR_TERTENTU',
+      kantorIzinIds: uniqueIds,
+    };
+  };
+
+  const syncEmployeeAllowedOffices = (karyawanId: number, kantorIzinIds: number[]) => {
+    db.prepare(`DELETE FROM karyawan_kantor_izin WHERE karyawan_id = ?`).run(karyawanId);
+    if (kantorIzinIds.length > 0) {
+      const stmt = db.prepare(
+        `INSERT OR IGNORE INTO karyawan_kantor_izin (karyawan_id, kantor_id) VALUES (?, ?)`
+      );
+      for (const kantorId of kantorIzinIds) {
+        stmt.run(karyawanId, kantorId);
+      }
+    }
+  };
+
+  app.get('/api/v1/master/regions', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const rows = db
+      .prepare(`SELECT * FROM wilayah_operasional ORDER BY aktif DESC, nama ASC`)
+      .all() as Array<{
+        id: number;
+        kode: string;
+        nama: string;
+        kota_kabupaten: string;
+        provinsi: string;
+        aktif: number;
+        polygon_geojson: string | null;
+        keterangan: string;
+        created_at: string;
+        updated_at: string;
+      }>;
+    const isAdminOrSuperadmin = req.authUser?.role === 'ADMIN' || req.authUser?.role === 'SUPERADMIN';
+    const items = rows.map((row) => {
+      const poly = validateRegionPolygonGeoJson(row.polygon_geojson);
+      const base = {
+        ...row,
+        polygon_valid: poly.valid,
+        polygon_error: poly.valid ? null : poly.error || 'Polygon wilayah belum dikonfigurasi.',
+        polygon_vertex_count: poly.vertexCount,
+        polygon_count: poly.polygonCount,
+        status_konfigurasi: poly.valid ? ('LENGKAP' as const) : ('POLYGON_BELUM_LENGKAP' as const),
+      };
+      if (isAdminOrSuperadmin) {
+        return { ...base, ...getRegionDeletionUsage(row.id) };
+      }
+      return base;
+    });
+    res.json({ items });
+  });
+
+  app.post('/api/v1/master/regions', requireRole('ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const { kode, nama, kota_kabupaten, provinsi, aktif, polygon_geojson, keterangan } = req.body as {
+      kode?: string;
+      nama?: string;
+      kota_kabupaten?: string;
+      provinsi?: string;
+      aktif?: number | boolean;
+      polygon_geojson?: string | null;
+      keterangan?: string;
+    };
+    const cleanKode = (kode || '').trim().toUpperCase();
+    const cleanNama = (nama || '').trim();
+    const cleanKota = (kota_kabupaten || '').trim();
+    const cleanProv = (provinsi || '').trim();
+    const cleanKet = (keterangan || '').trim();
+    const nextAktif = aktif === undefined ? 1 : aktif ? 1 : 0;
+
+    if (!cleanKode || !cleanNama || !cleanKota || !cleanProv) {
+      res.status(400).json({ error: 'Kode wilayah, nama wilayah, kota/kabupaten, dan provinsi wajib diisi.' });
+      return;
+    }
+
+    let normalizedPolygon: string | null = null;
+    if (polygon_geojson !== undefined && polygon_geojson !== null && String(polygon_geojson).trim() !== '') {
+      const polyCheck = validateRegionPolygonGeoJson(String(polygon_geojson));
+      if (!polyCheck.valid || !polyCheck.normalizedJson) {
+        res.status(400).json({ error: polyCheck.error || 'Polygon GeoJSON wilayah tidak valid.' });
+        return;
+      }
+      normalizedPolygon = polyCheck.normalizedJson;
+    }
+
+    const nowIso = getWibIsoString();
+    try {
+      const info = db
+        .prepare(
+          `INSERT INTO wilayah_operasional (
+             kode, nama, kota_kabupaten, provinsi, aktif, polygon_geojson, keterangan, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(cleanKode, cleanNama, cleanKota, cleanProv, nextAktif, normalizedPolygon, cleanKet, nowIso, nowIso);
+      const regionId = Number(info.lastInsertRowid);
+      writeAuditLog(db, {
+        actor: req.authUser!,
+        req,
+        modul: 'WILAYAH_OPERASIONAL',
+        aksi: 'CREATE_WILAYAH',
+        targetEntity: 'wilayah_operasional',
+        targetId: regionId,
+        after: {
+          kode: cleanKode,
+          nama: cleanNama,
+          kota_kabupaten: cleanKota,
+          provinsi: cleanProv,
+          aktif: nextAktif,
+          has_polygon: Boolean(normalizedPolygon),
+          keterangan: cleanKet,
+        },
+      });
+      res.status(201).json({ id: regionId, polygon_valid: Boolean(normalizedPolygon) });
+    } catch (err) {
+      res.status(400).json({
+        error: 'Gagal menambah wilayah operasional (kode wilayah mungkin sudah digunakan).',
+        detail: safeErrorDetail(err),
+      });
+    }
+  });
+
+  app.put('/api/v1/master/regions/:id', requireRole('ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const id = Number(req.params.id);
+    const before = db.prepare(`SELECT * FROM wilayah_operasional WHERE id = ?`).get(id) as
+      | {
+          id: number;
+          kode: string;
+          nama: string;
+          kota_kabupaten: string;
+          provinsi: string;
+          aktif: number;
+          polygon_geojson: string | null;
+          keterangan: string;
+        }
+      | undefined;
+    if (!Number.isInteger(id) || id <= 0 || !before) {
+      res.status(404).json({ error: 'Wilayah operasional tidak ditemukan.' });
+      return;
+    }
+
+    const { kode, nama, kota_kabupaten, provinsi, aktif, polygon_geojson, keterangan } = req.body as {
+      kode?: string;
+      nama?: string;
+      kota_kabupaten?: string;
+      provinsi?: string;
+      aktif?: number | boolean;
+      polygon_geojson?: string | null;
+      keterangan?: string;
+    };
+
+    const cleanKode = (kode ?? before.kode).trim().toUpperCase();
+    const cleanNama = (nama ?? before.nama).trim();
+    const cleanKota = (kota_kabupaten ?? before.kota_kabupaten).trim();
+    const cleanProv = (provinsi ?? before.provinsi).trim();
+    const cleanKet = (keterangan ?? before.keterangan).trim();
+    const nextAktif = aktif === undefined ? before.aktif : aktif ? 1 : 0;
+
+    if (!cleanKode || !cleanNama || !cleanKota || !cleanProv) {
+      res.status(400).json({ error: 'Kode wilayah, nama wilayah, kota/kabupaten, dan provinsi wajib diisi.' });
+      return;
+    }
+
+    let normalizedPolygon: string | null = before.polygon_geojson;
+    if (polygon_geojson !== undefined) {
+      if (polygon_geojson === null || String(polygon_geojson).trim() === '') {
+        normalizedPolygon = null;
+      } else {
+        const polyCheck = validateRegionPolygonGeoJson(String(polygon_geojson));
+        if (!polyCheck.valid || !polyCheck.normalizedJson) {
+          res.status(400).json({ error: polyCheck.error || 'Polygon GeoJSON wilayah tidak valid.' });
+          return;
+        }
+        normalizedPolygon = polyCheck.normalizedJson;
+      }
+    }
+
+    const nowIso = getWibIsoString();
+    try {
+      db.prepare(
+        `UPDATE wilayah_operasional
+         SET kode = ?, nama = ?, kota_kabupaten = ?, provinsi = ?, aktif = ?,
+             polygon_geojson = ?, keterangan = ?, updated_at = ?
+         WHERE id = ?`
+      ).run(cleanKode, cleanNama, cleanKota, cleanProv, nextAktif, normalizedPolygon, cleanKet, nowIso, id);
+    } catch (err) {
+      res.status(400).json({
+        error: 'Gagal memperbarui wilayah operasional (kode wilayah mungkin sudah digunakan).',
+        detail: safeErrorDetail(err),
+      });
+      return;
+    }
+
+    writeAuditLog(db, {
+      actor: req.authUser!,
+      req,
+      modul: 'WILAYAH_OPERASIONAL',
+      aksi: 'UPDATE_WILAYAH',
+      targetEntity: 'wilayah_operasional',
+      targetId: id,
+      before: {
+        kode: before.kode,
+        nama: before.nama,
+        kota_kabupaten: before.kota_kabupaten,
+        provinsi: before.provinsi,
+        aktif: before.aktif,
+        has_polygon: Boolean(before.polygon_geojson),
+      },
+      after: {
+        kode: cleanKode,
+        nama: cleanNama,
+        kota_kabupaten: cleanKota,
+        provinsi: cleanProv,
+        aktif: nextAktif,
+        has_polygon: Boolean(normalizedPolygon),
+      },
+    });
+    res.json({ ok: true, polygon_valid: Boolean(normalizedPolygon) });
+  });
+
+  app.delete('/api/v1/master/regions/:id', requireRole('ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: 'ID wilayah tidak valid.' });
+      return;
+    }
+    const before = db.prepare(`SELECT * FROM wilayah_operasional WHERE id = ?`).get(id) as
+      | { id: number; kode: string; nama: string }
+      | undefined;
+    if (!before) {
+      res.status(404).json({ error: 'Wilayah operasional tidak ditemukan.' });
+      return;
+    }
+    const usage = getRegionDeletionUsage(id);
+    if (!usage.can_delete) {
+      res.status(409).json({
+        error: 'Wilayah operasional tidak dapat dihapus karena masih terhubung ke kantor atau karyawan.',
+        references: usage,
+      });
+      return;
+    }
+    db.prepare(`DELETE FROM wilayah_operasional WHERE id = ?`).run(id);
+    writeAuditLog(db, {
+      actor: req.authUser!,
+      req,
+      modul: 'WILAYAH_OPERASIONAL',
+      aksi: 'DELETE_WILAYAH',
+      targetEntity: 'wilayah_operasional',
+      targetId: id,
+      before: { kode: before.kode, nama: before.nama },
+      after: { deleted: true },
+    });
+    res.json({ ok: true });
+  });
+
   app.get('/api/v1/master/offices', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
-    const offices = db.prepare(`SELECT * FROM kantor ORDER BY id ASC`).all() as Array<{ id: number }>;
+    const offices = db
+      .prepare(
+        `SELECT k.*, w.nama as wilayah_nama, w.aktif as wilayah_aktif, w.polygon_geojson as wilayah_polygon_geojson
+         FROM kantor k
+         LEFT JOIN wilayah_operasional w ON k.wilayah_id = w.id
+         ORDER BY k.id ASC`
+      )
+      .all() as Array<{
+        id: number;
+        wilayah_id?: number | null;
+        wilayah_nama?: string | null;
+        wilayah_aktif?: number | null;
+        wilayah_polygon_geojson?: string | null;
+      }>;
     // Usage counts are administrative metadata and are only returned to ADMIN.
-    const items = req.authUser?.role === 'ADMIN'
-      ? offices.map((office) => ({ ...office, ...getOfficeDeletionUsage(office.id) }))
-      : offices;
+    const items = offices.map((office) => {
+      const polyValid =
+        Boolean(office.wilayah_id) &&
+        Number(office.wilayah_aktif ?? 0) === 1 &&
+        validateRegionPolygonGeoJson(office.wilayah_polygon_geojson).valid;
+      const { wilayah_aktif: _wa, wilayah_polygon_geojson: _wp, ...cleanOffice } = office;
+      const enriched = {
+        ...cleanOffice,
+        wilayah_id: office.wilayah_id ?? null,
+        wilayah_nama: office.wilayah_nama ?? null,
+        wilayah_polygon_valid: polyValid,
+      };
+      return req.authUser?.role === 'ADMIN'
+        ? { ...enriched, ...getOfficeDeletionUsage(office.id) }
+        : enriched;
+    });
     res.json({ items });
   });
 
   app.post('/api/v1/master/offices', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
-    const { kode, nama, alamat, lat, lng, radius_meter } = req.body as {
+    const { kode, nama, alamat, lat, lng, radius_meter, wilayah_id, aktif } = req.body as {
       kode?: string;
       nama?: string;
       alamat?: string;
       lat?: number;
       lng?: number;
       radius_meter?: number;
+      wilayah_id?: number | string | null;
+      aktif?: number | boolean;
     };
     const cleanKode = (kode || '').trim().toUpperCase();
     const cleanNama = (nama || '').trim();
     const parsedLat = lat !== undefined && lat !== null && String(lat) !== '' ? Number(lat) : -6.2088;
     const parsedLng = lng !== undefined && lng !== null && String(lng) !== '' ? Number(lng) : 106.8456;
     const parsedRadius = radius_meter !== undefined && radius_meter !== null && String(radius_meter) !== '' ? Number(radius_meter) : 250;
+    const nextAktif = aktif === undefined ? 1 : aktif ? 1 : 0;
+    const resolvedWilayahId =
+      wilayah_id !== undefined && wilayah_id !== null && String(wilayah_id).trim() !== ''
+        ? Number(wilayah_id)
+        : null;
     if (!cleanKode || !cleanNama) {
       res.status(400).json({ error: 'Kode dan nama kantor wajib diisi.' });
       return;
+    }
+    if (resolvedWilayahId !== null) {
+      if (!Number.isInteger(resolvedWilayahId) || resolvedWilayahId <= 0) {
+        res.status(400).json({ error: 'Wilayah operasional kantor tidak valid.' });
+        return;
+      }
+      const regExists = db.prepare(`SELECT id FROM wilayah_operasional WHERE id = ?`).get(resolvedWilayahId);
+      if (!regExists) {
+        res.status(400).json({ error: 'Wilayah operasional yang dipilih tidak ditemukan.' });
+        return;
+      }
     }
     if (!Number.isFinite(parsedLat) || parsedLat < -90 || parsedLat > 90 || !Number.isFinite(parsedLng) || parsedLng < -180 || parsedLng > 180) {
       res.status(400).json({ error: 'Koordinat latitude (-90 s.d. 90) dan longitude (-180 s.d. 180) wajib valid.' });
@@ -2465,7 +2959,8 @@ export function registerApiRoutes(app: Express) {
     try {
       const info = db
         .prepare(
-          `INSERT INTO kantor (kode, nama, alamat, lat, lng, radius_meter, geofence_mode) VALUES (?, ?, ?, ?, ?, ?, 'TOLAK_LUAR_RADIUS')`
+          `INSERT INTO kantor (kode, nama, alamat, lat, lng, radius_meter, geofence_mode, wilayah_id, aktif)
+           VALUES (?, ?, ?, ?, ?, ?, 'TOLAK_LUAR_RADIUS', ?, ?)`
         )
         .run(
           cleanKode,
@@ -2473,7 +2968,9 @@ export function registerApiRoutes(app: Express) {
           (alamat || '').trim(),
           parsedLat,
           parsedLng,
-          Math.round(parsedRadius)
+          Math.round(parsedRadius),
+          resolvedWilayahId,
+          nextAktif
         );
       const officeId = Number(info.lastInsertRowid);
       for (let d = 0; d <= 6; d++) {
@@ -2488,7 +2985,16 @@ export function registerApiRoutes(app: Express) {
         aksi: 'CREATE_KANTOR',
         targetEntity: 'kantor',
         targetId: officeId,
-        after: { kode: cleanKode, nama: cleanNama, alamat: (alamat || '').trim(), lat: parsedLat, lng: parsedLng, radius_meter: Math.round(parsedRadius) },
+        after: {
+          kode: cleanKode,
+          nama: cleanNama,
+          alamat: (alamat || '').trim(),
+          lat: parsedLat,
+          lng: parsedLng,
+          radius_meter: Math.round(parsedRadius),
+          wilayah_id: resolvedWilayahId,
+          aktif: nextAktif,
+        },
       });
       db.exec('COMMIT');
       res.status(201).json({ id: officeId });
@@ -2503,25 +3009,48 @@ export function registerApiRoutes(app: Express) {
 
   app.put('/api/v1/master/offices/:id', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const id = Number(req.params.id);
-    const before = db.prepare(`SELECT * FROM kantor WHERE id = ?`).get(id);
+    const before = db.prepare(`SELECT * FROM kantor WHERE id = ?`).get(id) as
+      | { id: number; wilayah_id?: number | null; aktif: number }
+      | undefined;
     if (!before) {
       res.status(404).json({ error: 'Kantor tidak ditemukan.' });
       return;
     }
-    const { nama, alamat, lat, lng, radius_meter } = req.body as {
+    const { nama, alamat, lat, lng, radius_meter, wilayah_id, aktif } = req.body as {
       nama?: string;
       alamat?: string;
       lat?: number;
       lng?: number;
       radius_meter?: number;
+      wilayah_id?: number | string | null;
+      aktif?: number | boolean;
     };
     const cleanNama = (nama || '').trim();
     const parsedLat = Number(lat);
     const parsedLng = Number(lng);
     const parsedRadius = Number(radius_meter);
+    const nextAktif = aktif === undefined ? before.aktif : aktif ? 1 : 0;
+    const resolvedWilayahId =
+      wilayah_id === undefined
+        ? (before.wilayah_id ?? null)
+        : wilayah_id === null || String(wilayah_id).trim() === ''
+          ? null
+          : Number(wilayah_id);
+
     if (!cleanNama) {
       res.status(400).json({ error: 'Nama kantor wajib diisi.' });
       return;
+    }
+    if (resolvedWilayahId !== null) {
+      if (!Number.isInteger(resolvedWilayahId) || resolvedWilayahId <= 0) {
+        res.status(400).json({ error: 'Wilayah operasional kantor tidak valid.' });
+        return;
+      }
+      const regExists = db.prepare(`SELECT id FROM wilayah_operasional WHERE id = ?`).get(resolvedWilayahId);
+      if (!regExists) {
+        res.status(400).json({ error: 'Wilayah operasional yang dipilih tidak ditemukan.' });
+        return;
+      }
     }
     if (!Number.isFinite(parsedLat) || parsedLat < -90 || parsedLat > 90 || !Number.isFinite(parsedLng) || parsedLng < -180 || parsedLng > 180) {
       res.status(400).json({ error: 'Koordinat latitude (-90 s.d. 90) dan longitude (-180 s.d. 180) wajib valid.' });
@@ -2532,8 +3061,8 @@ export function registerApiRoutes(app: Express) {
       return;
     }
     db.prepare(
-      `UPDATE kantor SET nama = ?, alamat = ?, lat = ?, lng = ?, radius_meter = ?, geofence_mode = 'TOLAK_LUAR_RADIUS' WHERE id = ?`
-    ).run(cleanNama, (alamat || '').trim(), parsedLat, parsedLng, Math.round(parsedRadius), id);
+      `UPDATE kantor SET nama = ?, alamat = ?, lat = ?, lng = ?, radius_meter = ?, geofence_mode = 'TOLAK_LUAR_RADIUS', wilayah_id = ?, aktif = ? WHERE id = ?`
+    ).run(cleanNama, (alamat || '').trim(), parsedLat, parsedLng, Math.round(parsedRadius), resolvedWilayahId, nextAktif, id);
     const after = db.prepare(`SELECT * FROM kantor WHERE id = ?`).get(id);
     writeAuditLog(db, {
       actor: req.authUser!,
@@ -2737,9 +3266,10 @@ export function registerApiRoutes(app: Express) {
   });
 
   app.get('/api/v1/master/employees', requireRole('ADMIN', 'SUPERADMIN'), (_req: Request, res: Response) => {
-    const items = db
+    const rawItems = db
       .prepare(
         `SELECT k.*, kt.nama as kantor_nama, kt.kode as kantor_kode, b.nama as bidang_nama,
+                w.nama as wilayah_penempatan_nama, w.aktif as wilayah_aktif, w.polygon_geojson as wilayah_polygon_geojson,
                 u.id as user_id, u.role, u.username, u.aktif as user_aktif,
                 CASE WHEN k.foto_profil_path IS NOT NULL THEN 1 ELSE 0 END as has_foto_profil,
                 (SELECT COUNT(*) FROM absensi_sesi a WHERE a.karyawan_id = k.id) as jumlah_absensi,
@@ -2747,17 +3277,189 @@ export function registerApiRoutes(app: Express) {
          FROM karyawan k
          JOIN kantor kt ON k.kantor_id = kt.id
          JOIN bidang_kerja b ON k.bidang_id = b.id
+         LEFT JOIN wilayah_operasional w ON k.wilayah_penempatan_id = w.id
          LEFT JOIN pengguna u ON u.karyawan_id = k.id
          WHERE COALESCE(k.is_system_archive, 0) = 0
            AND ${KARYAWAN_ONLY_SQL}
          ORDER BY k.aktif DESC, k.nik ASC`
       )
-      .all();
+      .all() as unknown as Array<Karyawan & { wilayah_aktif?: number | null; wilayah_polygon_geojson?: string | null }>;
+
+    const allAllowedRows = db
+      .prepare(
+        `SELECT kki.karyawan_id, kt.id as kantor_id, kt.nama as kantor_nama, kt.aktif, kt.wilayah_id
+         FROM karyawan_kantor_izin kki
+         JOIN kantor kt ON kt.id = kki.kantor_id
+         ORDER BY kt.id ASC`
+      )
+      .all() as { karyawan_id: number; kantor_id: number; kantor_nama: string; aktif: number; wilayah_id: number | null }[];
+    const allowedMap = new Map<number, typeof allAllowedRows>();
+    for (const row of allAllowedRows) {
+      const list = allowedMap.get(row.karyawan_id) || [];
+      list.push(row);
+      allowedMap.set(row.karyawan_id, list);
+    }
+
+    const items = rawItems.map((emp) => {
+      const allowedList = allowedMap.get(emp.id) || [];
+      const validAllowedCount = allowedList.filter(
+        (o) => o.aktif === 1 && emp.wilayah_penempatan_id && o.wilayah_id === emp.wilayah_penempatan_id
+      ).length;
+      const polyValid =
+        Boolean(emp.wilayah_penempatan_id) &&
+        Number(emp.wilayah_aktif ?? 0) === 1 &&
+        validateRegionPolygonGeoJson(emp.wilayah_polygon_geojson).valid;
+      const { wilayah_aktif: _wa, wilayah_polygon_geojson: _wp, ...clean } = emp;
+      return {
+        ...clean,
+        wilayah_polygon_valid: polyValid,
+        kantor_izin_ids: allowedList.map((o) => o.kantor_id),
+        kantor_izin_names: allowedList.map((o) => o.kantor_nama),
+        status_penempatan: computeEmployeePlacementStatus({
+          role: 'KARYAWAN',
+          wilayah_penempatan_id: emp.wilayah_penempatan_id,
+          wilayah_aktif: emp.wilayah_aktif,
+          wilayah_polygon_geojson: emp.wilayah_polygon_geojson,
+          cakupan_lokasi_absensi: emp.cakupan_lokasi_absensi,
+          valid_allowed_office_count: validAllowedCount,
+        }),
+      };
+    });
     res.json({ items });
   });
 
+  app.post('/api/v1/master/employees/bulk-placement', requireRole('ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
+    const { karyawan_ids, employee_ids, wilayah_penempatan_id, cakupan_lokasi_absensi, kantor_izin_ids, alasan } = req.body as {
+      karyawan_ids?: number[];
+      employee_ids?: number[];
+      wilayah_penempatan_id?: number | null;
+      cakupan_lokasi_absensi?: CakupanLokasiAbsensi;
+      kantor_izin_ids?: number[];
+      alasan?: string;
+    };
+
+    const rawEmpIds = Array.isArray(karyawan_ids) ? karyawan_ids : Array.isArray(employee_ids) ? employee_ids : [];
+    const uniqueEmpIds = Array.from(
+      new Set(rawEmpIds.map((v) => Number(v)).filter((n) => Number.isInteger(n) && n > 0))
+    );
+    if (uniqueEmpIds.length === 0) {
+      res.status(400).json({ error: 'Pilih minimal satu karyawan untuk diatur wilayah penempatannya.' });
+      return;
+    }
+
+    const placementCheck = validateEmployeePlacementInput({
+      role: 'KARYAWAN',
+      wilayah_penempatan_id,
+      cakupan_lokasi_absensi,
+      kantor_izin_ids,
+      enforceRequiredWhenRegionsExist: true,
+    });
+    if (!placementCheck.ok) {
+      res.status(400).json({ error: placementCheck.error });
+      return;
+    }
+    if (!placementCheck.wilayahPenempatanId) {
+      res.status(400).json({ error: 'Wilayah penempatan wajib dipilih untuk pengisian massal.' });
+      return;
+    }
+
+    const regionInfo = db
+      .prepare(`SELECT id, nama FROM wilayah_operasional WHERE id = ?`)
+      .get(placementCheck.wilayahPenempatanId) as { id: number; nama: string } | undefined;
+
+    const eligibleEmployees: Array<{
+      id: number;
+      nik: string;
+      nama_lengkap: string;
+      wilayah_penempatan_id: number | null;
+      cakupan_lokasi_absensi: string | null;
+    }> = [];
+    for (const empId of uniqueEmpIds) {
+      if (!isAttendanceEligibleEmployee(empId)) {
+        res.status(403).json({
+          error: `ID karyawan #${empId} bukan akun KARYAWAN. Pengaturan penempatan tidak berlaku untuk ADMIN/SUPERADMIN.`,
+        });
+        return;
+      }
+      const row = db
+        .prepare(
+          `SELECT id, nik, nama_lengkap, wilayah_penempatan_id, cakupan_lokasi_absensi
+           FROM karyawan WHERE id = ? AND COALESCE(is_system_archive, 0) = 0`
+        )
+        .get(empId) as (typeof eligibleEmployees)[number] | undefined;
+      if (!row) {
+        res.status(404).json({ error: `Karyawan #${empId} tidak ditemukan.` });
+        return;
+      }
+      eligibleEmployees.push(row);
+    }
+
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const emp of eligibleEmployees) {
+        const beforeOffices = getEmployeeAllowedOfficeIds(db, emp.id);
+        db.prepare(
+          `UPDATE karyawan
+           SET wilayah_penempatan_id = ?, cakupan_lokasi_absensi = ?
+           WHERE id = ?`
+        ).run(placementCheck.wilayahPenempatanId, placementCheck.cakupanLokasi, emp.id);
+        syncEmployeeAllowedOffices(emp.id, placementCheck.kantorIzinIds);
+
+        writeAuditLog(db, {
+          actor: req.authUser!,
+          req,
+          modul: 'PENEMPATAN_KARYAWAN',
+          aksi: 'BULK_UPDATE_PENEMPATAN',
+          targetEntity: 'karyawan',
+          targetId: emp.id,
+          karyawanId: emp.id,
+          before: {
+            wilayah_penempatan_id: emp.wilayah_penempatan_id,
+            cakupan_lokasi_absensi: emp.cakupan_lokasi_absensi,
+            kantor_izin_ids: beforeOffices,
+          },
+          after: {
+            wilayah_penempatan_id: placementCheck.wilayahPenempatanId,
+            cakupan_lokasi_absensi: placementCheck.cakupanLokasi,
+            kantor_izin_ids: placementCheck.kantorIzinIds,
+          },
+          alasan: (alasan || 'Pengaturan massal wilayah penempatan dan cakupan lokasi absensi').trim(),
+        });
+      }
+      db.exec('COMMIT');
+    } catch (err) {
+      try { db.exec('ROLLBACK'); } catch { /* ignore */ }
+      res.status(400).json({
+        error: 'Gagal menyimpan pengaturan penempatan massal.',
+        detail: safeErrorDetail(err),
+      });
+      return;
+    }
+
+    broadcastWorkforceUpdate('EMPLOYEE_PLACEMENT_UPDATED');
+    res.json({
+      ok: true,
+      updatedCount: eligibleEmployees.length,
+      wilayahNama: regionInfo?.nama || '',
+    });
+  });
+
   app.post('/api/v1/master/employees', requireRole('SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
-    const { nik, nama_lengkap, email, no_hp, kantor_id, bidang_id, jabatan, username, password, role } = req.body as {
+    const {
+      nik,
+      nama_lengkap,
+      email,
+      no_hp,
+      kantor_id,
+      bidang_id,
+      jabatan,
+      username,
+      password,
+      role,
+      wilayah_penempatan_id,
+      cakupan_lokasi_absensi,
+      kantor_izin_ids,
+    } = req.body as {
       nik: string;
       nama_lengkap: string;
       email: string;
@@ -2768,6 +3470,9 @@ export function registerApiRoutes(app: Express) {
       username: string;
       password?: string;
       role?: Role;
+      wilayah_penempatan_id?: number | null;
+      cakupan_lokasi_absensi?: CakupanLokasiAbsensi | null;
+      kantor_izin_ids?: number[];
     };
     if (!nik || !nama_lengkap || !email || !username || !password || password.length < 6) {
       res.status(400).json({
@@ -2778,6 +3483,18 @@ export function registerApiRoutes(app: Express) {
     const nowIso = getWibIsoString();
     const today = getWibDateString();
     const empRole: Role = role === 'ADMIN' ? 'ADMIN' : 'KARYAWAN'; // Admin cannot mint SUPERADMIN
+
+    const placementCheck = validateEmployeePlacementInput({
+      role: empRole,
+      wilayah_penempatan_id,
+      cakupan_lokasi_absensi,
+      kantor_izin_ids,
+      enforceRequiredWhenRegionsExist: true,
+    });
+    if (!placementCheck.ok) {
+      res.status(400).json({ error: placementCheck.error });
+      return;
+    }
 
     let resolvedBidangId = Number(bidang_id) || 0;
     let derivedJabatan = empRole === 'ADMIN' ? 'Operator' : 'Karyawan';
@@ -2807,8 +3524,10 @@ export function registerApiRoutes(app: Express) {
     try {
       const empInfo = db
         .prepare(
-          `INSERT INTO karyawan (nik, nama_lengkap, email, no_hp, kantor_id, bidang_id, jabatan, tanggal_masuk, aktif)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`
+          `INSERT INTO karyawan (
+             nik, nama_lengkap, email, no_hp, kantor_id, bidang_id, jabatan,
+             wilayah_penempatan_id, cakupan_lokasi_absensi, tanggal_masuk, aktif
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`
         )
         .run(
           nik.trim().toUpperCase(),
@@ -2818,9 +3537,14 @@ export function registerApiRoutes(app: Express) {
           Number(kantor_id),
           resolvedBidangId,
           finalJabatan,
+          placementCheck.wilayahPenempatanId,
+          placementCheck.cakupanLokasi,
           today
         );
       const empId = Number(empInfo.lastInsertRowid);
+      if (empRole === 'KARYAWAN') {
+        syncEmployeeAllowedOffices(empId, placementCheck.kantorIzinIds);
+      }
       db.prepare(
         `INSERT INTO pengguna (username, email, password_hash, role, karyawan_id, aktif, token_version, created_at)
          VALUES (?, ?, ?, ?, ?, 1, 1, ?)`
@@ -2834,7 +3558,17 @@ export function registerApiRoutes(app: Express) {
         targetEntity: 'karyawan',
         targetId: empId,
         karyawanId: empId,
-        after: { nik, nama_lengkap, kantor_id, bidang_id: resolvedBidangId, jabatan: finalJabatan, role: empRole },
+        after: {
+          nik,
+          nama_lengkap,
+          kantor_id,
+          bidang_id: resolvedBidangId,
+          jabatan: finalJabatan,
+          role: empRole,
+          wilayah_penempatan_id: placementCheck.wilayahPenempatanId,
+          cakupan_lokasi_absensi: placementCheck.cakupanLokasi,
+          kantor_izin_ids: placementCheck.kantorIzinIds,
+        },
       });
       db.exec('COMMIT');
       res.status(201).json({ id: empId });
@@ -2860,7 +3594,19 @@ export function registerApiRoutes(app: Express) {
       res.status(404).json({ error: 'Karyawan tidak ditemukan.' });
       return;
     }
-    const { nama_lengkap, no_hp, kantor_id, bidang_id, jabatan, aktif, tanggal_keluar, alasan_keluar } = req.body as {
+    const {
+      nama_lengkap,
+      no_hp,
+      kantor_id,
+      bidang_id,
+      jabatan,
+      aktif,
+      tanggal_keluar,
+      alasan_keluar,
+      wilayah_penempatan_id,
+      cakupan_lokasi_absensi,
+      kantor_izin_ids,
+    } = req.body as {
       nama_lengkap?: string;
       no_hp?: string;
       kantor_id?: number;
@@ -2869,6 +3615,9 @@ export function registerApiRoutes(app: Express) {
       aktif?: number;
       tanggal_keluar?: string | null;
       alasan_keluar?: string;
+      wilayah_penempatan_id?: number | null;
+      cakupan_lokasi_absensi?: CakupanLokasiAbsensi | null;
+      kantor_izin_ids?: number[];
     };
     const nextKantorId = Number(kantor_id);
     const nextBidangId = Number(bidang_id);
@@ -2893,6 +3642,46 @@ export function registerApiRoutes(app: Express) {
       return;
     }
 
+    const beforeAllowedIds = getEmployeeAllowedOfficeIds(db, id);
+    const hasPlacementPayload =
+      wilayah_penempatan_id !== undefined ||
+      cakupan_lokasi_absensi !== undefined ||
+      kantor_izin_ids !== undefined;
+
+    let nextWilayahId = before.wilayah_penempatan_id ?? null;
+    let nextCakupan: CakupanLokasiAbsensi | null = (before.cakupan_lokasi_absensi as CakupanLokasiAbsensi | null) ?? null;
+    let nextAllowedIds = beforeAllowedIds;
+
+    if (hasPlacementPayload) {
+      const targetWilayah =
+        wilayah_penempatan_id !== undefined ? wilayah_penempatan_id : before.wilayah_penempatan_id;
+      const targetCakupan =
+        cakupan_lokasi_absensi !== undefined ? cakupan_lokasi_absensi : before.cakupan_lokasi_absensi;
+      const wilayahChanged = Number(targetWilayah ?? 0) !== Number(before.wilayah_penempatan_id ?? 0);
+      // When wilayah changes, NEVER carry over offices from previous wilayah
+      const targetOfficeIds =
+        kantor_izin_ids !== undefined
+          ? kantor_izin_ids
+          : wilayahChanged
+            ? []
+            : beforeAllowedIds;
+      const placementCheck = validateEmployeePlacementInput({
+        role: 'KARYAWAN',
+        wilayah_penempatan_id: targetWilayah,
+        cakupan_lokasi_absensi: targetCakupan,
+        kantor_izin_ids: targetOfficeIds,
+        existingWilayahId: before.wilayah_penempatan_id ?? null,
+        enforceRequiredWhenRegionsExist: false,
+      });
+      if (!placementCheck.ok) {
+        res.status(400).json({ error: placementCheck.error });
+        return;
+      }
+      nextWilayahId = placementCheck.wilayahPenempatanId;
+      nextCakupan = placementCheck.cakupanLokasi;
+      nextAllowedIds = placementCheck.kantorIzinIds;
+    }
+
     const nextJabatan = (jabatan || '').trim() || bidangExists.nama;
     const today = getWibDateString();
     const nextTanggalKeluar =
@@ -2904,11 +3693,18 @@ export function registerApiRoutes(app: Express) {
         ? ''
         : (alasan_keluar !== undefined ? alasan_keluar.trim() : before.alasan_keluar || '');
 
+    const placementChanged =
+      Number(nextWilayahId ?? 0) !== Number(before.wilayah_penempatan_id ?? 0) ||
+      (nextCakupan ?? null) !== (before.cakupan_lokasi_absensi ?? null) ||
+      JSON.stringify([...nextAllowedIds].sort((a, b) => a - b)) !==
+        JSON.stringify([...beforeAllowedIds].sort((a, b) => a - b));
+
     try {
       db.exec('BEGIN IMMEDIATE');
       db.prepare(
         `UPDATE karyawan
          SET nama_lengkap = ?, no_hp = ?, kantor_id = ?, bidang_id = ?, jabatan = ?,
+             wilayah_penempatan_id = ?, cakupan_lokasi_absensi = ?,
              aktif = ?, tanggal_keluar = ?, alasan_keluar = ?
          WHERE id = ? AND COALESCE(is_system_archive, 0) = 0`
       ).run(
@@ -2917,11 +3713,16 @@ export function registerApiRoutes(app: Express) {
         nextKantorId,
         nextBidangId,
         nextJabatan,
+        nextWilayahId,
+        nextCakupan,
         nextAktif,
         nextTanggalKeluar,
         nextAlasanKeluar,
         id
       );
+      if (hasPlacementPayload) {
+        syncEmployeeAllowedOffices(id, nextAllowedIds);
+      }
       db.prepare(
         `UPDATE pengguna
          SET nama_tampilan = ?, no_hp = ?, aktif = ?,
@@ -2946,9 +3747,31 @@ export function registerApiRoutes(app: Express) {
       targetEntity: 'karyawan',
       targetId: id,
       karyawanId: id,
-      before,
-      after,
+      before: { ...before, kantor_izin_ids: beforeAllowedIds },
+      after: { ...(after as Record<string, unknown>), kantor_izin_ids: nextAllowedIds },
     });
+    if (placementChanged) {
+      writeAuditLog(db, {
+        actor: req.authUser!,
+        req,
+        modul: 'PENEMPATAN_KARYAWAN',
+        aksi: 'UPDATE_PENEMPATAN_KARYAWAN',
+        targetEntity: 'karyawan',
+        targetId: id,
+        karyawanId: id,
+        before: {
+          wilayah_penempatan_id: before.wilayah_penempatan_id ?? null,
+          cakupan_lokasi_absensi: before.cakupan_lokasi_absensi ?? null,
+          kantor_izin_ids: beforeAllowedIds,
+        },
+        after: {
+          wilayah_penempatan_id: nextWilayahId,
+          cakupan_lokasi_absensi: nextCakupan,
+          kantor_izin_ids: nextAllowedIds,
+        },
+        alasan: 'Pembaruan wilayah penempatan dan cakupan lokasi absensi karyawan',
+      });
+    }
     broadcastWorkforceUpdate('EMPLOYEE_UPDATED');
     res.json({ ok: true });
   });
@@ -4245,7 +5068,11 @@ export function registerApiRoutes(app: Express) {
       .prepare(
         `SELECT a.id, a.karyawan_id, k.nama_lengkap, k.nik, kt.nama as kantor_nama, b.nama as bidang_nama,
                 a.tanggal, a.urutan_sesi, a.nama_sesi, a.waktu_server, a.status_ketepatan,
-                a.jarak_kantor_meter, a.dalam_geofence, a.tipe_aktivitas, a.deskripsi_aktivitas, a.foto_path
+                a.jarak_kantor_meter, a.dalam_geofence, a.lokasi_alamat,
+                a.status_wilayah_absensi, a.wilayah_penempatan_nama_snapshot,
+                a.wilayah_terdeteksi_nama, a.cakupan_lokasi_snapshot,
+                a.kantor_validasi_nama, a.alasan_pengecualian_geofence,
+                a.tipe_aktivitas, a.deskripsi_aktivitas, a.foto_path
          FROM absensi_sesi a
          JOIN karyawan k ON a.karyawan_id = k.id
          JOIN kantor kt ON k.kantor_id = kt.id
@@ -4253,6 +5080,64 @@ export function registerApiRoutes(app: Express) {
          ORDER BY a.id DESC LIMIT 60`
       )
       .all();
+
+    const locationCounts = db
+      .prepare(
+        `SELECT
+           SUM(CASE WHEN status_wilayah_absensi = 'DI_DALAM_WILAYAH' THEN 1 ELSE 0 END) as dalam_wilayah,
+           SUM(CASE WHEN status_wilayah_absensi = 'DI_LUAR_WILAYAH' THEN 1 ELSE 0 END) as luar_wilayah,
+           SUM(CASE WHEN status_wilayah_absensi IN ('BELUM_TERKONFIGURASI', 'POLYGON_BELUM_LENGKAP') OR status_wilayah_absensi IS NULL THEN 1 ELSE 0 END) as belum_terkonfigurasi
+         FROM absensi_sesi
+         WHERE tanggal LIKE ?`
+      )
+      .get(`${bulan}-%`) as {
+      dalam_wilayah: number | null;
+      luar_wilayah: number | null;
+      belum_terkonfigurasi: number | null;
+    };
+
+    const empPlacementRows = db
+      .prepare(
+        `SELECT k.id, k.wilayah_penempatan_id, k.cakupan_lokasi_absensi,
+                w.aktif as wilayah_aktif, w.polygon_geojson as wilayah_polygon_geojson
+         FROM karyawan k
+         LEFT JOIN wilayah_operasional w ON k.wilayah_penempatan_id = w.id
+         WHERE k.aktif = 1 AND COALESCE(k.is_system_archive, 0) = 0 AND ${KARYAWAN_ONLY_SQL}`
+      )
+      .all() as {
+      id: number;
+      wilayah_penempatan_id: number | null;
+      cakupan_lokasi_absensi: string | null;
+      wilayah_aktif: number | null;
+      wilayah_polygon_geojson: string | null;
+    }[];
+
+    let totalKaryawanBelumLengkap = 0;
+    for (const row of empPlacementRows) {
+      const validAllowedCount =
+        row.wilayah_penempatan_id && row.cakupan_lokasi_absensi === 'KANTOR_TERTENTU'
+          ? Number(
+              (
+                db
+                  .prepare(
+                    `SELECT COUNT(*) as c FROM karyawan_kantor_izin kki
+                     JOIN kantor kt ON kt.id = kki.kantor_id
+                     WHERE kki.karyawan_id = ? AND kt.aktif = 1 AND kt.wilayah_id = ?`
+                  )
+                  .get(row.id, row.wilayah_penempatan_id) as { c: number } | undefined
+              )?.c ?? 0
+            )
+          : 0;
+      const st = computeEmployeePlacementStatus({
+        role: 'KARYAWAN',
+        wilayah_penempatan_id: row.wilayah_penempatan_id,
+        wilayah_aktif: row.wilayah_aktif,
+        wilayah_polygon_geojson: row.wilayah_polygon_geojson,
+        cakupan_lokasi_absensi: row.cakupan_lokasi_absensi,
+        valid_allowed_office_count: validAllowedCount,
+      });
+      if (st !== 'LENGKAP') totalKaryawanBelumLengkap++;
+    }
 
     res.json({
       bulan,
@@ -4263,6 +5148,10 @@ export function registerApiRoutes(app: Express) {
         totalNormalMasuk,
         totalOverrideMasuk,
         totalOverrideTidakMasuk,
+        totalAbsensiDalamWilayah: Number(locationCounts?.dalam_wilayah ?? 0),
+        totalAbsensiLuarWilayah: Number(locationCounts?.luar_wilayah ?? 0),
+        totalAbsensiBelumTerkonfigurasi: Number(locationCounts?.belum_terkonfigurasi ?? 0),
+        totalKaryawanBelumLengkap,
       },
       recentOverrides,
       recentEvidence,
@@ -5306,6 +6195,9 @@ export function registerApiRoutes(app: Express) {
         bidang_id?: number;
         jabatan?: string;
         alasan_keputusan?: string;
+        wilayah_penempatan_id?: number | string | null;
+        cakupan_lokasi_absensi?: CakupanLokasiAbsensi | null;
+        kantor_izin_ids?: number[];
       };
 
       const finalNik = (body.nik || '').trim().toUpperCase() || generateNextNik();
@@ -5331,6 +6223,19 @@ export function registerApiRoutes(app: Express) {
         finalBidang = bidangRow.id;
         derivedJabatan = bidangRow.nama;
       }
+
+      const placementCheck = validateEmployeePlacementInput({
+        role: finalRole,
+        wilayah_penempatan_id: body.wilayah_penempatan_id,
+        cakupan_lokasi_absensi: body.cakupan_lokasi_absensi,
+        kantor_izin_ids: body.kantor_izin_ids,
+        enforceRequiredWhenRegionsExist: false,
+      });
+      if (!placementCheck.ok) {
+        res.status(400).json({ error: placementCheck.error });
+        return;
+      }
+
       const finalJabatan = (body.jabatan || '').trim() || derivedJabatan;
       const nowIso = getWibIsoString();
       const today = getWibDateString();
@@ -5365,8 +6270,9 @@ export function registerApiRoutes(app: Express) {
           .prepare(
             `INSERT INTO karyawan (
               nik, nama_lengkap, email, no_hp, kantor_id, bidang_id, jabatan,
-              tanggal_masuk, foto_profil_path, foto_profil_updated_at, aktif
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`
+              tanggal_masuk, foto_profil_path, foto_profil_updated_at,
+              wilayah_penempatan_id, cakupan_lokasi_absensi, aktif
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`
           )
           .run(
             finalNik,
@@ -5378,9 +6284,15 @@ export function registerApiRoutes(app: Express) {
             finalJabatan,
             today,
             empFotoPath,
-            empFotoPath ? nowIso : null
+            empFotoPath ? nowIso : null,
+            placementCheck.wilayahPenempatanId,
+            placementCheck.cakupanLokasi
           );
         const empId = Number(empInfo.lastInsertRowid);
+
+        if (finalRole === 'KARYAWAN' && placementCheck.kantorIzinIds.length > 0) {
+          syncEmployeeAllowedOffices(empId, placementCheck.kantorIzinIds);
+        }
 
         const userInfo = db
           .prepare(
@@ -5417,6 +6329,9 @@ export function registerApiRoutes(app: Express) {
             karyawanId: empId,
             nik: finalNik,
             role: finalRole,
+            wilayah_penempatan_id: placementCheck.wilayahPenempatanId,
+            cakupan_lokasi_absensi: placementCheck.cakupanLokasi,
+            kantor_izin_ids: placementCheck.kantorIzinIds,
           },
           alasan: (body.alasan_keputusan || 'ACC pendaftaran akun oleh Superadmin').trim(),
         });
@@ -5483,7 +6398,7 @@ export function registerApiRoutes(app: Express) {
   );
 
   app.get('/api/v1/superadmin/accounts', requireRole('SUPERADMIN'), (_req: Request, res: Response) => {
-    const items = db
+    const rawItems = db
       .prepare(
         `SELECT u.id as user_id, k.id as karyawan_id, k.nik, u.username, u.email,
                 COALESCE(NULLIF(u.nama_tampilan, ''), k.nama_lengkap, 'Superadmin') as nama_lengkap,
@@ -5492,6 +6407,9 @@ export function registerApiRoutes(app: Express) {
                 u.role, k.kantor_id, kt.nama as kantor_nama,
                 k.bidang_id, b.nama as bidang_nama, k.tanggal_masuk,
                 k.tanggal_keluar, COALESCE(k.alasan_keluar, '') as alasan_keluar,
+                k.wilayah_penempatan_id, w.nama as wilayah_penempatan_nama,
+                w.aktif as wilayah_aktif, w.polygon_geojson as wilayah_polygon_geojson,
+                k.cakupan_lokasi_absensi,
                 u.aktif as user_aktif, k.aktif as karyawan_aktif,
                 CASE WHEN COALESCE(k.foto_profil_path, u.foto_profil_path) IS NOT NULL THEN 1 ELSE 0 END as has_foto_profil,
                 COALESCE(k.foto_profil_updated_at, u.foto_profil_updated_at) as foto_profil_updated_at,
@@ -5502,14 +6420,97 @@ export function registerApiRoutes(app: Express) {
          LEFT JOIN karyawan k ON u.karyawan_id = k.id
          LEFT JOIN kantor kt ON k.kantor_id = kt.id
          LEFT JOIN bidang_kerja b ON k.bidang_id = b.id
+         LEFT JOIN wilayah_operasional w ON k.wilayah_penempatan_id = w.id
          ORDER BY CASE u.role WHEN 'SUPERADMIN' THEN 1 WHEN 'ADMIN' THEN 2 ELSE 3 END,
                   u.aktif DESC,
                   COALESCE(k.nik, u.username) ASC`
       )
+      .all() as Array<{
+        user_id: number;
+        karyawan_id: number | null;
+        role: Role;
+        wilayah_penempatan_id: number | null;
+        wilayah_penempatan_nama: string | null;
+        wilayah_aktif: number | null;
+        wilayah_polygon_geojson: string | null;
+        cakupan_lokasi_absensi: CakupanLokasiAbsensi | null;
+        [key: string]: unknown;
+      }>;
+
+    const allAllowedRows = db
+      .prepare(
+        `SELECT kki.karyawan_id, kt.id as kantor_id, kt.nama as kantor_nama, kt.aktif, kt.wilayah_id
+         FROM karyawan_kantor_izin kki
+         JOIN kantor kt ON kt.id = kki.kantor_id
+         ORDER BY kt.id ASC`
+      )
+      .all() as { karyawan_id: number; kantor_id: number; kantor_nama: string; aktif: number; wilayah_id: number | null }[];
+    const allowedMap = new Map<number, typeof allAllowedRows>();
+    for (const r of allAllowedRows) {
+      const list = allowedMap.get(r.karyawan_id) || [];
+      list.push(r);
+      allowedMap.set(r.karyawan_id, list);
+    }
+
+    const items = rawItems.map((acc) => {
+      const allowedList = acc.karyawan_id ? allowedMap.get(acc.karyawan_id) || [] : [];
+      const validAllowedCount = allowedList.filter(
+        (o) => o.aktif === 1 && acc.wilayah_penempatan_id && o.wilayah_id === acc.wilayah_penempatan_id
+      ).length;
+      const polyValid =
+        acc.role === 'KARYAWAN' &&
+        Boolean(acc.wilayah_penempatan_id) &&
+        Number(acc.wilayah_aktif ?? 0) === 1 &&
+        validateRegionPolygonGeoJson(acc.wilayah_polygon_geojson).valid;
+      const { wilayah_aktif: _wa, wilayah_polygon_geojson: _wp, ...clean } = acc;
+      return {
+        ...clean,
+        wilayah_penempatan_id: acc.role === 'KARYAWAN' ? (acc.wilayah_penempatan_id ?? null) : null,
+        wilayah_penempatan_nama: acc.role === 'KARYAWAN' ? (acc.wilayah_penempatan_nama ?? null) : null,
+        wilayah_polygon_valid: polyValid,
+        cakupan_lokasi_absensi: acc.role === 'KARYAWAN' ? (acc.cakupan_lokasi_absensi ?? null) : null,
+        kantor_izin_ids: acc.role === 'KARYAWAN' ? allowedList.map((o) => o.kantor_id) : [],
+        kantor_izin_names: acc.role === 'KARYAWAN' ? allowedList.map((o) => o.kantor_nama) : [],
+        status_penempatan: computeEmployeePlacementStatus({
+          role: acc.role,
+          wilayah_penempatan_id: acc.wilayah_penempatan_id,
+          wilayah_aktif: acc.wilayah_aktif,
+          wilayah_polygon_geojson: acc.wilayah_polygon_geojson,
+          cakupan_lokasi_absensi: acc.cakupan_lokasi_absensi,
+          valid_allowed_office_count: validAllowedCount,
+        }),
+      };
+    });
+
+    const offices = db
+      .prepare(`SELECT id, kode, nama, wilayah_id, aktif FROM kantor WHERE aktif = 1 ORDER BY id ASC`)
       .all();
-    const offices = db.prepare(`SELECT id, kode, nama FROM kantor WHERE aktif = 1 ORDER BY id ASC`).all();
     const bidangList = db.prepare(`SELECT id, kode, nama FROM bidang_kerja ORDER BY id ASC`).all();
-    res.json({ items, offices, bidangList });
+    const rawRegions = db
+      .prepare(`SELECT id, kode, nama, kota_kabupaten, provinsi, aktif, polygon_geojson FROM wilayah_operasional ORDER BY aktif DESC, nama ASC`)
+      .all() as Array<{
+        id: number;
+        kode: string;
+        nama: string;
+        kota_kabupaten: string;
+        provinsi: string;
+        aktif: number;
+        polygon_geojson: string | null;
+      }>;
+    const regions = rawRegions.map((r) => {
+      const poly = validateRegionPolygonGeoJson(r.polygon_geojson);
+      return {
+        id: r.id,
+        kode: r.kode,
+        nama: r.nama,
+        kota_kabupaten: r.kota_kabupaten,
+        provinsi: r.provinsi,
+        aktif: r.aktif,
+        polygon_valid: poly.valid,
+        status_konfigurasi: poly.valid ? 'LENGKAP' : 'POLYGON_BELUM_LENGKAP',
+      };
+    });
+    res.json({ items, offices, bidangList, regions });
   });
 
   app.post(
@@ -5527,6 +6528,9 @@ export function registerApiRoutes(app: Express) {
         jabatan,
         kantor_id,
         bidang_id,
+        wilayah_penempatan_id,
+        cakupan_lokasi_absensi,
+        kantor_izin_ids,
         fotoBase64,
       } = req.body as {
         nik?: string;
@@ -5539,6 +6543,9 @@ export function registerApiRoutes(app: Express) {
         jabatan?: string;
         kantor_id?: number;
         bidang_id?: number;
+        wilayah_penempatan_id?: number | null;
+        cakupan_lokasi_absensi?: CakupanLokasiAbsensi | null;
+        kantor_izin_ids?: number[];
         fotoBase64?: string | null;
       };
 
@@ -5594,6 +6601,18 @@ export function registerApiRoutes(app: Express) {
         return;
       }
 
+      const placementCheck = validateEmployeePlacementInput({
+        role: finalRole,
+        wilayah_penempatan_id,
+        cakupan_lokasi_absensi,
+        kantor_izin_ids,
+        enforceRequiredWhenRegionsExist: true,
+      });
+      if (!placementCheck.ok) {
+        res.status(400).json({ error: placementCheck.error });
+        return;
+      }
+
       let savedFoto: string | null = null;
       if (fotoBase64) {
         try {
@@ -5628,6 +6647,21 @@ export function registerApiRoutes(app: Express) {
       }
       const finalJabatan = (jabatan || '').trim() || derivedJabatan;
 
+      // Resolve primary kantor_id: if KANTOR_TERTENTU picked offices and kantor_id wasn't in region, fallback gracefully or use provided kantor_id
+      let resolvedKantorId = Number(kantor_id) || 0;
+      if (!resolvedKantorId) {
+        if (placementCheck.kantorIzinIds.length > 0) {
+          resolvedKantorId = placementCheck.kantorIzinIds[0];
+        } else if (placementCheck.wilayahPenempatanId) {
+          const regOffice = db
+            .prepare(`SELECT id FROM kantor WHERE aktif = 1 AND wilayah_id = ? ORDER BY id ASC LIMIT 1`)
+            .get(placementCheck.wilayahPenempatanId) as { id: number } | undefined;
+          resolvedKantorId = regOffice?.id ?? 1;
+        } else {
+          resolvedKantorId = 1;
+        }
+      }
+
       const nowIso = getWibIsoString();
       const today = getWibDateString();
 
@@ -5637,22 +6671,28 @@ export function registerApiRoutes(app: Express) {
           .prepare(
             `INSERT INTO karyawan (
               nik, nama_lengkap, email, no_hp, kantor_id, bidang_id, jabatan,
+              wilayah_penempatan_id, cakupan_lokasi_absensi,
               tanggal_masuk, foto_profil_path, foto_profil_updated_at, aktif
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`
           )
           .run(
             finalNik,
             cleanName,
             cleanEmail,
             (no_hp || '').trim(),
-            Number(kantor_id) || 1,
+            resolvedKantorId,
             resolvedBidangId,
             finalJabatan,
+            placementCheck.wilayahPenempatanId,
+            placementCheck.cakupanLokasi,
             today,
             savedFoto,
             savedFoto ? nowIso : null
           );
         const empId = Number(empInfo.lastInsertRowid);
+        if (finalRole === 'KARYAWAN') {
+          syncEmployeeAllowedOffices(empId, placementCheck.kantorIzinIds);
+        }
 
         const userInfo = db
           .prepare(
@@ -5670,7 +6710,15 @@ export function registerApiRoutes(app: Express) {
           targetEntity: 'pengguna',
           targetId: userId,
           karyawanId: empId,
-          after: { nik: finalNik, username: cleanUser, email: cleanEmail, role: finalRole },
+          after: {
+            nik: finalNik,
+            username: cleanUser,
+            email: cleanEmail,
+            role: finalRole,
+            wilayah_penempatan_id: placementCheck.wilayahPenempatanId,
+            cakupan_lokasi_absensi: placementCheck.cakupanLokasi,
+            kantor_izin_ids: placementCheck.kantorIzinIds,
+          },
           alasan: 'Pembuatan akun langsung oleh Superadmin',
         });
         db.exec('COMMIT');
@@ -5699,6 +6747,7 @@ export function registerApiRoutes(app: Express) {
                   COALESCE(k.no_hp, u.no_hp, '') as no_hp,
                   k.id as karyawan_id, k.nik, COALESCE(k.jabatan, 'Akun Pengelola Sistem') as jabatan,
                   k.kantor_id, k.bidang_id, k.aktif as karyawan_aktif, k.foto_profil_path,
+                  k.wilayah_penempatan_id, k.cakupan_lokasi_absensi,
                   k.tanggal_keluar, COALESCE(k.alasan_keluar, '') as alasan_keluar
            FROM pengguna u
            LEFT JOIN karyawan k ON u.karyawan_id = k.id
@@ -5721,6 +6770,8 @@ export function registerApiRoutes(app: Express) {
             bidang_id: number | null;
             karyawan_aktif: number | null;
             foto_profil_path: string | null;
+            wilayah_penempatan_id: number | null;
+            cakupan_lokasi_absensi: CakupanLokasiAbsensi | null;
             tanggal_keluar: string | null;
             alasan_keluar: string;
           }
@@ -5740,6 +6791,9 @@ export function registerApiRoutes(app: Express) {
         role?: Role;
         kantor_id?: number;
         bidang_id?: number;
+        wilayah_penempatan_id?: number | null;
+        cakupan_lokasi_absensi?: CakupanLokasiAbsensi | null;
+        kantor_izin_ids?: number[];
         aktif?: boolean | number;
         tanggal_keluar?: string | null;
         alasan_keluar?: string;
@@ -5860,6 +6914,46 @@ export function registerApiRoutes(app: Express) {
         return;
       }
 
+      const beforeAllowedIds = getEmployeeAllowedOfficeIds(db, existing.karyawan_id);
+      const hasPlacementPayload =
+        nextRole !== 'KARYAWAN' ||
+        body.wilayah_penempatan_id !== undefined ||
+        body.cakupan_lokasi_absensi !== undefined ||
+        body.kantor_izin_ids !== undefined;
+
+      let nextWilayahId = nextRole === 'KARYAWAN' ? existing.wilayah_penempatan_id : null;
+      let nextCakupan: CakupanLokasiAbsensi | null = nextRole === 'KARYAWAN' ? existing.cakupan_lokasi_absensi : null;
+      let nextAllowedIds = nextRole === 'KARYAWAN' ? beforeAllowedIds : [];
+
+      if (hasPlacementPayload) {
+        const targetWilayah =
+          body.wilayah_penempatan_id !== undefined ? body.wilayah_penempatan_id : existing.wilayah_penempatan_id;
+        const targetCakupan =
+          body.cakupan_lokasi_absensi !== undefined ? body.cakupan_lokasi_absensi : existing.cakupan_lokasi_absensi;
+        const wilayahChanged = Number(targetWilayah ?? 0) !== Number(existing.wilayah_penempatan_id ?? 0);
+        const targetOfficeIds =
+          body.kantor_izin_ids !== undefined
+            ? body.kantor_izin_ids
+            : wilayahChanged
+              ? []
+              : beforeAllowedIds;
+        const placementCheck = validateEmployeePlacementInput({
+          role: nextRole,
+          wilayah_penempatan_id: targetWilayah,
+          cakupan_lokasi_absensi: targetCakupan,
+          kantor_izin_ids: targetOfficeIds,
+          existingWilayahId: existing.wilayah_penempatan_id,
+          enforceRequiredWhenRegionsExist: false,
+        });
+        if (!placementCheck.ok) {
+          res.status(400).json({ error: placementCheck.error });
+          return;
+        }
+        nextWilayahId = placementCheck.wilayahPenempatanId;
+        nextCakupan = placementCheck.cakupanLokasi;
+        nextAllowedIds = placementCheck.kantorIzinIds;
+      }
+
       const cleanName = (body.nama_lengkap ?? existing.nama_lengkap).trim();
       const cleanUser = (body.username ?? existing.username).trim().toLowerCase();
       const cleanEmail = (body.email ?? existing.email).trim().toLowerCase();
@@ -5910,6 +7004,12 @@ export function registerApiRoutes(app: Express) {
         }
       }
 
+      const placementChanged =
+        Number(nextWilayahId ?? 0) !== Number(existing.wilayah_penempatan_id ?? 0) ||
+        (nextCakupan ?? null) !== (existing.cakupan_lokasi_absensi ?? null) ||
+        JSON.stringify([...nextAllowedIds].sort((a, b) => a - b)) !==
+          JSON.stringify([...beforeAllowedIds].sort((a, b) => a - b));
+
       db.exec('BEGIN IMMEDIATE');
       try {
         const shouldBumpTokenVersion = nextRole !== existing.role || nextAktif === 0;
@@ -5937,6 +7037,7 @@ export function registerApiRoutes(app: Express) {
         db.prepare(
           `UPDATE karyawan
            SET nama_lengkap = ?, email = ?, no_hp = ?, jabatan = ?, kantor_id = ?, bidang_id = ?,
+               wilayah_penempatan_id = ?, cakupan_lokasi_absensi = ?,
                aktif = ?, tanggal_keluar = ?, alasan_keluar = ?,
                foto_profil_path = ?, foto_profil_updated_at = COALESCE(?, foto_profil_updated_at)
            WHERE id = ?`
@@ -5947,6 +7048,8 @@ export function registerApiRoutes(app: Express) {
           cleanJabatan,
           nextKantor,
           nextBidang,
+          nextWilayahId,
+          nextCakupan,
           nextAktif,
           nextTanggalKeluar,
           nextAlasanKeluar,
@@ -5954,6 +7057,10 @@ export function registerApiRoutes(app: Express) {
           fotoChanged ? nowIso : null,
           existing.karyawan_id
         );
+
+        if (hasPlacementPayload) {
+          syncEmployeeAllowedOffices(existing.karyawan_id, nextAllowedIds);
+        }
 
         writeAuditLog(db, {
           actor: req.authUser!,
@@ -5970,6 +7077,9 @@ export function registerApiRoutes(app: Express) {
             aktif: existing.user_aktif,
             kantor_id: existing.kantor_id,
             bidang_id: existing.bidang_id,
+            wilayah_penempatan_id: existing.wilayah_penempatan_id,
+            cakupan_lokasi_absensi: existing.cakupan_lokasi_absensi,
+            kantor_izin_ids: beforeAllowedIds,
           },
           after: {
             username: cleanUser,
@@ -5978,9 +7088,35 @@ export function registerApiRoutes(app: Express) {
             aktif: nextAktif,
             kantor_id: nextKantor,
             bidang_id: nextBidang,
+            wilayah_penempatan_id: nextWilayahId,
+            cakupan_lokasi_absensi: nextCakupan,
+            kantor_izin_ids: nextAllowedIds,
           },
           alasan: 'Pembaruan data/peran/status akun oleh Superadmin',
         });
+
+        if (placementChanged) {
+          writeAuditLog(db, {
+            actor: req.authUser!,
+            req,
+            modul: 'PENEMPATAN_KARYAWAN',
+            aksi: 'UPDATE_PENEMPATAN_KARYAWAN',
+            targetEntity: 'karyawan',
+            targetId: existing.karyawan_id,
+            karyawanId: existing.karyawan_id,
+            before: {
+              wilayah_penempatan_id: existing.wilayah_penempatan_id,
+              cakupan_lokasi_absensi: existing.cakupan_lokasi_absensi,
+              kantor_izin_ids: beforeAllowedIds,
+            },
+            after: {
+              wilayah_penempatan_id: nextWilayahId,
+              cakupan_lokasi_absensi: nextCakupan,
+              kantor_izin_ids: nextAllowedIds,
+            },
+            alasan: 'Pembaruan wilayah penempatan dan cakupan lokasi absensi melalui Manajemen Akun',
+          });
+        }
         db.exec('COMMIT');
         res.json({ ok: true });
       } catch (err) {

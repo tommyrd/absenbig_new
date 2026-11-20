@@ -59,3 +59,21 @@ Seluruh pembatasan hak akses diberlakukan pada middleware `requireRole(...)` di 
    - File disimpan menggunakan `crypto.randomBytes` di luar folder `public/` atau `dist/`.
    - Setiap akses media memakai `path.basename(...)` untuk mencegah *path traversal*.
    - Header respons media menyertakan `X-Content-Type-Options: nosniff` dan `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'`.
+
+---
+
+## 5. Keamanan Validasi Wilayah Operasional & Cakupan Lokasi Absensi
+
+1. **Otoritas Penuh di Backend (`src/server/services/location-policy.ts`):**
+   - Evaluasi apakah koordinat GPS berada di dalam atau di luar wilayah penempatan dilakukan sepenuhnya di backend menggunakan geometri GeoJSON `Polygon`/`MultiPolygon` dari tabel `wilayah_operasional`.
+   - Sistem **tidak pernah** mempercayai klaim status wilayah dari frontend maupun nama kota hasil reverse geocoding Geoapify untuk menentukan pengecualian geofence.
+2. **Fail-Closed untuk Konfigurasi Belum Lengkap:**
+   - Akun `KARYAWAN` lama yang belum memiliki `wilayah_penempatan_id` (`BELUM_TERKONFIGURASI`) **tidak pernah** dianggap berada di luar kota dan tidak mendapat pengecualian geofence otomatis.
+   - Wilayah operasional yang polygon-nya kosong atau tidak valid (`POLYGON_BELUM_LENGKAP`) **tidak pernah** memberikan pengecualian geofence otomatis.
+   - Mode `KANTOR_TERTENTU` memvalidasi secara ketat bahwa setiap `kantor_id` berada dalam `wilayah_penempatan_id` karyawan dan berstatus aktif; kantor dari wilayah lain selalu ditolak (`400`).
+3. **Bukti & Aturan Tetap Wajib Saat Pengecualian Luar Wilayah:**
+   - Pengecualian di luar wilayah penempatan (`DI_LUAR_WILAYAH`) hanya membebaskan geofence kantor. Koordinat GPS, akurasi, selfie kamera browser (`BROWSER_CAMERA`), waktu server WIB, jendela sesi, deskripsi aktivitas sesi lanjutan, dan audit trail tetap ditegakkan dan direkam lengkap.
+   - Catatan anomali GPS (mis. koordinat `(0,0)` atau akurasi `> 500m`) direkam di `lokasi_validasi_json` dan audit log sebagai bahan pengawasan Admin/Superadmin tanpa mengklaim proteksi mutlak terhadap fake GPS tingkat OS.
+4. **Audit Trail & Imutabilitas Historis:**
+   - Setiap pembuatan/perubahan/penghapusan `wilayah_operasional` tercatat pada modul `WILAYAH_OPERASIONAL`, dan setiap perubahan penempatan individu maupun massal tercatat pada modul `PENEMPATAN_KARYAWAN`.
+   - Perubahan penempatan karyawan tidak pernah mengubah snapshot lokasi pada `absensi_sesi` historis.

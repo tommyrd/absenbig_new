@@ -864,7 +864,12 @@ export function AttendanceFeedView({
                               : 'Tepat waktu'}
                           </span>
 
-                          {post.jarakKantorMeter !== null && (
+                          {post.statusWilayahAbsensi === 'DI_LUAR_WILAYAH' ? (
+                            <span className="inline-flex items-center gap-1 font-medium text-sky-700 dark:text-sky-300">
+                              <MapPin className="w-3.5 h-3.5 shrink-0" />
+                              Di luar wilayah · Bebas geofence
+                            </span>
+                          ) : post.jarakKantorMeter !== null ? (
                             <span
                               className={`inline-flex items-center gap-1 font-medium ${
                                 post.dalamGeofence
@@ -873,12 +878,13 @@ export function AttendanceFeedView({
                               }`}
                             >
                               <MapPin className="w-3.5 h-3.5 shrink-0" />
-                              {post.dalamGeofence ? 'Dalam radius' : 'Luar radius'} ·{' '}
+                              {post.dalamGeofence ? 'Dalam radius' : 'Luar radius'}
+                              {post.kantorValidasiNama ? ` (${post.kantorValidasiNama})` : ''} ·{' '}
                               <span className="font-mono tabular-nums">
                                 {formatDistance(post.jarakKantorMeter)}
                               </span>
                             </span>
-                          )}
+                          ) : null}
                         </div>
 
                         <div className="flex items-center gap-1 shrink-0">
@@ -1491,11 +1497,32 @@ export function AttendanceFeedView({
                         {lightboxPost.lokasiAktualAlamat || lightboxPost.kantorNama}
                       </p>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                        Kantor: {lightboxPost.kantorNama} ·{' '}
-                        {lightboxPost.jarakKantorMeter !== null
-                          ? `${formatDistance(lightboxPost.jarakKantorMeter)} (${lightboxPost.dalamGeofence ? 'Dalam Radius' : 'Luar Radius'})`
-                          : 'Tanpa GPS'}
+                        {lightboxPost.statusWilayahAbsensi === 'DI_LUAR_WILAYAH' ? (
+                          <>
+                            <span className="font-semibold text-sky-700 dark:text-sky-300">
+                              Di Luar Wilayah Penempatan
+                            </span>
+                            {lightboxPost.wilayahPenempatanNama
+                              ? ` (${lightboxPost.wilayahPenempatanNama})`
+                              : ''}
+                            {lightboxPost.wilayahTerdeteksiNama
+                              ? ` · Area terdeteksi: ${lightboxPost.wilayahTerdeteksiNama}`
+                              : ''}
+                          </>
+                        ) : (
+                          <>
+                            Kantor: {lightboxPost.kantorValidasiNama || lightboxPost.kantorNama} ·{' '}
+                            {lightboxPost.jarakKantorMeter !== null
+                              ? `${formatDistance(lightboxPost.jarakKantorMeter)} (${lightboxPost.dalamGeofence ? 'Dalam Radius' : 'Luar Radius'})`
+                              : 'Tanpa GPS'}
+                          </>
+                        )}
                       </p>
+                      {lightboxPost.alasanPengecualianGeofence && (
+                        <p className="text-[11px] text-sky-700 dark:text-sky-300 mt-0.5">
+                          {lightboxPost.alasanPengecualianGeofence}
+                        </p>
+                      )}
                       {lightboxPost.lat !== null && lightboxPost.lng !== null && (
                         <p className="text-[10px] font-mono tabular-nums text-slate-400 mt-0.5">
                           GPS {lightboxPost.lat.toFixed(6)}, {lightboxPost.lng.toFixed(6)}

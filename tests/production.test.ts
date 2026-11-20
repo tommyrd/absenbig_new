@@ -124,16 +124,17 @@ after(async () => {
 test('1. Migrations are idempotent and production baseline enforces zero demo accounts', () => {
   const db = getDb();
   const applied = getAppliedMigrations(db);
-  assert.equal(applied.length, 17);
+  assert.equal(applied.length, 18);
   assert.deepEqual(
     applied.map((m) => m.version),
-    ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014', '015', '016', '017']
+    ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014', '015', '016', '017', '018']
   );
 
   const attendanceColumns = db
     .prepare('PRAGMA table_info(absensi_sesi)')
     .all() as { name: string }[];
   assert.ok(attendanceColumns.some((column) => column.name === 'lokasi_alamat'));
+  assert.ok(attendanceColumns.some((column) => column.name === 'status_wilayah_absensi'));
 
   const locationCache = db
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'absensi_lokasi_cache'")
@@ -145,6 +146,11 @@ test('1. Migrations are idempotent and production baseline enforces zero demo ac
     .get() as { name: string } | undefined;
   assert.equal(checkinOverrideTable?.name, 'override_akses_absensi');
 
+  const regionTables = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('wilayah_operasional', 'karyawan_kantor_izin')")
+    .all() as { name: string }[];
+  assert.equal(regionTables.length, 2);
+
   const settingsColumns = db
     .prepare('PRAGMA table_info(pengaturan_aplikasi)')
     .all() as { name: string }[];
@@ -155,6 +161,8 @@ test('1. Migrations are idempotent and production baseline enforces zero demo ac
   assert.ok(userColumns.some((column) => column.name === 'foto_profil_path'));
   assert.ok(userColumns.some((column) => column.name === 'foto_profil_updated_at'));
   assert.ok(employeeColumns.some((column) => column.name === 'is_system_archive'));
+  assert.ok(employeeColumns.some((column) => column.name === 'wilayah_penempatan_id'));
+  assert.ok(employeeColumns.some((column) => column.name === 'cakupan_lokasi_absensi'));
   const roleLinkTriggers = db.prepare(
     `SELECT name FROM sqlite_master WHERE type = 'trigger' AND name IN (
       'trg_pengguna_role_link_insert', 'trg_pengguna_role_link_update'

@@ -75,6 +75,15 @@ interface EvidenceRow {
   tipe_aktivitas: string;
   deskripsi_aktivitas: string;
   foto_path: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  accuracy_meter?: number | null;
+  lokasi_alamat?: string | null;
+  status_wilayah_absensi?: string | null;
+  wilayah_penempatan_nama_snapshot?: string | null;
+  wilayah_terdeteksi_nama?: string | null;
+  kantor_validasi_nama?: string | null;
+  alasan_pengecualian_geofence?: string | null;
 }
 
 interface OverviewPayload {
@@ -86,6 +95,10 @@ interface OverviewPayload {
     totalNormalMasuk: number;
     totalOverrideMasuk: number;
     totalOverrideTidakMasuk: number;
+    totalAbsensiDalamWilayah?: number;
+    totalAbsensiLuarWilayah?: number;
+    totalAbsensiBelumTerkonfigurasi?: number;
+    totalKaryawanBelumLengkap?: number;
   };
   recentOverrides: OverrideKehadiran[];
   recentEvidence: EvidenceRow[];
@@ -458,13 +471,30 @@ export function SuperadminConsole({
     },
     {
       key: 'geo',
-      header: 'Geofence & Ketepatan',
+      header: 'Wilayah, Geofence & Ketepatan',
       render: (r) => (
-        <div className="flex flex-wrap items-center gap-1.5 text-xs">
-          <StatusBadge status={r.status_ketepatan} />
-          <span className="font-mono text-slate-600 dark:text-slate-400">
-            {r.jarak_kantor_meter !== null ? `${r.jarak_kantor_meter}m` : 'No GPS'}
-          </span>
+        <div className="space-y-1 text-xs">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <StatusBadge status={r.status_ketepatan} />
+            {r.status_wilayah_absensi === 'DI_LUAR_WILAYAH' ? (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-100 text-sky-900 dark:bg-sky-950/60 dark:text-sky-300">
+                Luar Wilayah · Bebas Geofence
+              </span>
+            ) : r.status_wilayah_absensi === 'DI_DALAM_WILAYAH' ? (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-300">
+                Dalam Wilayah
+              </span>
+            ) : null}
+          </div>
+          <p className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+            {r.status_wilayah_absensi === 'DI_LUAR_WILAYAH'
+              ? r.wilayah_terdeteksi_nama
+                ? `Terdeteksi: ${r.wilayah_terdeteksi_nama}`
+                : 'GPS & selfie terekam'
+              : r.jarak_kantor_meter !== null
+                ? `${r.jarak_kantor_meter}m${r.kantor_validasi_nama ? ` (${r.kantor_validasi_nama})` : ''}`
+                : 'No GPS'}
+          </p>
         </div>
       ),
     },
@@ -905,6 +935,66 @@ export function SuperadminConsole({
                 </div>
               )}
 
+              {overview && (tab === 'overview' || tab === 'evidence') && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase">
+                        Absensi Dalam Wilayah
+                      </p>
+                      <p className="font-mono text-lg font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                        {overview.metrics.totalAbsensiDalamWilayah ?? 0}
+                      </p>
+                    </div>
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Validasi geofence kantor
+                    </span>
+                  </div>
+                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase">
+                        Absensi Luar Wilayah
+                      </p>
+                      <p className="font-mono text-lg font-bold text-sky-700 dark:text-sky-400 tabular-nums">
+                        {overview.metrics.totalAbsensiLuarWilayah ?? 0}
+                      </p>
+                    </div>
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Pengecualian otomatis
+                    </span>
+                  </div>
+                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase">
+                        Penempatan Belum Lengkap
+                      </p>
+                      <p
+                        className={`font-mono text-lg font-bold tabular-nums ${
+                          (overview.metrics.totalKaryawanBelumLengkap ?? 0) > 0
+                            ? 'text-amber-700 dark:text-amber-400'
+                            : 'text-slate-700 dark:text-slate-300'
+                        }`}
+                      >
+                        {overview.metrics.totalKaryawanBelumLengkap ?? 0}
+                      </p>
+                    </div>
+                    {(overview.metrics.totalKaryawanBelumLengkap ?? 0) > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => setTab('accounts')}
+                        className="text-[11px] font-semibold text-amber-700 dark:text-amber-400 hover:underline"
+                      >
+                        Lengkapi →
+                      </button>
+                    ) : (
+                      <span className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium">
+                        Semua lengkap
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {tab === 'overview' && (
                 <div className="space-y-5">
                   <AttendanceTrendChart title="Tren Kehadiran & Kedisiplinan Perusahaan" />
@@ -963,6 +1053,8 @@ export function SuperadminConsole({
                           <option value="CLOSING_KOREKSI">KOREKSI CLOSING</option>
                           <option value="MONTHLY_CLOSING">MONTHLY CLOSING</option>
                           <option value="MANAJEMEN_AKUN">MANAJEMEN AKUN & ACC</option>
+                          <option value="PENEMPATAN_KARYAWAN">PENEMPATAN KARYAWAN</option>
+                          <option value="WILAYAH_OPERASIONAL">WILAYAH OPERASIONAL</option>
                           <option value="PENDAFTARAN_AKUN">PENDAFTARAN AKUN</option>
                           <option value="PENGATURAN_SISTEM">PENGATURAN SISTEM</option>
                           <option value="PROFIL_AKUN">PROFIL AKUN</option>
@@ -1215,13 +1307,43 @@ export function SuperadminConsole({
                 <strong>Aktivitas:</strong> {selectedEvidence.tipe_aktivitas} —{' '}
                 {selectedEvidence.deskripsi_aktivitas}
               </p>
+              {selectedEvidence.status_wilayah_absensi && (
+                <p>
+                  <strong>Status Wilayah:</strong>{' '}
+                  {selectedEvidence.status_wilayah_absensi === 'DI_LUAR_WILAYAH'
+                    ? `Di Luar Wilayah Penempatan (${selectedEvidence.wilayah_penempatan_nama_snapshot || '-'})`
+                    : selectedEvidence.status_wilayah_absensi === 'DI_DALAM_WILAYAH'
+                      ? `Dalam Wilayah (${selectedEvidence.wilayah_penempatan_nama_snapshot || '-'}${
+                          selectedEvidence.kantor_validasi_nama
+                            ? ` · ${selectedEvidence.kantor_validasi_nama}`
+                            : ''
+                        })`
+                      : selectedEvidence.status_wilayah_absensi}
+                </p>
+              )}
+              {selectedEvidence.alasan_pengecualian_geofence && (
+                <p className="text-sky-700 dark:text-sky-300">
+                  <strong>Pengecualian:</strong> {selectedEvidence.alasan_pengecualian_geofence}
+                </p>
+              )}
+              {selectedEvidence.lokasi_alamat && (
+                <p>
+                  <strong>Alamat GPS:</strong> {selectedEvidence.lokasi_alamat}
+                </p>
+              )}
               <p className="font-mono">
-                <strong>Geofence:</strong>{' '}
-                {selectedEvidence.jarak_kantor_meter !== null
-                  ? `${selectedEvidence.jarak_kantor_meter}m (${
-                      selectedEvidence.dalam_geofence ? 'Dalam Radius' : 'Luar Radius'
-                    })`
-                  : 'Koordinat tidak ada'}
+                <strong>Geofence & GPS:</strong>{' '}
+                {selectedEvidence.status_wilayah_absensi === 'DI_LUAR_WILAYAH'
+                  ? `Bebas Geofence (${
+                      selectedEvidence.lat != null && selectedEvidence.lng != null
+                        ? `${selectedEvidence.lat}, ${selectedEvidence.lng}`
+                        : 'GPS terekam'
+                    }${selectedEvidence.accuracy_meter != null ? ` ±${selectedEvidence.accuracy_meter}m` : ''})`
+                  : selectedEvidence.jarak_kantor_meter !== null
+                    ? `${selectedEvidence.jarak_kantor_meter}m (${
+                        selectedEvidence.dalam_geofence ? 'Dalam Radius' : 'Luar Radius'
+                      })`
+                    : 'Koordinat tidak ada'}
               </p>
             </div>
           </div>

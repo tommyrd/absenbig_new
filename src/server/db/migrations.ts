@@ -500,6 +500,86 @@ const MIGRATIONS: MigrationDef[] = [
       }
     },
   },
+  {
+    version: '018',
+    name: 'operational_regions_and_employee_placement',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS wilayah_operasional (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          kode TEXT NOT NULL UNIQUE,
+          nama TEXT NOT NULL,
+          kota_kabupaten TEXT NOT NULL DEFAULT '',
+          provinsi TEXT NOT NULL DEFAULT '',
+          aktif INTEGER NOT NULL DEFAULT 1,
+          polygon_geojson TEXT,
+          keterangan TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `);
+
+      const kantorTable = db
+        .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'kantor'`)
+        .get() as { name?: string } | undefined;
+      if (kantorTable?.name) {
+        if (!hasColumn(db, 'kantor', 'wilayah_id')) {
+          db.exec(`ALTER TABLE kantor ADD COLUMN wilayah_id INTEGER REFERENCES wilayah_operasional(id);`);
+        }
+        db.exec(`CREATE INDEX IF NOT EXISTS idx_kantor_wilayah ON kantor(wilayah_id);`);
+      }
+
+      const karyawanTable = db
+        .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'karyawan'`)
+        .get() as { name?: string } | undefined;
+      if (karyawanTable?.name) {
+        if (!hasColumn(db, 'karyawan', 'wilayah_penempatan_id')) {
+          db.exec(`ALTER TABLE karyawan ADD COLUMN wilayah_penempatan_id INTEGER REFERENCES wilayah_operasional(id);`);
+        }
+        if (!hasColumn(db, 'karyawan', 'cakupan_lokasi_absensi')) {
+          db.exec(
+            `ALTER TABLE karyawan ADD COLUMN cakupan_lokasi_absensi TEXT CHECK(cakupan_lokasi_absensi IS NULL OR cakupan_lokasi_absensi IN ('SEMUA_KANTOR_DALAM_WILAYAH','KANTOR_TERTENTU'));`
+          );
+        }
+        db.exec(`CREATE INDEX IF NOT EXISTS idx_karyawan_wilayah ON karyawan(wilayah_penempatan_id);`);
+      }
+
+      if (karyawanTable?.name && kantorTable?.name) {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS karyawan_kantor_izin (
+            karyawan_id INTEGER NOT NULL REFERENCES karyawan(id) ON DELETE CASCADE,
+            kantor_id INTEGER NOT NULL REFERENCES kantor(id) ON DELETE CASCADE,
+            PRIMARY KEY (karyawan_id, kantor_id)
+          );
+          CREATE INDEX IF NOT EXISTS idx_karyawan_kantor_izin_kantor ON karyawan_kantor_izin(kantor_id);
+        `);
+      }
+
+      const absensiTable = db
+        .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'absensi_sesi'`)
+        .get() as { name?: string } | undefined;
+      if (absensiTable?.name) {
+        const snapshotCols: [string, string][] = [
+          ['wilayah_penempatan_id_snapshot', 'INTEGER'],
+          ['wilayah_penempatan_nama_snapshot', 'TEXT'],
+          ['wilayah_terdeteksi_id', 'INTEGER'],
+          ['wilayah_terdeteksi_nama', 'TEXT'],
+          ['status_wilayah_absensi', 'TEXT'],
+          ['cakupan_lokasi_snapshot', 'TEXT'],
+          ['kantor_validasi_id', 'INTEGER'],
+          ['kantor_validasi_nama', 'TEXT'],
+          ['alasan_pengecualian_geofence', 'TEXT'],
+          ['lokasi_validasi_json', 'TEXT'],
+        ];
+        for (const [col, def] of snapshotCols) {
+          if (!hasColumn(db, 'absensi_sesi', col)) {
+            db.exec(`ALTER TABLE absensi_sesi ADD COLUMN ${col} ${def};`);
+          }
+        }
+        db.exec(`CREATE INDEX IF NOT EXISTS idx_absensi_status_wilayah ON absensi_sesi(status_wilayah_absensi, tanggal);`);
+      }
+    },
+  },
 ];
 
 export function runMigrations(db: DatabaseSync): string[] {

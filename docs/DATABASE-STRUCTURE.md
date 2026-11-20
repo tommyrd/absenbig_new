@@ -86,3 +86,13 @@ Izin sementara yang diberikan Admin agar karyawan dapat mengirim satu kali check
 - Status berubah menjadi `DIGUNAKAN` bersama penyimpanan record absensi; bukti waktu, selfie, GPS, serta status keterlambatan tetap berasal dari check-in asli karyawan.
 - Semua pemberian dan penggunaan dicatat pada `audit_log` dengan modul `OVERRIDE_ABSENSI`.
 - Dibuat oleh migrasi `008_admin_one_time_expired_attendance_checkin_access`.
+
+### 1.17 `wilayah_operasional` & `karyawan_kantor_izin` (Migrasi `018`)
+Master wilayah operasional berbasis batas GeoJSON dan relasi kantor yang diizinkan per karyawan.
+- **`wilayah_operasional`**: `id` (`INTEGER PK`), `kode` (`TEXT UNIQUE`), `nama`, `kota_kabupaten`, `provinsi`, `aktif` (`INTEGER DEFAULT 1`), `polygon_geojson` (`TEXT`, GeoJSON `Polygon` atau `MultiPolygon` nullable — tidak boleh diisi data fiktif otomatis), `keterangan`, `created_at`, `updated_at`.
+- **`kantor.wilayah_id`**: Foreign key nullable ke `wilayah_operasional(id)` dengan index `idx_kantor_wilayah(wilayah_id)`. Satu wilayah operasional dapat menaungi banyak kantor.
+- **`karyawan.wilayah_penempatan_id` & `karyawan.cakupan_lokasi_absensi`**:
+  - `wilayah_penempatan_id` (`INTEGER REFERENCES wilayah_operasional(id)`, nullable untuk akun lama yang belum dilengkapi maupun akun non-KARYAWAN) dengan index `idx_karyawan_wilayah(wilayah_penempatan_id)`.
+  - `cakupan_lokasi_absensi` (`CHECK IN ('SEMUA_KANTOR_DALAM_WILAYAH','KANTOR_TERTENTU')`, nullable).
+- **`karyawan_kantor_izin`**: Tabel penghubung many-to-many `(karyawan_id, kantor_id)` (`PRIMARY KEY (karyawan_id, kantor_id)`, `ON DELETE CASCADE`) dengan index `idx_karyawan_kantor_izin_kantor(kantor_id)` untuk menyimpan daftar kantor aktif dalam wilayah penempatan ketika mode adalah `KANTOR_TERTENTU`.
+- **Snapshot Historis pada `absensi_sesi`**: Migrasi `018` menambahkan 10 kolom snapshot (`wilayah_penempatan_id_snapshot`, `wilayah_penempatan_nama_snapshot`, `wilayah_terdeteksi_id`, `wilayah_terdeteksi_nama`, `status_wilayah_absensi`, `cakupan_lokasi_snapshot`, `kantor_validasi_id`, `kantor_validasi_nama`, `alasan_pengecualian_geofence`, `lokasi_validasi_json`) dan index `idx_absensi_status_wilayah(status_wilayah_absensi, tanggal)`. Perubahan wilayah penempatan karyawan di masa depan tidak pernah mengubah catatan absensi historis.

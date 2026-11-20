@@ -58,7 +58,8 @@ Seluruh endpoint berada di bawah prefix `/api/v1`. Autentikasi menggunakan heade
 | `GET` | `/api/v1/attendance/today` | `KARYAWAN`, `ADMIN` | Resolusi jadwal, kebijakan aktif (`policySnapshot`), sesi terselesaikan, izin check-in Admin aktif, `serverTime`/`serverEpochMs`, `serverWindowState`, `serverSessionWindowStates`, dan `serverWindowCheckedAt`. Status OPEN/NOT_STARTED/EXPIRED/INVALID dihitung server dari satu timestamp yang sama; respons no-store. |
 | `GET` | `/api/v1/admin/attendance/override-checkins` | `ADMIN` | Daftar karyawan yang sesi berikutnya sudah kedaluwarsa dan masih perlu check-in, termasuk status izin khusus yang masih aktif. |
 | `POST` | `/api/v1/admin/attendance/override-checkins` | `ADMIN` | Membuka akses satu kali untuk sesi berikutnya yang sudah kedaluwarsa. Alasan wajib; durasi yang diterima 5, 10, 15, atau 30 menit. Setiap pemberian dan pemakaian tercatat di audit log. |
-| `POST` | `/api/v1/attendance/session` | `KARYAWAN`, `ADMIN` (Rate-limited) | Mengirim absensi sesi berikutnya. Sesi yang sudah kedaluwarsa hanya dapat dikirim bila ada izin Admin aktif yang belum digunakan. Selfie kamera browser, GPS/geofence, urutan sesi, dan waktu server tetap divalidasi; record tetap memakai waktu aktual dan status keterlambatan tidak dihapus. Reverse-geocoding Geoapify dilakukan satu kali setelah GPS tervalidasi, lalu alamat disimpan bersama record. Kegagalan Geoapify tidak memblokir absensi. Response mencakup `sessionId` untuk mengarahkan karyawan ke card baru di Beranda. |
+| `POST` | `/api/v1/attendance/check-location` | `KARYAWAN` | Evaluasi lokasi GPS secara *server-authoritative* terhadap polygon `wilayah_operasional` penempatan dan cakupan kantor karyawan (`DI_DALAM_WILAYAH`, `DI_LUAR_WILAYAH`, `BELUM_TERKONFIGURASI`, `POLYGON_BELUM_LENGKAP`). Respons `no-store`. |
+| `POST` | `/api/v1/attendance/session` | `KARYAWAN` (Rate-limited) | Mengirim absensi sesi berikutnya. Validasi utama lokasi dijalankan di backend menggunakan polygon wilayah penempatan: jika berada **di dalam wilayah**, wajib memenuhi geofence seluruh kantor aktif wilayah (`SEMUA_KANTOR_DALAM_WILAYAH`) atau kantor yang ditentukan (`KANTOR_TERTENTU`); jika berada **di luar wilayah** (dengan polygon valid), geofence kantor otomatis dikecualikan tanpa pengajuan dinas. Selfie kamera browser, GPS, waktu server WIB, jendela sesi, dan aktivitas tetap wajib serta disimpan bersama 10 kolom snapshot lokasi. Akun tanpa wilayah atau wilayah tanpa polygon valid tidak mendapat pengecualian geofence. |
 | `GET` | `/api/v1/photos/:sessionId` | Semua Role Terautentikasi | Mengambil foto sesi absensi. Karyawan dibatasi pada foto miliknya & feed <= 30 hari terakhir; Admin/Superadmin akses penuh. |
 
 ---
@@ -77,18 +78,21 @@ Seluruh endpoint berada di bawah prefix `/api/v1`. Autentikasi menggunakan heade
 
 ---
 
-## 6. Master Data, Kebijakan Sesi, Kalender, Libur & Kerja Khusus
+## 6. Master Data, Wilayah Operasional, Kebijakan Sesi, Kalender, Libur & Kerja Khusus
 
 | Method | Endpoint | Akses | Keterangan |
 |---|---|---|---|
-| `GET` | `/api/v1/master/offices` | Semua Role | Daftar kantor & konfigurasi geofence. |
-| `POST` / `PUT` / `DELETE` | `/api/v1/master/offices`, `/offices/:id` | `ADMIN` | Tambah/ubah kantor. `DELETE` hanya bila tidak ada pegawai, pendaftaran, hari libur, atau periode payroll yang merujuk; 7 baris kalender mingguan bawaan ikut dihapus dalam transaksi. |
+| `GET` | `/api/v1/master/regions` | Semua Role | Daftar master wilayah operasional, status validitas polygon (`polygon_valid`, `status_konfigurasi`), serta informasi jumlah kantor/karyawan terhubung (khusus Admin/Superadmin). |
+| `POST` / `PUT` / `DELETE` | `/api/v1/master/regions`, `/regions/:id` | `ADMIN`, `SUPERADMIN` | Tambah, ubah (termasuk GeoJSON `Polygon`/`MultiPolygon`), dan hapus wilayah operasional. `DELETE` ditolak (`409`) bila masih terhubung ke kantor atau karyawan. Seluruh perubahan dicatat pada audit modul `WILAYAH_OPERASIONAL`. |
+| `GET` | `/api/v1/master/offices` | Semua Role | Daftar kantor, relasi `wilayah_id` / `wilayah_nama`, status aktif, dan konfigurasi geofence. |
+| `POST` / `PUT` / `DELETE` | `/api/v1/master/offices`, `/offices/:id` | `ADMIN` | Tambah/ubah kantor (termasuk `wilayah_id` dan `aktif`). `DELETE` hanya bila tidak ada pegawai, pendaftaran, hari libur, atau periode payroll yang merujuk; 7 baris kalender mingguan bawaan ikut dihapus dalam transaksi. |
 | `GET` / `POST` / `PUT` / `DELETE` | `/api/v1/master/bidang`, `/bidang/:id` | `GET`: Semua / `POST`, `PUT`, `DELETE`: `ADMIN` | Melihat, menambah, mengubah, dan menghapus bidang kerja. `DELETE` ditolak bila masih dirujuk pegawai, kebijakan absensi, atau pendaftaran akun; semua penghapusan dicatat di Audit Trail. |
-| `GET` | `/api/v1/master/employees` | `ADMIN`, `SUPERADMIN` | Daftar karyawan aktif & nonaktif. |
-| `POST` | `/api/v1/master/employees` | `SUPERADMIN` | Membuat karyawan + akun pengguna (password >= 6 karakter wajib eksplisit). |
-| `PUT` | `/api/v1/master/employees/:id` | `ADMIN` | Memperbarui data operasional karyawan, termasuk kantor dan `bidang_id`; backend memvalidasi kedua referensi sebelum menyimpan. |
+| `GET` | `/api/v1/master/employees` | `ADMIN`, `SUPERADMIN` | Daftar karyawan aktif & keluar beserta `wilayah_penempatan_id`, `cakupan_lokasi_absensi`, `kantor_izin_ids`, dan `status_penempatan` (`LENGKAP`, `WILAYAH_BELUM_DIISI`, `POLYGON_WILAYAH_BELUM_LENGKAP`, `KANTOR_TERTENTU_KOSONG`). |
+| `POST` | `/api/v1/master/employees` | `SUPERADMIN` | Membuat karyawan + akun pengguna (menerima `wilayah_penempatan_id`, `cakupan_lokasi_absensi`, `kantor_izin_ids` khusus role `KARYAWAN`; kantor lintas wilayah ditolak `400`). |
+| `PUT` | `/api/v1/master/employees/:id` | `ADMIN` | Memperbarui data operasional & penempatan karyawan. Perubahan wilayah otomatis membersihkan kantor izin wilayah lama, mencatat audit modul `PENEMPATAN_KARYAWAN`, dan tidak mengubah riwayat absensi lama. |
+| `POST` | `/api/v1/master/employees/bulk-placement` | `ADMIN`, `SUPERADMIN` | Mengatur wilayah penempatan dan cakupan lokasi absensi untuk banyak akun `KARYAWAN` sekaligus (migrasi akun lama). Menolak ID non-karyawan (`403`) dan kantor lintas wilayah (`400`), serta mencatat audit `BULK_UPDATE_PENEMPATAN` per karyawan. |
 | `GET` | `/api/v1/policies` | `ADMIN`, `SUPERADMIN` | Daftar kebijakan absensi & konfigurasi sesi. |
-| `POST` / `PUT` | `/api/v1/policies`, `/policies/:id` | `ADMIN` | Membuat/mengubah kebijakan & jadwal sesi (2, 3, atau 4 sesi). |
+| `POST` / `PUT` | `/api/v1/policies`, `/policies/:id` | `ADMIN` | Membuat/mengubah kebijakan & jadwal sesi (1, 2, 3, atau 4 sesi). |
 | `GET` / `PUT` | `/api/v1/calendars`, `/calendars/:id` | `GET`: Semua / `PUT`: `ADMIN` | Pengaturan hari kerja/libur mingguan per kantor. |
 | `GET` | `/api/v1/holidays` | Semua Role | Daftar hari libur khusus perusahaan. |
 | `POST` / `DELETE` | `/api/v1/holidays`, `/holidays/:id` | `ADMIN` | Menambah / menghapus hari libur. |

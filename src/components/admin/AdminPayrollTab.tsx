@@ -520,22 +520,42 @@ export function AdminPayrollTab({ settings = null, printedByName }: AdminPayroll
                       {day.sessionRecords.map((s) => (
                         <div
                           key={s.id}
-                          className="flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-2 text-[11px]"
+                          className="flex items-start gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-2 text-[11px]"
                         >
                           {s.has_foto && (
                             <img
                               src={getAuthorizedPhotoUrl(s.id)}
                               alt={s.nama_sesi}
-                              className="w-9 h-9 rounded object-cover"
+                              className="w-9 h-9 rounded object-cover shrink-0"
                             />
                           )}
-                          <div>
-                            <p className="font-semibold text-slate-900 dark:text-slate-100">
-                              S{s.urutan_sesi} · {s.waktu_server.slice(11, 16)}
-                            </p>
-                            <p className="text-slate-500 dark:text-slate-400 max-w-[160px] truncate">
+                          <div className="min-w-0 space-y-0.5">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <p className="font-semibold text-slate-900 dark:text-slate-100">
+                                S{s.urutan_sesi} · {s.waktu_server.slice(11, 16)}
+                              </p>
+                              {s.status_wilayah_absensi === 'DI_LUAR_WILAYAH' ? (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-sky-100 text-sky-900 dark:bg-sky-950/60 dark:text-sky-300">
+                                  Luar Wilayah · Bebas Geofence
+                                </span>
+                              ) : s.status_wilayah_absensi === 'DI_DALAM_WILAYAH' ? (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-100 text-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-300">
+                                  Dalam Wilayah
+                                  {s.kantor_validasi_nama ? ` · ${s.kantor_validasi_nama}` : ''}
+                                </span>
+                              ) : null}
+                            </div>
+                            <p className="text-slate-500 dark:text-slate-400 max-w-[220px] truncate">
                               {s.deskripsi_aktivitas}
                             </p>
+                            {(s.alasan_pengecualian_geofence || s.lokasi_alamat) && (
+                              <p
+                                className="text-[10px] text-slate-400 max-w-[240px] truncate"
+                                title={s.alasan_pengecualian_geofence || s.lokasi_alamat || ''}
+                              >
+                                {s.alasan_pengecualian_geofence || s.lokasi_alamat}
+                              </p>
+                            )}
                           </div>
                         </div>
                       ))}

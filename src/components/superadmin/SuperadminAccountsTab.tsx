@@ -4,8 +4,10 @@ import {
   Camera,
   CheckCircle2,
   Edit3,
+  Globe,
   Image as ImageIcon,
   KeyRound,
+  Layers,
   Plus,
   Printer,
   RotateCcw,
@@ -29,13 +31,19 @@ import { getServerWibDateString } from '../../lib/server-clock-client';
 import type {
   AuthUser,
   BidangKerja,
+  CakupanLokasiAbsensi,
   Kantor,
   ManagedAccount,
   PendaftaranAkun,
   Role,
   SystemSettings,
+  WilayahOperasional,
 } from '../../shared/types';
 import { DataTable, type ColumnDef } from '../DataTable';
+import {
+  EmployeePlacementSection,
+  type EmployeePlacementValue,
+} from '../EmployeePlacementSection';
 import { StatusBadge } from '../StatusBadge';
 import { UserAvatar } from '../UserAvatar';
 
@@ -92,14 +100,25 @@ export function SuperadminAccountsTab({
   const [empStatusFilter, setEmpStatusFilter] = useState<'AKTIF' | 'KELUAR' | 'ALL'>('AKTIF');
   const [empOfficeFilter, setEmpOfficeFilter] = useState<string>('');
   const [empBidangFilter, setEmpBidangFilter] = useState<string>('');
+  const [empRegionFilter, setEmpRegionFilter] = useState<string>('');
 
   const [registrations, setRegistrations] = useState<PendaftaranAkun[]>([]);
   const [accounts, setAccounts] = useState<ManagedAccount[]>([]);
-  const [offices, setOffices] = useState<Pick<Kantor, 'id' | 'kode' | 'nama'>[]>([]);
+  const [offices, setOffices] = useState<Kantor[]>([]);
+  const [regions, setRegions] = useState<WilayahOperasional[]>([]);
   const [bidangList, setBidangList] = useState<Pick<BidangKerja, 'id' | 'kode' | 'nama'>[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [bannerMsg, setBannerMsg] = useState<string | null>(null);
+
+  // Bulk Placement Modal
+  const [bulkModal, setBulkModal] = useState(false);
+  const [bulkSelectedEmpIds, setBulkSelectedEmpIds] = useState<number[]>([]);
+  const [bulkPlacement, setBulkPlacement] = useState<EmployeePlacementValue>({
+    wilayah_penempatan_id: '',
+    cakupan_lokasi_absensi: 'SEMUA_KANTOR_DALAM_WILAYAH',
+    kantor_izin_ids: [],
+  });
 
   // Approve modal state
   const [approveTarget, setApproveTarget] = useState<PendaftaranAkun | null>(null);
@@ -109,6 +128,9 @@ export function SuperadminAccountsTab({
     kantor_id: 1,
     bidang_id: 1,
     alasan_keputusan: 'Disetujui Superadmin — akun aktif digunakan',
+    wilayah_penempatan_id: '',
+    cakupan_lokasi_absensi: 'SEMUA_KANTOR_DALAM_WILAYAH' as CakupanLokasiAbsensi,
+    kantor_izin_ids: [] as number[],
   });
 
   // Reject modal state
@@ -131,6 +153,9 @@ export function SuperadminAccountsTab({
     aktif: 1,
     fotoBase64: null as string | null,
     removePhoto: false,
+    wilayah_penempatan_id: '',
+    cakupan_lokasi_absensi: 'SEMUA_KANTOR_DALAM_WILAYAH' as CakupanLokasiAbsensi,
+    kantor_izin_ids: [] as number[],
   });
 
   // Reset password modal state
@@ -158,13 +183,15 @@ export function SuperadminAccountsTab({
         apiFetch<{ items: PendaftaranAkun[] }>('/api/v1/superadmin/registrations'),
         apiFetch<{
           items: ManagedAccount[];
-          offices: Pick<Kantor, 'id' | 'kode' | 'nama'>[];
+          offices: Kantor[];
+          regions?: WilayahOperasional[];
           bidangList: Pick<BidangKerja, 'id' | 'kode' | 'nama'>[];
         }>('/api/v1/superadmin/accounts'),
       ]);
       setRegistrations(regRes.items);
       setAccounts(accRes.items);
       setOffices(accRes.offices);
+      setRegions(accRes.regions || []);
       setBidangList(accRes.bidangList);
       const pendingCount = regRes.items.filter((r) => r.status === 'PENDING').length;
       onPendingCountChange?.(pendingCount);
@@ -186,6 +213,13 @@ export function SuperadminAccountsTab({
   const employeeAccounts = accounts.filter((a) => a.role === 'KARYAWAN');
   const activeEmployeeCount = employeeAccounts.filter(isAccountActive).length;
   const resignedEmployeeCount = employeeAccounts.length - activeEmployeeCount;
+  const incompletePlacementCount = employeeAccounts.filter(
+    (a) =>
+      isAccountActive(a) &&
+      a.status_penempatan &&
+      a.status_penempatan !== 'LENGKAP' &&
+      a.status_penempatan !== 'TIDAK_DIPERLUKAN'
+  ).length;
 
   const filteredRegs =
     regStatusFilter === 'ALL'
@@ -198,6 +232,17 @@ export function SuperadminAccountsTab({
     if (empStatusFilter === 'KELUAR' && active) return false;
     if (empOfficeFilter && String(a.kantor_id) !== empOfficeFilter) return false;
     if (empBidangFilter && String(a.bidang_id) !== empBidangFilter) return false;
+    if (empRegionFilter === 'BELUM_LENGKAP') {
+      if (
+        !a.status_penempatan ||
+        a.status_penempatan === 'LENGKAP' ||
+        a.status_penempatan === 'TIDAK_DIPERLUKAN'
+      ) {
+        return false;
+      }
+    } else if (empRegionFilter && String(a.wilayah_penempatan_id || '') !== empRegionFilter) {
+      return false;
+    }
     return true;
   });
 
@@ -270,12 +315,16 @@ export function SuperadminAccountsTab({
 
   const openApproveModal = (r: PendaftaranAkun) => {
     setApproveTarget(r);
+    const linkedOffice = offices.find((o) => o.id === r.kantor_id);
     setApproveForm({
       nik: '',
       role: r.role_diminta,
       kantor_id: r.kantor_id,
       bidang_id: r.bidang_id || bidangList[0]?.id || 1,
       alasan_keputusan: 'Disetujui Superadmin — akun aktif digunakan',
+      wilayah_penempatan_id: linkedOffice?.wilayah_id ? String(linkedOffice.wilayah_id) : '',
+      cakupan_lokasi_absensi: 'SEMUA_KANTOR_DALAM_WILAYAH',
+      kantor_izin_ids: [],
     });
     setModalErr(null);
   };
@@ -283,6 +332,15 @@ export function SuperadminAccountsTab({
   const submitApprove = async (e: FormEvent) => {
     e.preventDefault();
     if (!approveTarget) return;
+    if (
+      approveForm.role === 'KARYAWAN' &&
+      approveForm.cakupan_lokasi_absensi === 'KANTOR_TERTENTU' &&
+      approveForm.wilayah_penempatan_id &&
+      approveForm.kantor_izin_ids.length === 0
+    ) {
+      setModalErr('Pilih minimal satu kantor yang diizinkan untuk mode Kantor Tertentu.');
+      return;
+    }
     setSaving(true);
     setModalErr(null);
     try {
@@ -296,6 +354,17 @@ export function SuperadminAccountsTab({
             kantor_id: approveForm.kantor_id,
             bidang_id: approveForm.role === 'KARYAWAN' ? approveForm.bidang_id : undefined,
             alasan_keputusan: approveForm.alasan_keputusan,
+            wilayah_penempatan_id:
+              approveForm.role === 'KARYAWAN' && approveForm.wilayah_penempatan_id
+                ? Number(approveForm.wilayah_penempatan_id)
+                : null,
+            cakupan_lokasi_absensi:
+              approveForm.role === 'KARYAWAN' ? approveForm.cakupan_lokasi_absensi : null,
+            kantor_izin_ids:
+              approveForm.role === 'KARYAWAN' &&
+              approveForm.cakupan_lokasi_absensi === 'KANTOR_TERTENTU'
+                ? approveForm.kantor_izin_ids
+                : [],
           }),
         }
       );
@@ -332,8 +401,72 @@ export function SuperadminAccountsTab({
     }
   };
 
+  const openBulkPlacementModal = (onlyIncomplete = true) => {
+    const activeKaryawan = employeeAccounts.filter(
+      (a) => isAccountActive(a) && a.karyawan_id !== null
+    );
+    const defaultIds = onlyIncomplete
+      ? activeKaryawan
+          .filter((a) => a.status_penempatan && a.status_penempatan !== 'LENGKAP')
+          .map((a) => a.karyawan_id as number)
+      : activeKaryawan.map((a) => a.karyawan_id as number);
+    setBulkSelectedEmpIds(defaultIds);
+    setBulkPlacement({
+      wilayah_penempatan_id: '',
+      cakupan_lokasi_absensi: 'SEMUA_KANTOR_DALAM_WILAYAH',
+      kantor_izin_ids: [],
+    });
+    setModalErr(null);
+    setBulkModal(true);
+  };
+
+  const submitBulkPlacement = async (e: FormEvent) => {
+    e.preventDefault();
+    if (bulkSelectedEmpIds.length === 0) {
+      setModalErr('Pilih minimal satu karyawan untuk diatur penempatannya.');
+      return;
+    }
+    if (!bulkPlacement.wilayah_penempatan_id) {
+      setModalErr('Pilih Wilayah Penempatan terlebih dahulu.');
+      return;
+    }
+    if (
+      bulkPlacement.cakupan_lokasi_absensi === 'KANTOR_TERTENTU' &&
+      bulkPlacement.kantor_izin_ids.length === 0
+    ) {
+      setModalErr('Pilih minimal satu kantor yang diizinkan untuk mode Kantor Tertentu.');
+      return;
+    }
+    setSaving(true);
+    setModalErr(null);
+    try {
+      const resp = await apiFetch<{ ok: boolean; updatedCount: number; wilayahNama: string }>(
+        '/api/v1/master/employees/bulk-placement',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            karyawan_ids: bulkSelectedEmpIds,
+            wilayah_penempatan_id: Number(bulkPlacement.wilayah_penempatan_id),
+            cakupan_lokasi_absensi: bulkPlacement.cakupan_lokasi_absensi,
+            kantor_izin_ids: bulkPlacement.kantor_izin_ids,
+          }),
+        }
+      );
+      setBulkModal(false);
+      setBannerMsg(
+        `Penempatan ${resp.updatedCount} karyawan berhasil diperbarui ke wilayah "${resp.wilayahNama}".`
+      );
+      await loadAll();
+    } catch (err) {
+      setModalErr(err instanceof Error ? err.message : 'Gagal memperbarui penempatan massal.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const openCreateAccount = () => {
     setEditingAccount(null);
+    const defaultOffice = offices[0];
     setAccountForm({
       nik: '',
       nama_lengkap: '',
@@ -341,12 +474,15 @@ export function SuperadminAccountsTab({
       email: '',
       no_hp: '',
       role: 'KARYAWAN',
-      kantor_id: offices[0]?.id ?? 1,
+      kantor_id: defaultOffice?.id ?? 1,
       bidang_id: bidangList[0]?.id ?? 1,
       password: '',
       aktif: 1,
       fotoBase64: null,
       removePhoto: false,
+      wilayah_penempatan_id: defaultOffice?.wilayah_id ? String(defaultOffice.wilayah_id) : '',
+      cakupan_lokasi_absensi: 'SEMUA_KANTOR_DALAM_WILAYAH',
+      kantor_izin_ids: [],
     });
     setModalErr(null);
     setAccountModal(true);
@@ -367,6 +503,9 @@ export function SuperadminAccountsTab({
       aktif: acc.user_aktif,
       fotoBase64: null,
       removePhoto: false,
+      wilayah_penempatan_id: acc.wilayah_penempatan_id ? String(acc.wilayah_penempatan_id) : '',
+      cakupan_lokasi_absensi: acc.cakupan_lokasi_absensi || 'SEMUA_KANTOR_DALAM_WILAYAH',
+      kantor_izin_ids: Array.isArray(acc.kantor_izin_ids) ? acc.kantor_izin_ids : [],
     });
     setModalErr(null);
     setAccountModal(true);
@@ -394,8 +533,34 @@ export function SuperadminAccountsTab({
 
   const submitAccount = async (e: FormEvent) => {
     e.preventDefault();
+    if (
+      accountForm.role === 'KARYAWAN' &&
+      accountForm.cakupan_lokasi_absensi === 'KANTOR_TERTENTU' &&
+      accountForm.wilayah_penempatan_id &&
+      accountForm.kantor_izin_ids.length === 0
+    ) {
+      setModalErr('Pilih minimal satu kantor yang diizinkan untuk mode Kantor Tertentu.');
+      return;
+    }
     setSaving(true);
     setModalErr(null);
+    const placementPayload =
+      accountForm.role === 'KARYAWAN'
+        ? {
+            wilayah_penempatan_id: accountForm.wilayah_penempatan_id
+              ? Number(accountForm.wilayah_penempatan_id)
+              : null,
+            cakupan_lokasi_absensi: accountForm.cakupan_lokasi_absensi,
+            kantor_izin_ids:
+              accountForm.cakupan_lokasi_absensi === 'KANTOR_TERTENTU'
+                ? accountForm.kantor_izin_ids
+                : [],
+          }
+        : {
+            wilayah_penempatan_id: null,
+            cakupan_lokasi_absensi: null,
+            kantor_izin_ids: [],
+          };
     try {
       if (editingAccount) {
         await apiFetch(`/api/v1/superadmin/accounts/${editingAccount.user_id}`, {
@@ -411,6 +576,7 @@ export function SuperadminAccountsTab({
             aktif: accountForm.aktif,
             fotoBase64: accountForm.fotoBase64,
             removePhoto: accountForm.removePhoto,
+            ...placementPayload,
           }),
         });
         if (editingAccount.user_id === currentUser.id) {
@@ -426,6 +592,7 @@ export function SuperadminAccountsTab({
           body: JSON.stringify({
             ...accountForm,
             bidang_id: accountForm.role === 'KARYAWAN' ? accountForm.bidang_id : undefined,
+            ...placementPayload,
           }),
         });
         setBannerMsg(
@@ -925,6 +1092,51 @@ export function SuperadminAccountsTab({
       ),
     },
     {
+      key: 'wilayah',
+      header: 'Penempatan & Cakupan',
+      sortValue: (r) => `${r.wilayah_penempatan_nama || 'ZZZ'} ${r.cakupan_lokasi_absensi || ''}`,
+      render: (r) => {
+        if (r.status_penempatan === 'WILAYAH_BELUM_DIISI' || !r.wilayah_penempatan_id) {
+          return (
+            <div className="space-y-0.5">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-200 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800">
+                <AlertTriangle className="w-3 h-3" />
+                Penempatan Belum Diisi
+              </span>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                Tanpa pengecualian luar wilayah
+              </p>
+            </div>
+          );
+        }
+        const isSpecific = r.cakupan_lokasi_absensi === 'KANTOR_TERTENTU';
+        const allowedCount = r.kantor_izin_ids?.length || 0;
+        return (
+          <div className="text-xs space-y-0.5">
+            <p className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+              <Globe className="w-3 h-3 text-brand-600 dark:text-brand-400 shrink-0" />
+              <span>{r.wilayah_penempatan_nama}</span>
+            </p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              {isSpecific
+                ? `Kantor Tertentu (${allowedCount})`
+                : 'Semua Kantor dalam Wilayah'}
+            </p>
+            {r.status_penempatan === 'POLYGON_WILAYAH_BELUM_LENGKAP' && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-300">
+                Polygon belum lengkap
+              </span>
+            )}
+            {r.status_penempatan === 'KANTOR_TERTENTU_KOSONG' && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-900 dark:bg-red-950/50 dark:text-red-300">
+                Daftar kantor belum dipilih
+              </span>
+            )}
+          </div>
+        );
+      },
+    },
+    {
       key: 'status',
       header: 'Status & Masa Kerja',
       sortValue: (r) => `${isAccountActive(r) ? '1' : '0'}_${r.tanggal_masuk || ''}`,
@@ -1027,6 +1239,16 @@ export function SuperadminAccountsTab({
         <div className="flex flex-wrap items-center gap-2">
           {subtab === 'employees' && (
             <>
+              <button
+                type="button"
+                disabled={loading || activeEmployeeCount === 0}
+                onClick={() => openBulkPlacementModal(incompletePlacementCount > 0)}
+                title="Atur wilayah penempatan dan cakupan lokasi absensi untuk banyak karyawan sekaligus"
+                className="min-h-[40px] px-3.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <Layers className="w-4 h-4 text-brand-600 dark:text-brand-400" />
+                Atur Penempatan Massal
+              </button>
               <button
                 type="button"
                 disabled={loading || exportingDir || filteredEmployees.length === 0}
@@ -1197,67 +1419,117 @@ export function SuperadminAccountsTab({
           }
         />
       ) : subtab === 'employees' ? (
-        <DataTable
-          data={filteredEmployees}
-          columns={employeeDirectoryCols}
-          getRowId={(r) => r.user_id}
-          loading={loading}
-          error={error}
-          onRetry={loadAll}
-          emptyTitle={
-            empStatusFilter === 'KELUAR'
-              ? 'Belum ada karyawan berstatus keluar / nonaktif'
-              : 'Tidak ada karyawan sesuai filter'
-          }
-          emptyDescription="Ubah filter status, kantor, atau bidang kerja untuk melihat data lainnya."
-          searchPlaceholder="Cari NIK, nama, no. HP, email, kantor, atau bidang kerja..."
-          searchFilter={(r, q) =>
-            r.nama_lengkap.toLowerCase().includes(q) ||
-            (r.nik || '').toLowerCase().includes(q) ||
-            r.username.toLowerCase().includes(q) ||
-            r.email.toLowerCase().includes(q) ||
-            (r.no_hp || '').toLowerCase().includes(q) ||
-            (r.kantor_nama || '').toLowerCase().includes(q) ||
-            (r.bidang_nama || '').toLowerCase().includes(q)
-          }
-          filterToolbar={
-            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-              <select
-                value={empStatusFilter}
-                onChange={(e) => setEmpStatusFilter(e.target.value as 'AKTIF' | 'KELUAR' | 'ALL')}
-                className="h-11 sm:h-9 px-2.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-lg flex-1 sm:flex-none"
-              >
-                <option value="AKTIF">Aktif ({activeEmployeeCount})</option>
-                <option value="KELUAR">Keluar / Nonaktif ({resignedEmployeeCount})</option>
-                <option value="ALL">Semua ({employeeAccounts.length})</option>
-              </select>
-              <select
-                value={empOfficeFilter}
-                onChange={(e) => setEmpOfficeFilter(e.target.value)}
-                className="h-11 sm:h-9 px-2.5 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-lg flex-1 sm:flex-none"
-              >
-                <option value="">Semua Kantor</option>
-                {offices.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.nama.split('(')[0].trim()}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={empBidangFilter}
-                onChange={(e) => setEmpBidangFilter(e.target.value)}
-                className="h-11 sm:h-9 px-2.5 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-lg flex-1 sm:flex-none"
-              >
-                <option value="">Semua Bidang Kerja</option>
-                {bidangList.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    Bidang: {b.nama}
-                  </option>
-                ))}
-              </select>
+        <div className="space-y-4">
+          {incompletePlacementCount > 0 && (
+            <div className="rounded-xl border border-amber-200 dark:border-amber-800/70 bg-amber-50/90 dark:bg-amber-950/35 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-start gap-2.5 text-xs text-amber-900 dark:text-amber-200">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold">
+                    {incompletePlacementCount} karyawan aktif belum memiliki konfigurasi wilayah penempatan yang lengkap.
+                  </p>
+                  <p className="text-[11px] text-amber-800/90 dark:text-amber-300/90 mt-0.5">
+                    Karyawan yang belum dikonfigurasi tidak mendapat pengecualian geofence luar wilayah otomatis. Lengkapi secara massal atau per akun.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setEmpRegionFilter('BELUM_LENGKAP')}
+                  className="min-h-[36px] px-3 rounded-lg border border-amber-300 dark:border-amber-700 bg-white/80 dark:bg-slate-900/60 text-amber-900 dark:text-amber-200 text-xs font-semibold"
+                >
+                  Tampilkan ({incompletePlacementCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openBulkPlacementModal(true)}
+                  className="min-h-[36px] px-3 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold"
+                >
+                  Lengkapi Massal
+                </button>
+              </div>
             </div>
-          }
-        />
+          )}
+
+          <DataTable
+            data={filteredEmployees}
+            columns={employeeDirectoryCols}
+            getRowId={(r) => r.user_id}
+            loading={loading}
+            error={error}
+            onRetry={loadAll}
+            emptyTitle={
+              empStatusFilter === 'KELUAR'
+                ? 'Belum ada karyawan berstatus keluar / nonaktif'
+                : 'Tidak ada karyawan sesuai filter'
+            }
+            emptyDescription="Ubah filter status, wilayah, kantor, atau bidang kerja untuk melihat data lainnya."
+            searchPlaceholder="Cari NIK, nama, no. HP, email, wilayah, kantor, atau bidang kerja..."
+            searchFilter={(r, q) =>
+              r.nama_lengkap.toLowerCase().includes(q) ||
+              (r.nik || '').toLowerCase().includes(q) ||
+              r.username.toLowerCase().includes(q) ||
+              r.email.toLowerCase().includes(q) ||
+              (r.no_hp || '').toLowerCase().includes(q) ||
+              (r.wilayah_penempatan_nama || '').toLowerCase().includes(q) ||
+              (r.kantor_nama || '').toLowerCase().includes(q) ||
+              (r.bidang_nama || '').toLowerCase().includes(q)
+            }
+            filterToolbar={
+              <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                <select
+                  value={empStatusFilter}
+                  onChange={(e) => setEmpStatusFilter(e.target.value as 'AKTIF' | 'KELUAR' | 'ALL')}
+                  className="h-11 sm:h-9 px-2.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-lg flex-1 sm:flex-none"
+                >
+                  <option value="AKTIF">Aktif ({activeEmployeeCount})</option>
+                  <option value="KELUAR">Keluar / Nonaktif ({resignedEmployeeCount})</option>
+                  <option value="ALL">Semua ({employeeAccounts.length})</option>
+                </select>
+                <select
+                  value={empRegionFilter}
+                  onChange={(e) => setEmpRegionFilter(e.target.value)}
+                  className="h-11 sm:h-9 px-2.5 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-lg flex-1 sm:flex-none"
+                >
+                  <option value="">Semua Wilayah</option>
+                  <option value="BELUM_LENGKAP">
+                    Penempatan Belum Lengkap ({incompletePlacementCount})
+                  </option>
+                  {regions.map((reg) => (
+                    <option key={reg.id} value={String(reg.id)}>
+                      Wilayah: {reg.nama}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={empOfficeFilter}
+                  onChange={(e) => setEmpOfficeFilter(e.target.value)}
+                  className="h-11 sm:h-9 px-2.5 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-lg flex-1 sm:flex-none"
+                >
+                  <option value="">Semua Kantor</option>
+                  {offices.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.nama.split('(')[0].trim()}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={empBidangFilter}
+                  onChange={(e) => setEmpBidangFilter(e.target.value)}
+                  className="h-11 sm:h-9 px-2.5 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-lg flex-1 sm:flex-none"
+                >
+                  <option value="">Semua Bidang Kerja</option>
+                  {bidangList.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      Bidang: {b.nama}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            }
+          />
+        </div>
       ) : (
         <DataTable
           data={filteredAccounts}
@@ -1476,6 +1748,26 @@ export function SuperadminAccountsTab({
                   </div>
                 )}
               </div>
+
+              {approveForm.role === 'KARYAWAN' && (
+                <EmployeePlacementSection
+                  regions={regions}
+                  offices={offices}
+                  value={{
+                    wilayah_penempatan_id: approveForm.wilayah_penempatan_id,
+                    cakupan_lokasi_absensi: approveForm.cakupan_lokasi_absensi,
+                    kantor_izin_ids: approveForm.kantor_izin_ids,
+                  }}
+                  onChange={(next) =>
+                    setApproveForm((prev) => ({
+                      ...prev,
+                      wilayah_penempatan_id: next.wilayah_penempatan_id,
+                      cakupan_lokasi_absensi: next.cakupan_lokasi_absensi,
+                      kantor_izin_ids: next.kantor_izin_ids,
+                    }))
+                  }
+                />
+              )}
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
@@ -1781,8 +2073,31 @@ export function SuperadminAccountsTab({
 
               {accountForm.role === 'ADMIN' && (
                 <p className="text-[11px] text-indigo-800 dark:text-indigo-300 bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200/70 dark:border-indigo-900 rounded-lg px-3 py-2">
-                  Akun <strong>Operator</strong> tidak memiliki bidang kerja dan digunakan khusus untuk mengelola monitoring, approval, kalender, serta payroll.
+                  Akun <strong>Operator</strong> tidak memiliki bidang kerja, wilayah penempatan, maupun cakupan kantor absensi, dan digunakan khusus untuk mengelola monitoring, approval, kalender, serta payroll.
                 </p>
+              )}
+
+              {accountForm.role === 'KARYAWAN' && (
+                <EmployeePlacementSection
+                  regions={regions}
+                  offices={offices}
+                  value={{
+                    wilayah_penempatan_id: accountForm.wilayah_penempatan_id,
+                    cakupan_lokasi_absensi: accountForm.cakupan_lokasi_absensi,
+                    kantor_izin_ids: accountForm.kantor_izin_ids,
+                  }}
+                  onChange={(next) =>
+                    setAccountForm((prev) => ({
+                      ...prev,
+                      wilayah_penempatan_id: next.wilayah_penempatan_id,
+                      cakupan_lokasi_absensi: next.cakupan_lokasi_absensi,
+                      kantor_izin_ids: next.kantor_izin_ids,
+                    }))
+                  }
+                  required={!editingAccount}
+                  showRegionChangeNotice={Boolean(editingAccount)}
+                  previousWilayahId={editingAccount?.wilayah_penempatan_id ?? null}
+                />
               )}
 
               <div>
@@ -1853,6 +2168,165 @@ export function SuperadminAccountsTab({
                   className="min-h-[44px] sm:min-h-[40px] px-5 text-xs font-semibold bg-navy-900 dark:bg-brand-600 text-white rounded-lg"
                 >
                   {saving ? 'Menyimpan...' : 'Simpan Akun'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Penempatan Massal Karyawan */}
+      {bulkModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-2xl w-full border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[92vh] flex flex-col">
+            <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
+              <h2 className="font-display text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <Layers className="w-4 h-4 text-brand-600 dark:text-brand-400" />
+                Atur Penempatan &amp; Cakupan Lokasi Massal
+              </h2>
+              <button
+                type="button"
+                onClick={() => setBulkModal(false)}
+                className="min-w-[40px] min-h-[40px] flex items-center justify-center shrink-0"
+              >
+                <X className="w-5 h-5 text-slate-500 dark:text-slate-400" />
+              </button>
+            </div>
+            <form onSubmit={submitBulkPlacement} className="p-5 space-y-4 overflow-y-auto">
+              {modalErr && (
+                <div className="p-3 rounded-lg bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800/70 text-xs text-red-800 dark:text-red-300">
+                  {modalErr}
+                </div>
+              )}
+
+              <EmployeePlacementSection
+                regions={regions}
+                offices={offices}
+                value={bulkPlacement}
+                onChange={setBulkPlacement}
+                required
+              />
+
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Pilih Karyawan Aktif ({bulkSelectedEmpIds.length} dipilih)
+                  </label>
+                  <div className="flex items-center gap-2 text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setBulkSelectedEmpIds(
+                          employeeAccounts
+                            .filter(
+                              (a) =>
+                                isAccountActive(a) &&
+                                a.karyawan_id !== null &&
+                                a.status_penempatan &&
+                                a.status_penempatan !== 'LENGKAP'
+                            )
+                            .map((a) => a.karyawan_id as number)
+                        )
+                      }
+                      className="text-amber-700 dark:text-amber-400 font-semibold hover:underline"
+                    >
+                      Pilih Belum Lengkap
+                    </button>
+                    <span className="text-slate-300">|</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setBulkSelectedEmpIds(
+                          employeeAccounts
+                            .filter((a) => isAccountActive(a) && a.karyawan_id !== null)
+                            .map((a) => a.karyawan_id as number)
+                        )
+                      }
+                      className="text-brand-600 dark:text-brand-400 font-semibold hover:underline"
+                    >
+                      Pilih Semua Aktif
+                    </button>
+                    <span className="text-slate-300">|</span>
+                    <button
+                      type="button"
+                      onClick={() => setBulkSelectedEmpIds([])}
+                      className="text-slate-500 hover:underline"
+                    >
+                      Kosongkan
+                    </button>
+                  </div>
+                </div>
+                <div className="max-h-56 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-800">
+                  {employeeAccounts
+                    .filter((a) => isAccountActive(a) && a.karyawan_id !== null)
+                    .map((acc) => {
+                      const empId = acc.karyawan_id as number;
+                      const checked = bulkSelectedEmpIds.includes(empId);
+                      const isIncomplete =
+                        acc.status_penempatan && acc.status_penempatan !== 'LENGKAP';
+                      return (
+                        <label
+                          key={acc.user_id}
+                          className={`flex items-center justify-between gap-3 px-3 py-2 cursor-pointer text-xs ${
+                            checked
+                              ? 'bg-brand-50/50 dark:bg-brand-950/25'
+                              : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() =>
+                                setBulkSelectedEmpIds((prev) =>
+                                  prev.includes(empId)
+                                    ? prev.filter((id) => id !== empId)
+                                    : [...prev, empId]
+                                )
+                              }
+                              className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                            />
+                            <div className="min-w-0">
+                              <p className="font-semibold text-slate-900 dark:text-slate-100 truncate">
+                                {acc.nama_lengkap}{' '}
+                                <span className="font-mono text-[11px] font-normal text-slate-500">
+                                  ({acc.nik})
+                                </span>
+                              </p>
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                                {(acc.kantor_nama || '').split('(')[0].trim()} · {acc.bidang_nama}
+                              </p>
+                            </div>
+                          </div>
+                          <span
+                            className={`shrink-0 px-2 py-0.5 rounded text-[10px] font-semibold ${
+                              isIncomplete
+                                ? 'bg-amber-100 text-amber-900 dark:bg-amber-950/60 dark:text-amber-300'
+                                : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
+                            }`}
+                          >
+                            {acc.wilayah_penempatan_nama || 'Belum diisi'}
+                          </span>
+                        </label>
+                      );
+                    })}
+                </div>
+              </div>
+
+              <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setBulkModal(false)}
+                  className="min-h-[44px] sm:min-h-[40px] px-4 text-xs font-semibold border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-lg"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving || bulkSelectedEmpIds.length === 0}
+                  className="min-h-[44px] sm:min-h-[40px] px-5 text-xs font-semibold bg-navy-900 dark:bg-brand-600 text-white rounded-lg disabled:opacity-50"
+                >
+                  {saving ? 'Menyimpan...' : `Terapkan ke ${bulkSelectedEmpIds.length} Karyawan`}
                 </button>
               </div>
             </form>

@@ -23,8 +23,8 @@ Agar perubahan struktur terkontrol dan data operasional aman saat deploy maupun 
 ## 2. Daftar Migrasi Tercatat (`schema_migrations`)
 
 1. **`001_initial_schema_and_audit_triggers`**: Membuat seluruh tabel inti (`kantor`, `bidang_kerja`, `karyawan`, `pengguna`, `kebijakan_absensi`, `sesi_absensi`, `kalender_kerja`, `hari_libur`, `penugasan_kerja_khusus`, `hak_off_pengganti`, `pengajuan`, `penggunaan_off_pengganti`, `override_kehadiran`, `periode_payroll`, `audit_log`, `pengaturan_aplikasi`, `pendaftaran_akun`), trigger `prevent_audit_update` & `prevent_audit_delete`, dan inisialisasi baris default `pengaturan_aplikasi`.
-2. **`002_profile_photos_and_login_branding_columns`**: Menambahkan dukungan kolom foto profil (`foto_profil_path`, `foto_profil_updated_at` pada `karyawan`) serta branding halaman login (`judul_form_login`, `pengumuman_login` pada `pengaturan_aplikasi`) secara aman untuk database existing.
-3. **`003_token_version_revocation_and_query_indexes`**: Menambahkan kolom `token_version` pada `pengguna`, tabel `revoked_tokens`, dan index performa (`idx_absensi_tanggal`, `idx_pengajuan_dates`, `idx_revoked_tokens_exp`).
+2. **`002`–`017`**: Evolusi skema bertahap (foto profil, revokasi token, mode geofence ketat, kebijakan lokasi per sesi, alamat aktual absensi, izin check-in sekali pakai, favicon kustom, pemisahan akun mandiri `SUPERADMIN` + trigger invariant role, kebijakan 1 sesi, kerja darurat hari libur, libur spesifik karyawan, dan offboarding karyawan keluar).
+3. **`018_operational_regions_and_employee_placement`**: Menambahkan tabel `wilayah_operasional` dan `karyawan_kantor_izin`, kolom `kantor.wilayah_id`, kolom `karyawan.wilayah_penempatan_id` & `karyawan.cakupan_lokasi_absensi`, 10 kolom snapshot lokasi pada `absensi_sesi`, serta index terkait. Migrasi ini **tidak mengarang polygon kota** dan **tidak menebak penempatan akun lama**; seluruh akun `KARYAWAN` lama berawal `wilayah_penempatan_id = NULL` (`BELUM_TERKONFIGURASI`, tanpa pengecualian geofence) sampai dilengkapi Admin/Superadmin melalui fitur **Atur Penempatan Massal** atau edit per akun.
 
 ---
 

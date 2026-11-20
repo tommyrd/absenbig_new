@@ -5,6 +5,19 @@ export const SCHEMA_SQL = `
     applied_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS wilayah_operasional (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kode TEXT NOT NULL UNIQUE,
+    nama TEXT NOT NULL,
+    kota_kabupaten TEXT NOT NULL DEFAULT '',
+    provinsi TEXT NOT NULL DEFAULT '',
+    aktif INTEGER NOT NULL DEFAULT 1,
+    polygon_geojson TEXT,
+    keterangan TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS kantor (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     kode TEXT NOT NULL UNIQUE,
@@ -15,6 +28,7 @@ export const SCHEMA_SQL = `
     radius_meter INTEGER NOT NULL DEFAULT 250,
     geofence_mode TEXT NOT NULL DEFAULT 'TOLAK_LUAR_RADIUS',
     zona_waktu TEXT NOT NULL DEFAULT 'Asia/Jakarta',
+    wilayah_id INTEGER REFERENCES wilayah_operasional(id),
     aktif INTEGER NOT NULL DEFAULT 1
   );
 
@@ -37,11 +51,20 @@ export const SCHEMA_SQL = `
     tanggal_masuk TEXT NOT NULL,
     tanggal_keluar TEXT,
     alasan_keluar TEXT NOT NULL DEFAULT '',
+    wilayah_penempatan_id INTEGER REFERENCES wilayah_operasional(id),
+    cakupan_lokasi_absensi TEXT CHECK(cakupan_lokasi_absensi IS NULL OR cakupan_lokasi_absensi IN ('SEMUA_KANTOR_DALAM_WILAYAH','KANTOR_TERTENTU')),
     foto_profil_path TEXT,
     foto_profil_updated_at TEXT,
     aktif INTEGER NOT NULL DEFAULT 1,
     is_system_archive INTEGER NOT NULL DEFAULT 0 CHECK(is_system_archive IN (0, 1))
   );
+
+  CREATE TABLE IF NOT EXISTS karyawan_kantor_izin (
+    karyawan_id INTEGER NOT NULL REFERENCES karyawan(id) ON DELETE CASCADE,
+    kantor_id INTEGER NOT NULL REFERENCES kantor(id) ON DELETE CASCADE,
+    PRIMARY KEY (karyawan_id, kantor_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_karyawan_kantor_izin_kantor ON karyawan_kantor_izin(kantor_id);
 
   CREATE TABLE IF NOT EXISTS pengguna (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -215,6 +238,17 @@ export const SCHEMA_SQL = `
     accuracy_meter REAL,
     jarak_kantor_meter REAL,
     dalam_geofence INTEGER NOT NULL DEFAULT 1,
+    lokasi_alamat TEXT,
+    wilayah_penempatan_id_snapshot INTEGER,
+    wilayah_penempatan_nama_snapshot TEXT,
+    wilayah_terdeteksi_id INTEGER,
+    wilayah_terdeteksi_nama TEXT,
+    status_wilayah_absensi TEXT,
+    cakupan_lokasi_snapshot TEXT,
+    kantor_validasi_id INTEGER,
+    kantor_validasi_nama TEXT,
+    alasan_pengecualian_geofence TEXT,
+    lokasi_validasi_json TEXT,
     ip_address TEXT,
     user_agent TEXT,
     tipe_aktivitas TEXT NOT NULL CHECK(tipe_aktivitas IN ('CHECK_IN','AKTIVITAS','STANDBY')),
@@ -347,4 +381,7 @@ export const SCHEMA_SQL = `
     ON override_akses_absensi(karyawan_id, tanggal, urutan_sesi, status, berlaku_sampai);
   CREATE INDEX IF NOT EXISTS idx_pendaftaran_status ON pendaftaran_akun(status, created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_revoked_tokens_exp ON revoked_tokens(expires_at);
+  CREATE INDEX IF NOT EXISTS idx_kantor_wilayah ON kantor(wilayah_id);
+  CREATE INDEX IF NOT EXISTS idx_karyawan_wilayah ON karyawan(wilayah_penempatan_id);
+  CREATE INDEX IF NOT EXISTS idx_absensi_status_wilayah ON absensi_sesi(status_wilayah_absensi, tanggal);
 `;

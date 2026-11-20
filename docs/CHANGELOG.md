@@ -1,5 +1,23 @@
 # Changelog — Absensi BIGNET
 
+## 2026-11-20 — Sistem Penempatan Karyawan & Cakupan Lokasi Absensi Berbasis Wilayah Operasional
+
+- **Database & Migrasi `018_operational_regions_and_employee_placement`**:
+  - Menambahkan tabel master `wilayah_operasional` (GeoJSON `Polygon`/`MultiPolygon`, status aktif, keterangan) dan tabel relasi `karyawan_kantor_izin`.
+  - Menambahkan kolom `kantor.wilayah_id`, `karyawan.wilayah_penempatan_id`, `karyawan.cakupan_lokasi_absensi` (`SEMUA_KANTOR_DALAM_WILAYAH` | `KANTOR_TERTENTU`), serta 10 kolom snapshot validasi lokasi pada `absensi_sesi` beserta index terkait.
+  - Tidak mengarang data polygon kota maupun menebak penempatan akun lama dalam migrasi atau seeder.
+- **Validasi Lokasi Absensi Backend (`src/server/services/location-policy.ts` & `src/shared/region-geometry.ts`)**:
+  - Validasi *point-in-polygon* berbasis GeoJSON dilakukan sepenuhnya di server (tidak bergantung pada frontend atau nama kota Geoapify).
+  - Di dalam wilayah penempatan: mendukung mode `SEMUA_KANTOR_DALAM_WILAYAH` maupun `KANTOR_TERTENTU` (tervalidasi ketat berada dalam wilayah penempatan dan aktif).
+  - Di luar wilayah penempatan: pengecualian geofence kantor berlaku otomatis tanpa pengajuan dinas atau status `DINAS`, sementara GPS, selfie kamera browser, waktu server WIB, jendela sesi, aktivitas, dan audit log tetap wajib serta terekam.
+  - Fail-closed: akun lama tanpa wilayah penempatan (`BELUM_TERKONFIGURASI`) maupun wilayah tanpa polygon valid (`POLYGON_BELUM_LENGKAP`) tidak mendapat pengecualian geofence otomatis.
+- **API & UI Terarah (Tanpa Redesign Global)**:
+  - Master **Wilayah Operasional** + editor peta polygon Leaflet interaktif & impor GeoJSON pada tab Master Admin.
+  - Relasi wilayah & status aktif pada Master **Kantor & Geofence**.
+  - Seksi **Penempatan dan Lokasi Absensi** pada form pembuatan/edit akun `KARYAWAN` (disembunyikan untuk `ADMIN`/`SUPERADMIN`), notifikasi pembersihan kantor saat ganti wilayah, filter penempatan belum lengkap, dan modal **Atur Penempatan Massal** (`POST /api/v1/master/employees/bulk-placement`).
+  - Pratinjau validasi lokasi server (`POST /api/v1/attendance/check-location`) pada halaman Absensi Karyawan serta indikator wilayah/pengecualian pada Beranda Feed, Rekap Payroll Admin, dan Dashboard Pengawasan & Audit Trail Superadmin.
+- **Pengujian Otomatis**: Menambahkan suite `tests/placement-location.test.ts` (seluruh 12 skenario wajib + validasi lintas wilayah & bulk placement); total 51/51 test lulus.
+
 ## 2026-11-17 — Gate absensi 100% ditentukan waktu server
 
 - Endpoint `GET /api/v1/attendance/today` menangkap satu waktu server untuk tanggal, jam, status jendela seluruh sesi, masa berlaku override, dan response epoch.

@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   Clock,
   FileCheck2,
+  Globe,
   Loader2,
   Lock,
   MapPin,
@@ -17,7 +18,12 @@ import {
   XCircle,
 } from 'lucide-react';
 import { apiFetch, getAuthorizedPhotoUrl } from '../../lib/api';
-import type { AuthUser, Karyawan, ResolvedDay } from '../../shared/types';
+import type {
+  AuthUser,
+  Karyawan,
+  LocationValidationPreview,
+  ResolvedDay,
+} from '../../shared/types';
 import {
   isGpsAccuracyAcceptable,
   isWithinVerifiedGeofence,
@@ -161,6 +167,9 @@ export function EmployeeAbsensiPage({
   const [resolvedAddress, setResolvedAddress] = useState<string | null>(null);
   const [addressLoading, setAddressLoading] = useState(false);
   const addressReqIdRef = useRef(0);
+  const [locationPreview, setLocationPreview] = useState<LocationValidationPreview | null>(null);
+  const [checkingLocation, setCheckingLocation] = useState(false);
+  const locationCheckReqIdRef = useRef(0);
 
   const readCurrentGps = useCallback(
     () =>
@@ -408,6 +417,42 @@ export function EmployeeAbsensiPage({
     }
   }, []);
 
+  const checkServerLocation = useCallback(
+    async (lat: number, lng: number, accuracy: number, urutanSesi?: number) => {
+      const reqId = ++locationCheckReqIdRef.current;
+      setCheckingLocation(true);
+      try {
+        const res = await apiFetch<LocationValidationPreview>('/api/v1/attendance/check-location', {
+          method: 'POST',
+          body: JSON.stringify({
+            lat,
+            lng,
+            accuracyMeter: accuracy,
+            urutanSesi,
+          }),
+        });
+        if (reqId === locationCheckReqIdRef.current) {
+          setLocationPreview(res);
+        }
+      } catch {
+        if (reqId === locationCheckReqIdRef.current) {
+          setLocationPreview(null);
+        }
+      } finally {
+        if (reqId === locationCheckReqIdRef.current) {
+          setCheckingLocation(false);
+        }
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (!coords || gpsStatus !== 'ok' || !data) return;
+    const nextUrutan = data.day.sessionsCompleted + 1;
+    void checkServerLocation(coords.lat, coords.lng, coords.accuracy, nextUrutan);
+  }, [coords, gpsStatus, data?.day.sessionsCompleted, checkServerLocation]);
+
   const requestGps = useCallback(() => {
     stopCamera();
     setSubmitMsg(null);
@@ -415,6 +460,7 @@ export function EmployeeAbsensiPage({
     setGpsError(null);
     setCoords(null);
     setResolvedAddress(null);
+    setLocationPreview(null);
 
     readCurrentGps()
       .then((position) => {
@@ -464,27 +510,25 @@ export function EmployeeAbsensiPage({
         setCameraError(gpsError || 'Deteksi lokasi GPS terlebih dahulu sebelum membuka kamera.');
         return;
       }
-      const mustBeAtOffice = requiresOfficeGeofence(
-        data?.day.policySnapshot.aturanLokasi,
-        next.urutan
-      );
-      if (mustBeAtOffice) {
-        if (!isGpsAccuracyAcceptable(coords.accuracy)) {
+      if (checkingLocation) {
+        setCameraError('Sedang memverifikasi lokasi dengan server. Tunggu sebentar lalu coba lagi.');
+        return;
+      }
+      if (locationPreview && !locationPreview.allowed) {
+        setCameraError(
+          locationPreview.errorMessage ||
+            'Lokasi Anda belum memenuhi ketentuan wilayah/geofence kantor untuk sesi ini.'
+        );
+        return;
+      }
+      if (!locationPreview) {
+        const mustBeAtOffice = requiresOfficeGeofence(
+          data?.day.policySnapshot.aturanLokasi,
+          next.urutan
+        );
+        if (mustBeAtOffice && !isGpsAccuracyAcceptable(coords.accuracy)) {
           setCameraError(
             `Akurasi GPS ±${coords.accuracy}m melebihi batas ±${MAX_GPS_ACCURACY_METERS}m. Coba lagi di area lebih terbuka.`
-          );
-          return;
-        }
-
-        const currentDistance = haversineClient(
-          coords.lat,
-          coords.lng,
-          user.kantor_lat,
-          user.kantor_lng
-        );
-        if (!isWithinVerifiedGeofence(currentDistance, coords.accuracy, user.kantor_radius)) {
-          setCameraError(
-            `Sesi ${next.urutan} wajib di dalam radius kantor (${user.kantor_radius}m). Posisi Anda saat ini ${formatDistance(currentDistance)} (±${coords.accuracy}m).`
           );
           return;
         }
@@ -699,34 +743,7 @@ export function EmployeeAbsensiPage({
         setCoords(freshCoords);
         setGpsStatus('ok');
         setGpsError(null);
-
-        const mustBeAtOffice = requiresOfficeGeofence(
-          data.day.policySnapshot.aturanLokasi,
-          nextUrutan
-        );
-        if (mustBeAtOffice) {
-          if (!isGpsAccuracyAcceptable(freshCoords.accuracy)) {
-            stopCamera();
-            failSubmit(
-              `Akurasi GPS ±${freshCoords.accuracy}m belum memenuhi batas maksimal ±${MAX_GPS_ACCURACY_METERS}m.`
-            );
-            return;
-          }
-
-          const freshDistance = haversineClient(
-            freshCoords.lat,
-            freshCoords.lng,
-            user.kantor_lat,
-            user.kantor_lng
-          );
-          if (!isWithinVerifiedGeofence(freshDistance, freshCoords.accuracy, user.kantor_radius)) {
-            stopCamera();
-            failSubmit(
-              `Posisi Anda (${formatDistance(freshDistance)}, akurasi ±${freshCoords.accuracy}m) belum berada di dalam radius kantor ${user.kantor_radius}m.`
-            );
-            return;
-          }
-        }
+        // Server endpoint /api/v1/attendance/session is the authoritative validator for region polygon & allowed offices.
       } else if (coords) {
         freshCoords = coords;
       }
@@ -923,11 +940,17 @@ export function EmployeeAbsensiPage({
     distanceMeters !== null &&
     coords !== null &&
     isWithinVerifiedGeofence(distanceMeters, coords.accuracy, user.kantor_radius);
+  const isOutOfRegionExempt =
+    locationPreview?.statusWilayah === 'DI_LUAR_WILAYAH' &&
+    Boolean(locationPreview?.geofenceExempted);
   const canCheckInByLocation =
     !gpsRequiredBySystem ||
     (gpsStatus === 'ok' &&
       coords !== null &&
-      (!sessionRequiresOffice || (gpsAccuracyOk && verifiedWithinRadius)));
+      (!sessionRequiresOffice ||
+        (locationPreview
+          ? locationPreview.allowed
+          : !checkingLocation && gpsAccuracyOk && verifiedWithinRadius)));
 
   const step1Done = canCheckInByLocation;
   const step2Done = !photoRequired || Boolean(photoDataUrl);
@@ -1505,11 +1528,19 @@ export function EmployeeAbsensiPage({
                           <p className="text-[11px] text-slate-500 dark:text-slate-400">
                             {!gpsRequiredBySystem
                               ? 'Validasi GPS & geofence sedang dinonaktifkan di Pengaturan Sistem'
-                              : sessionRequiresOffice
-                                ? `Wajib di dalam radius ${user.kantor_radius}m kantor`
-                                : day.policySnapshot.aturanLokasi === 'BEBAS_LOKASI'
-                                  ? 'Lokasi fleksibel (kantor atau lapangan) · Koordinat GPS tetap direkam sebagai bukti'
-                                  : 'Sesi fleksibel · Boleh dari lokasi tugas lapangan'}
+                              : isOutOfRegionExempt
+                                ? `Di luar wilayah penempatan (${locationPreview?.wilayahPenempatanNama || 'wilayah utama'}) · Geofence kantor dibebaskan otomatis`
+                                : sessionRequiresOffice
+                                  ? user.wilayah_penempatan_nama
+                                    ? `Wilayah ${user.wilayah_penempatan_nama} · ${
+                                        user.cakupan_lokasi_absensi === 'KANTOR_TERTENTU'
+                                          ? 'Kantor tertentu yang ditentukan Admin'
+                                          : 'Semua kantor aktif dalam wilayah'
+                                      }`
+                                    : `Wajib di dalam radius ${user.kantor_radius}m kantor`
+                                  : day.policySnapshot.aturanLokasi === 'BEBAS_LOKASI'
+                                    ? 'Lokasi fleksibel (kantor atau lapangan) · Koordinat GPS tetap direkam sebagai bukti'
+                                    : 'Sesi fleksibel · Boleh dari lokasi tugas lapangan'}
                           </p>
                         </div>
                       </div>
@@ -1556,19 +1587,60 @@ export function EmployeeAbsensiPage({
                       </div>
                     ) : (
                       <div
-                        className={`rounded-xl border p-3.5 space-y-2 ${
-                          canCheckInByLocation
-                            ? 'bg-emerald-50/60 dark:bg-emerald-950/25 border-emerald-200 dark:border-emerald-800/70'
-                            : 'bg-red-50/60 dark:bg-red-950/25 border-red-200 dark:border-red-800/70'
+                        className={`rounded-xl border p-3.5 space-y-2.5 ${
+                          isOutOfRegionExempt
+                            ? 'bg-sky-50/70 dark:bg-sky-950/30 border-sky-200 dark:border-sky-800/70'
+                            : canCheckInByLocation
+                              ? 'bg-emerald-50/60 dark:bg-emerald-950/25 border-emerald-200 dark:border-emerald-800/70'
+                              : checkingLocation
+                                ? 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700'
+                                : 'bg-red-50/60 dark:bg-red-950/25 border-red-200 dark:border-red-800/70'
                         }`}
                       >
+                        {/* Region Status Pill */}
+                        {checkingLocation ? (
+                          <div className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Memverifikasi wilayah operasional di server...</span>
+                          </div>
+                        ) : locationPreview ? (
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {locationPreview.statusWilayah === 'DI_LUAR_WILAYAH' ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-sky-100 text-sky-900 border border-sky-200 dark:bg-sky-900/60 dark:text-sky-200 dark:border-sky-700">
+                                <Globe className="w-3 h-3" />
+                                Di Luar Wilayah Penempatan
+                              </span>
+                            ) : locationPreview.statusWilayah === 'DI_DALAM_WILAYAH' ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-200 dark:bg-emerald-900/60 dark:text-emerald-200 dark:border-emerald-700">
+                                <Globe className="w-3 h-3" />
+                                Dalam Wilayah {locationPreview.wilayahPenempatanNama}
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-200 dark:bg-amber-900/60 dark:text-amber-200 dark:border-amber-700">
+                                <AlertTriangle className="w-3 h-3" />
+                                {locationPreview.statusWilayah === 'POLYGON_BELUM_LENGKAP'
+                                  ? 'Polygon Wilayah Belum Lengkap'
+                                  : 'Wilayah Penempatan Belum Diatur'}
+                              </span>
+                            )}
+                            {locationPreview.wilayahTerdeteksiNama &&
+                              locationPreview.statusWilayah === 'DI_LUAR_WILAYAH' && (
+                                <span className="text-[10px] font-medium text-sky-800 dark:text-sky-300">
+                                  Terdeteksi di area: {locationPreview.wilayahTerdeteksiNama}
+                                </span>
+                              )}
+                          </div>
+                        ) : null}
+
                         <div className="flex items-start justify-between gap-2.5">
                           <div className="flex items-start gap-2 min-w-0">
                             <MapPin
                               className={`w-4 h-4 shrink-0 mt-0.5 ${
-                                canCheckInByLocation
-                                  ? 'text-emerald-600 dark:text-emerald-400'
-                                  : 'text-red-600 dark:text-red-400'
+                                isOutOfRegionExempt
+                                  ? 'text-sky-600 dark:text-sky-400'
+                                  : canCheckInByLocation
+                                    ? 'text-emerald-600 dark:text-emerald-400'
+                                    : 'text-red-600 dark:text-red-400'
                               }`}
                             />
                             <div className="min-w-0">
@@ -1579,19 +1651,61 @@ export function EmployeeAbsensiPage({
                               </p>
                               <p
                                 className={`text-[11px] font-semibold mt-0.5 ${
-                                  canCheckInByLocation
-                                    ? 'text-emerald-700 dark:text-emerald-400'
-                                    : 'text-red-700 dark:text-red-400'
+                                  isOutOfRegionExempt
+                                    ? 'text-sky-800 dark:text-sky-300'
+                                    : canCheckInByLocation
+                                      ? 'text-emerald-700 dark:text-emerald-400'
+                                      : 'text-red-700 dark:text-red-400'
                                 }`}
                               >
-                                {sessionRequiresOffice
-                                  ? canCheckInByLocation
-                                    ? `Dalam radius kantor · ${formatDistance(distanceMeters!)} (±${coords.accuracy}m)`
-                                    : !gpsAccuracyOk
-                                      ? `Akurasi GPS ±${coords.accuracy}m (maks ±${MAX_GPS_ACCURACY_METERS}m)`
-                                      : `Di luar radius kantor · ${formatDistance(distanceMeters!)} (maks ${user.kantor_radius}m)`
-                                  : `Lokasi tercatat · ${formatDistance(distanceMeters!)} dari kantor (±${coords.accuracy}m)`}
+                                {locationPreview
+                                  ? locationPreview.geofenceExempted
+                                    ? `Geofence kantor dibebaskan otomatis (di luar wilayah ${locationPreview.wilayahPenempatanNama || 'penempatan'}). Koordinat GPS & selfie tetap direkam (±${coords.accuracy}m).`
+                                    : locationPreview.allowed
+                                      ? locationPreview.kantorValidasiNama
+                                        ? `Dalam radius ${locationPreview.kantorValidasiNama} · ${
+                                            locationPreview.jarakKantorMeter !== null
+                                              ? formatDistance(locationPreview.jarakKantorMeter)
+                                              : '-'
+                                          } (±${coords.accuracy}m)`
+                                        : `Lokasi tercatat (±${coords.accuracy}m)`
+                                      : locationPreview.errorMessage ||
+                                        `Di luar radius kantor yang diizinkan (±${coords.accuracy}m)`
+                                  : sessionRequiresOffice
+                                    ? canCheckInByLocation
+                                      ? `Dalam radius kantor · ${formatDistance(distanceMeters!)} (±${coords.accuracy}m)`
+                                      : !gpsAccuracyOk
+                                        ? `Akurasi GPS ±${coords.accuracy}m (maks ±${MAX_GPS_ACCURACY_METERS}m)`
+                                        : `Di luar radius kantor · ${formatDistance(distanceMeters!)} (maks ${user.kantor_radius}m)`
+                                    : `Lokasi tercatat · ${formatDistance(distanceMeters!)} dari kantor (±${coords.accuracy}m)`}
                               </p>
+
+                              {locationPreview &&
+                                locationPreview.statusWilayah === 'DI_DALAM_WILAYAH' &&
+                                !locationPreview.allowed &&
+                                locationPreview.allowedOffices.length > 0 && (
+                                  <div className="mt-1.5 text-[10px] text-slate-600 dark:text-slate-300 space-y-0.5">
+                                    <p className="font-semibold">Kantor yang diizinkan:</p>
+                                    <ul className="list-disc pl-4 space-y-0.5">
+                                      {locationPreview.allowedOffices.slice(0, 4).map((o) => (
+                                        <li key={o.id}>
+                                          {o.nama} (radius {o.radius_meter}m
+                                          {o.jarak_meter !== null
+                                            ? `, jarak ${formatDistance(o.jarak_meter)}`
+                                            : ''}
+                                          )
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+
+                              {locationPreview?.configWarning && (
+                                <p className="mt-1 text-[10px] text-amber-800 dark:text-amber-300">
+                                  {locationPreview.configWarning}
+                                </p>
+                              )}
+
                               <p className="text-[10px] font-mono tabular-nums text-slate-400 mt-0.5">
                                 {coords.lat}, {coords.lng}
                               </p>

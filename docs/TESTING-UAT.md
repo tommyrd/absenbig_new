@@ -197,3 +197,19 @@ Berjalan terisolasi penuh pada direktori temporer (tanpa menyentuh data aktif):
 7. Ubah jam perangkat iPhone/PC maju dan mundur. Status buka/tutup sesi tidak boleh berubah; hanya response server yang menentukan.
 8. Background-kan Safari, kunci layar, lalu kembali. Status dimuat ulang dari server tanpa menunggu jam perangkat.
 9. Kirim absensi pada batas akhir sesi. Backend harus tetap menolak request yang tiba setelah sesi berakhir meskipun halaman sebelumnya sempat menampilkan sesi terbuka.
+
+## 9. UAT Sistem Penempatan Karyawan & Cakupan Lokasi Absensi (`tests/placement-location.test.ts`)
+
+Suite otomatis (`npm test`: total 51/51 test lulus, termasuk 9 blok uji khusus di `tests/placement-location.test.ts`) dan skenario UAT manual:
+
+1. **Master Wilayah Operasional & Editor Polygon:** Admin/Superadmin menambahkan wilayah operasional beserta batas GeoJSON `Polygon`/`MultiPolygon` lewat peta Leaflet atau impor GeoJSON. Wilayah tanpa polygon menampilkan status `Polygon Belum Lengkap` dan tidak mengaktifkan pengecualian geofence.
+2. **Tautan Kantor ke Wilayah:** Pada **Master Kantor & Geofence**, setiap kantor dihubungkan ke satu `wilayah_id` dan status aktif.
+3. **Mode `SEMUA_KANTOR_DALAM_WILAYAH`:** Karyawan penempatan Pontianak dapat absen di Kantor Pontianak A maupun Kantor Pontianak B (`status_wilayah_absensi = DI_DALAM_WILAYAH`, `kantor_validasi_id` mencatat kantor aktual).
+4. **Mode `KANTOR_TERTENTU`:** Karyawan penempatan Pontianak dengan izin khusus Kantor A ditolak saat mencoba absen di Kantor B (`HTTP 400`). Pemilihan kantor dari wilayah lain ditolak oleh backend (`HTTP 400`).
+5. **Di Luar Wilayah Penempatan (Otomatis Bebas Geofence):** Karyawan penempatan Pontianak yang berada di Sintang (di luar polygon Pontianak) otomatis diperbolehkan absen tanpa pengajuan dinas dan tanpa status `DINAS`, dengan `status_wilayah_absensi = DI_LUAR_WILAYAH` dan `alasan_pengecualian_geofence` tercatat.
+6. **Bukti & Aturan Tetap Berlaku di Luar Wilayah:** Saat berada di luar wilayah, GPS, akurasi, selfie kamera browser (`BROWSER_CAMERA`), jendela sesi, waktu server WIB, deskripsi aktivitas sesi lanjutan, dan audit trail tetap wajib dan terekam lengkap.
+7. **Titik Non-Kantor di Dalam Wilayah Penempatan:** Karyawan yang berada di luar radius kantor tetapi masih di dalam polygon wilayah penempatannya tetap ditolak (`HTTP 400`).
+8. **Fail-Closed Akun Lama & Polygon Kosong:** Karyawan lama dengan `wilayah_penempatan_id = NULL` (`BELUM_TERKONFIGURASI`) atau wilayah tanpa polygon valid (`POLYGON_BELUM_LENGKAP`) tidak mendapat pengecualian geofence otomatis saat berada di koordinat jauh (ditolak `HTTP 400`).
+9. **Isolasi Akun `ADMIN` (Operator) & `SUPERADMIN`:** Form pembuatan dan edit akun menyembunyikan bagian penempatan untuk `ADMIN` dan `SUPERADMIN`; backend tetap memproses tanpa field penempatan dan menjaga kolom penempatan bernilai `NULL`.
+10. **Perubahan Wilayah & Imutabilitas Historis:** Mengubah wilayah karyawan membersihkan daftar kantor izin wilayah lama, mencatat audit modul `PENEMPATAN_KARYAWAN`, dan tidak mengubah snapshot wilayah/kantor pada record `absensi_sesi` lama.
+11. **Migrasi Massal Akun Lama:** Banner & filter `Penempatan Belum Lengkap` menampilkan akun lama yang belum dikonfigurasi; modal **Atur Penempatan Massal** (`POST /api/v1/master/employees/bulk-placement`) mengisi penempatan banyak akun sekaligus dengan audit per karyawan.
