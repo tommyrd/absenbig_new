@@ -554,12 +554,14 @@ export function EmployeeAbsensiPage({
     try {
       const isPortraitViewport =
         typeof window !== 'undefined' && window.innerHeight > window.innerWidth;
+      const videoConstraints: MediaTrackConstraints & { resizeMode?: ConstrainDOMString } = {
+        facingMode: { ideal: requestedFacing },
+        width: { ideal: 1280 },
+        height: { ideal: 960 },
+        resizeMode: { ideal: 'none' },
+      };
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: requestedFacing },
-          width: { ideal: isPortraitViewport ? 960 : 1280 },
-          height: { ideal: isPortraitViewport ? 1280 : 960 },
-        },
+        video: videoConstraints,
         audio: false,
       });
 

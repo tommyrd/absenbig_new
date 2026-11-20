@@ -114,6 +114,17 @@ async function startServer() {
         index: false,
         maxAge: '1h',
         setHeaders: (res, filePath) => {
+          const baseName = path.basename(filePath);
+          if (
+            baseName === 'sw.js' ||
+            baseName === 'registerSW.js' ||
+            baseName === 'manifest.webmanifest' ||
+            baseName === 'index.html' ||
+            baseName.startsWith('workbox-')
+          ) {
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+            return;
+          }
           if (filePath.includes(`${path.sep}assets${path.sep}`)) {
             res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
           }
@@ -123,6 +134,7 @@ async function startServer() {
     app.get('*', (_req, res) => {
       const indexFile = path.join(distDir, 'index.html');
       if (fs.existsSync(indexFile)) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
         res.sendFile(indexFile);
       } else {
         res.status(404).send('Build dist/index.html tidak ditemukan. Jalankan npm run build terlebih dahulu.');
