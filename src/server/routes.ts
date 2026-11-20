@@ -1216,7 +1216,7 @@ export function registerApiRoutes(app: Express) {
         namaSesi: next.nama,
         jamMulai: next.jam_mulai,
         jamSelesai: next.jam_selesai,
-        terlambatMenit: Math.max(0, nowMin - parseHmToMinutes(next.jam_mulai)),
+        terlambatMenit: Math.max(0, nowMin - parseHmToMinutes(next.jam_selesai)),
         activeGrant: activeGrant
           ? {
               id: activeGrant.id,
@@ -1519,7 +1519,7 @@ export function registerApiRoutes(app: Express) {
       });
       return;
     }
-    const startMin = parseHmToMinutes(targetSesiConfig.jam_mulai);
+    const endMin = parseHmToMinutes(targetSesiConfig.jam_selesai);
 
     // Validate activity/standby description for session >= 2 if required
     const requireActivity =
@@ -1583,14 +1583,13 @@ export function registerApiRoutes(app: Express) {
     const jarakMeter = locationEval.jarakKantorMeter;
     const dalamGeofence = locationEval.dalamGeofence ? 1 : 0;
 
-    // Check lateness against session start + tolerance (emergency holiday work is flexible 00:00-23:59)
+    // Any check-in within the configured session window (jam_mulai..jam_selesai) is ALWAYS TEPAT_WAKTU.
+    // A session is only marked TERLAMBAT if submitted past jam_selesai (via Admin late check-in override).
     const isHolidayEmergencySession =
       day.holidayEmergencyRequest?.status === 'PENDING' ||
       Boolean(day.kerjaKhususInfo && day.holidayEmergencyRequest?.status === 'APPROVED');
-    const tol = day.policySnapshot.toleransiTerlambatMenit;
-    const lateDiff = nowMin - (startMin + tol);
-    const isLate = !isHolidayEmergencySession && expectedNext === 1 && lateDiff > 0;
-    const keterlambatanMenit = isLate ? nowMin - startMin : 0;
+    const isLate = !isHolidayEmergencySession && sessionWindow === 'EXPIRED' && nowMin > endMin;
+    const keterlambatanMenit = isLate ? Math.max(1, nowMin - endMin) : 0;
 
     // Store a display-only address snapshot resolved by the server from the
     // submitted GPS coordinates. Geocoding failures never block attendance.

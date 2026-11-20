@@ -492,7 +492,7 @@ test('3. Karyawan Pontianak (KANTOR_TERTENTU = Kantor A only) is REJECTED at Kan
     cakupan: 'KANTOR_TERTENTU',
     kantorIzinIds: [kantorPtkAId],
   });
-  ensureAlwaysOpenWorkdayPolicyFor(emp.karyawanId);
+  await ensureAlwaysOpenWorkdayPolicyFor(emp.karyawanId);
 
   // Preview check-location at Kantor B -> denied
   const previewB = await apiJson<{ allowed: boolean; statusWilayah: string }>(
@@ -535,7 +535,7 @@ test('4, 5 & 12. Karyawan Pontianak in Sintang (outside placement polygon) gets 
     cakupan: 'KANTOR_TERTENTU',
     kantorIzinIds: [kantorPtkAId],
   });
-  ensureAlwaysOpenWorkdayPolicyFor(emp.karyawanId);
+  await ensureAlwaysOpenWorkdayPolicyFor(emp.karyawanId);
 
   // Check-location preview confirms DI_LUAR_WILAYAH + geofenceExempted
   const preview = await apiJson<{
@@ -685,7 +685,7 @@ test('6. Karyawan Pontianak at non-office location still INSIDE Pontianak polygo
     wilayahId: regionPontianakId,
     cakupan: 'SEMUA_KANTOR_DALAM_WILAYAH',
   });
-  ensureAlwaysOpenWorkdayPolicyFor(emp.karyawanId);
+  await ensureAlwaysOpenWorkdayPolicyFor(emp.karyawanId);
 
   resetLimiters();
   const res = await apiJson<{ error: string; statusWilayah: string }>('/api/v1/attendance/session', {
@@ -715,7 +715,7 @@ test('7. Legacy employee WITHOUT wilayah_penempatan_id at far coordinates gets N
     cakupan: null,
     bypassApiForLegacyNull: true,
   });
-  ensureAlwaysOpenWorkdayPolicyFor(legacyEmp.karyawanId);
+  await ensureAlwaysOpenWorkdayPolicyFor(legacyEmp.karyawanId);
 
   // Preview reports BELUM_TERKONFIGURASI and allowed = false at far coordinates
   const preview = await apiJson<{ allowed: boolean; statusWilayah: string; geofenceExempted: boolean }>(
@@ -782,7 +782,7 @@ test('8. Employee whose placement region has NO valid polygon gets NO exemption 
     wilayahId: regionIncompleteId,
     cakupan: 'SEMUA_KANTOR_DALAM_WILAYAH',
   });
-  ensureAlwaysOpenWorkdayPolicyFor(emp.karyawanId);
+  await ensureAlwaysOpenWorkdayPolicyFor(emp.karyawanId);
 
   const preview = await apiJson<{ allowed: boolean; statusWilayah: string; geofenceExempted: boolean }>(
     '/api/v1/attendance/check-location',
@@ -902,7 +902,7 @@ test('11. Changing employee placement region cleans old allowed offices, writes 
     cakupan: 'KANTOR_TERTENTU',
     kantorIzinIds: [kantorPtkAId],
   });
-  ensureAlwaysOpenWorkdayPolicyFor(emp.karyawanId);
+  await ensureAlwaysOpenWorkdayPolicyFor(emp.karyawanId);
 
   // Perform attendance in Pontianak Kantor A first
   resetLimiters();
@@ -1163,5 +1163,33 @@ test('13. SUPERADMIN can delete a testing attendance session with audit trail wh
   assert.ok(delAudit);
   assert.equal(delAudit.alasan, 'Data uji coba / testing');
 });
+
+test('14. Check-in anywhere within configured jam_mulai..jam_selesai window is always TEPAT_WAKTU (0 late minutes)', async () => {
+  // emp_relocate had its session deleted in test 13 and uses an all-day 00:00..23:59 policy
+  // (where current time is well past 00:00 + 15m tolerance, yet still inside jam_mulai..jam_selesai).
+  const empToken = await loginAs('emp_relocate', 'EmpPassword!123');
+  resetLimiters();
+  const res = await apiJson<{
+    ok: boolean;
+    statusKetepatan: string;
+    keterlambatanMenit: number;
+  }>('/api/v1/attendance/session', {
+    method: 'POST',
+    token: empToken,
+    body: {
+      urutanSesi: 1,
+      lat: COORD_SINTANG_POINT.lat,
+      lng: COORD_SINTANG_POINT.lng,
+      accuracyMeter: 15,
+      fotoBase64: SAMPLE_PNG_BASE64,
+      fotoSource: 'BROWSER_CAMERA',
+      deskripsiAktivitas: 'Masuk kantor tepat waktu dalam rentang sesi',
+    },
+  });
+  assert.equal(res.status, 201);
+  assert.equal(res.data.statusKetepatan, 'TEPAT_WAKTU');
+  assert.equal(res.data.keterlambatanMenit, 0);
+});
+
 
 

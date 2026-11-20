@@ -984,10 +984,8 @@ export function EmployeeAbsensiPage({
 
   const isPotentiallyLate = Boolean(
     nextSesi &&
-      nextSesi.urutan === 1 &&
-      liveWibSecondsOfDay !== null &&
-      sessionStartSec !== null &&
-      liveWibSecondsOfDay > sessionStartSec + day.policySnapshot.toleransiTerlambatMenit * 60
+      nextWindowState === 'EXPIRED' &&
+      hasActiveCheckinOverride
   );
 
   const quickContextTags =
