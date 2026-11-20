@@ -26,10 +26,14 @@ export function AdminCalendarTab() {
 
   // Holiday Modal
   const [holModal, setHolModal] = useState(false);
+  const [holEmpSearch, setHolEmpSearch] = useState('');
+  const [holEmpKantorFilter, setHolEmpKantorFilter] = useState('');
   const [holForm, setHolForm] = useState({
     tanggal: getServerWibDateString(),
     nama: '',
+    target_scope: 'ALL' as 'ALL' | 'KANTOR' | 'KARYAWAN',
     kantor_id: '',
+    karyawan_ids: [] as number[],
     dihitung_masuk: true,
     keterangan: '',
   });
@@ -121,14 +125,27 @@ export function AdminCalendarTab() {
   const submitHoliday = async (e: FormEvent) => {
     e.preventDefault();
     if (saving) return;
+    if (holForm.target_scope === 'KANTOR' && !holForm.kantor_id) {
+      setFormErr('Pilih kantor tujuan untuk hari libur kantor tertentu.');
+      return;
+    }
+    if (holForm.target_scope === 'KARYAWAN' && holForm.karyawan_ids.length === 0) {
+      setFormErr('Pilih minimal 1 karyawan untuk hari libur spesifik karyawan.');
+      return;
+    }
     setFormErr(null);
     setSaving(true);
     try {
       await apiFetch('/api/v1/holidays', {
         method: 'POST',
         body: JSON.stringify({
-          ...holForm,
-          kantor_id: holForm.kantor_id ? Number(holForm.kantor_id) : null,
+          tanggal: holForm.tanggal,
+          nama: holForm.nama,
+          target_scope: holForm.target_scope,
+          kantor_id: holForm.target_scope === 'KANTOR' && holForm.kantor_id ? Number(holForm.kantor_id) : null,
+          karyawan_ids: holForm.target_scope === 'KARYAWAN' ? holForm.karyawan_ids : [],
+          dihitung_masuk: holForm.dihitung_masuk,
+          keterangan: holForm.keterangan,
         }),
       });
       setHolModal(false);
@@ -139,6 +156,31 @@ export function AdminCalendarTab() {
       setSaving(false);
     }
   };
+
+  const toggleHolidayEmployee = (empId: number) => {
+    setHolForm((prev) => {
+      const exists = prev.karyawan_ids.includes(empId);
+      return {
+        ...prev,
+        karyawan_ids: exists
+          ? prev.karyawan_ids.filter((id) => id !== empId)
+          : [...prev.karyawan_ids, empId],
+      };
+    });
+  };
+
+  const filteredHolEmployees = employees.filter((emp) => {
+    if (emp.aktif !== 1) return false;
+    if (holEmpKantorFilter && String(emp.kantor_id) !== holEmpKantorFilter) return false;
+    const q = holEmpSearch.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      emp.nama_lengkap.toLowerCase().includes(q) ||
+      emp.nik.toLowerCase().includes(q) ||
+      (emp.bidang_nama || '').toLowerCase().includes(q) ||
+      (emp.kantor_nama || '').toLowerCase().includes(q)
+    );
+  });
 
   const deleteHoliday = async (id: number) => {
     setActionErr(null);
@@ -198,10 +240,14 @@ export function AdminCalendarTab() {
                 setHolForm({
                   tanggal: getServerWibDateString(),
                   nama: '',
-                  kantor_id: '',
+                  target_scope: 'ALL',
+                  kantor_id: offices[0] ? String(offices[0].id) : '',
+                  karyawan_ids: [],
                   dihitung_masuk: true,
                   keterangan: '',
                 });
+                setHolEmpSearch('');
+                setHolEmpKantorFilter('');
                 setFormErr(null);
                 setHolModal(true);
               }}
@@ -358,39 +404,75 @@ export function AdminCalendarTab() {
                   Belum ada hari libur perusahaan yang ditetapkan.
                 </div>
               ) : (
-                holidays.map((h) => (
-                  <div
-                    key={h.id}
-                    className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-sky-50 dark:bg-sky-950/60 text-sky-800 dark:text-sky-300 flex items-center justify-center shrink-0">
-                        <CalendarOff className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-100">
-                            {h.tanggal}
-                          </span>
-                          <span className="text-slate-300 dark:text-slate-700">·</span>
-                          <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{h.nama}</span>
-                        </div>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                          Lingkup: {h.kantor_nama || 'Semua Kantor'} ·{' '}
-                          {h.dihitung_masuk ? 'Dihitung Masuk Payroll' : 'Tidak Dihitung Masuk'}
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => deleteHoliday(h.id)}
-                      className="min-h-[36px] inline-flex items-center gap-1 text-xs font-semibold text-red-700 dark:text-red-400 hover:underline self-start sm:self-auto"
+                holidays.map((h) => {
+                  const scope = h.target_scope || (h.kantor_id ? 'KANTOR' : 'ALL');
+                  const targetList = h.target_karyawan || [];
+                  return (
+                    <div
+                      key={h.id}
+                      className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      Hapus
-                    </button>
-                  </div>
-                ))
+                      <div className="flex items-start gap-3 min-w-0">
+                        <div className="w-10 h-10 rounded-lg bg-sky-50 dark:bg-sky-950/60 text-sky-800 dark:text-sky-300 flex items-center justify-center shrink-0">
+                          <CalendarOff className="w-5 h-5" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-100">
+                              {h.tanggal}
+                            </span>
+                            <span className="text-slate-300 dark:text-slate-700">·</span>
+                            <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{h.nama}</span>
+                            <span
+                              className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded border ${
+                                scope === 'KARYAWAN'
+                                  ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800'
+                                  : scope === 'KANTOR'
+                                  ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                                  : 'bg-sky-50 dark:bg-sky-950/60 text-sky-800 dark:text-sky-300 border-sky-200 dark:border-sky-800'
+                              }`}
+                            >
+                              {scope === 'KARYAWAN'
+                                ? `Spesifik ${targetList.length} Karyawan`
+                                : scope === 'KANTOR'
+                                ? `Kantor: ${h.kantor_nama || '-'}`
+                                : 'Semua Kantor'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                            {h.dihitung_masuk ? 'Dihitung Masuk Payroll' : 'Tidak Dihitung Masuk'}
+                            {h.keterangan ? ` · ${h.keterangan}` : ''}
+                          </p>
+                          {scope === 'KARYAWAN' && targetList.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {targetList.map((emp) => (
+                                <span
+                                  key={emp.id}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] text-slate-700 dark:text-slate-200"
+                                >
+                                  <span className="font-semibold">{emp.nama_lengkap}</span>
+                                  {emp.bidang_nama && (
+                                    <span className="text-slate-500 dark:text-slate-400">
+                                      ({emp.bidang_nama})
+                                    </span>
+                                  )}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => deleteHoliday(h.id)}
+                        className="min-h-[36px] inline-flex items-center gap-1 text-xs font-semibold text-red-700 dark:text-red-400 hover:underline self-start shrink-0"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Hapus
+                      </button>
+                    </div>
+                  );
+                })
               )}
             </div>
           )}
@@ -493,11 +575,13 @@ export function AdminCalendarTab() {
           <div
             role="dialog"
             aria-modal="true"
-            className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[92vh] flex flex-col"
+            className={`bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl w-full border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[92vh] flex flex-col ${
+              holForm.target_scope === 'KARYAWAN' ? 'max-w-lg' : 'max-w-md'
+            }`}
           >
             <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
               <h2 className="font-display text-base font-bold text-slate-900 dark:text-slate-100">
-                Tetapkan Hari Libur Perusahaan
+                Tetapkan Hari Libur
               </h2>
               <button
                 type="button"
@@ -513,46 +597,195 @@ export function AdminCalendarTab() {
                   {formErr}
                 </div>
               )}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Tanggal</label>
-                <input
-                  type="date"
-                  required
-                  value={holForm.tanggal}
-                  onChange={(e) => setHolForm({ ...holForm, tanggal: e.target.value })}
-                  className="w-full min-h-[44px] sm:h-10 px-3 text-sm font-mono bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Tanggal</label>
+                  <input
+                    type="date"
+                    required
+                    value={holForm.tanggal}
+                    onChange={(e) => setHolForm({ ...holForm, tanggal: e.target.value })}
+                    className="w-full min-h-[44px] sm:h-10 px-3 text-sm font-mono bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Nama Hari Raya / Libur
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={holForm.nama}
+                    onChange={(e) => setHolForm({ ...holForm, nama: e.target.value })}
+                    placeholder="Mis. Libur Natal / Idul Fitri"
+                    className="w-full min-h-[44px] sm:h-10 px-3 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
+                  />
+                </div>
               </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Berlaku Untuk
+                </label>
+                <div className="grid grid-cols-3 gap-1.5 p-1 rounded-lg bg-slate-100 dark:bg-slate-800">
+                  {(
+                    [
+                      { value: 'ALL', label: 'Semua Kantor' },
+                      { value: 'KANTOR', label: 'Kantor Tertentu' },
+                      { value: 'KARYAWAN', label: 'Karyawan Spesifik' },
+                    ] as const
+                  ).map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() =>
+                        setHolForm((prev) => ({
+                          ...prev,
+                          target_scope: opt.value,
+                          kantor_id:
+                            opt.value === 'KANTOR'
+                              ? prev.kantor_id || (offices[0] ? String(offices[0].id) : '')
+                              : prev.kantor_id,
+                        }))
+                      }
+                      className={`min-h-[38px] px-2 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                        holForm.target_scope === opt.value
+                          ? 'bg-white dark:bg-slate-900 text-navy-900 dark:text-brand-400 shadow-sm'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {holForm.target_scope === 'KANTOR' && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Pilih Kantor
+                  </label>
+                  <select
+                    value={holForm.kantor_id}
+                    onChange={(e) => setHolForm({ ...holForm, kantor_id: e.target.value })}
+                    className="w-full min-h-[44px] sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
+                  >
+                    {offices.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.nama}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {holForm.target_scope === 'KARYAWAN' && (
+                <div className="space-y-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/40 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                      Pilih Karyawan yang Libur ({holForm.karyawan_ids.length} dipilih)
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const visibleIds = filteredHolEmployees.map((e) => e.id);
+                          setHolForm((prev) => ({
+                            ...prev,
+                            karyawan_ids: Array.from(new Set([...prev.karyawan_ids, ...visibleIds])),
+                          }));
+                        }}
+                        className="text-[11px] font-semibold text-brand-700 dark:text-brand-400 hover:underline"
+                      >
+                        Pilih Tampil
+                      </button>
+                      {holForm.karyawan_ids.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setHolForm((prev) => ({ ...prev, karyawan_ids: [] }))}
+                          className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 hover:underline"
+                        >
+                          Kosongkan
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Cocok untuk libur keagamaan (mis. Natal / Lebaran) — hanya karyawan terpilih yang libur, karyawan lain tetap hari kerja normal.
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      value={holEmpSearch}
+                      onChange={(e) => setHolEmpSearch(e.target.value)}
+                      placeholder="Cari nama, NIK, atau bidang..."
+                      className="w-full h-9 px-2.5 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
+                    />
+                    <select
+                      value={holEmpKantorFilter}
+                      onChange={(e) => setHolEmpKantorFilter(e.target.value)}
+                      className="w-full h-9 px-2.5 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
+                    >
+                      <option value="">Semua Kantor</option>
+                      {offices.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.nama}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="max-h-48 overflow-y-auto divide-y divide-slate-200/70 dark:divide-slate-700/70 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
+                    {filteredHolEmployees.length === 0 ? (
+                      <p className="p-3 text-center text-xs text-slate-500 dark:text-slate-400">
+                        Tidak ada karyawan yang cocok.
+                      </p>
+                    ) : (
+                      filteredHolEmployees.map((emp) => {
+                        const checked = holForm.karyawan_ids.includes(emp.id);
+                        return (
+                          <label
+                            key={emp.id}
+                            className={`flex items-center gap-2.5 px-3 py-2 text-xs cursor-pointer transition-colors ${
+                              checked
+                                ? 'bg-indigo-50/70 dark:bg-indigo-950/40'
+                                : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleHolidayEmployee(emp.id)}
+                              className="w-4 h-4 accent-navy-900 dark:accent-brand-500 shrink-0"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <p className="font-semibold text-slate-900 dark:text-slate-100 truncate">
+                                {emp.nama_lengkap}
+                              </p>
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                                <span className="font-mono">{emp.nik}</span> · {emp.bidang_nama} · {emp.kantor_nama}
+                              </p>
+                            </div>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Nama Hari Raya / Libur
+                  Keterangan (Opsional)
                 </label>
                 <input
                   type="text"
-                  required
-                  value={holForm.nama}
-                  onChange={(e) => setHolForm({ ...holForm, nama: e.target.value })}
-                  placeholder="Mis. Hari Raya Idul Fitri"
+                  value={holForm.keterangan}
+                  onChange={(e) => setHolForm({ ...holForm, keterangan: e.target.value })}
+                  placeholder="Mis. Libur keagamaan sesuai daftar karyawan"
                   className="w-full min-h-[44px] sm:h-10 px-3 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
                 />
               </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Lingkup Kantor
-                </label>
-                <select
-                  value={holForm.kantor_id}
-                  onChange={(e) => setHolForm({ ...holForm, kantor_id: e.target.value })}
-                  className="w-full min-h-[44px] sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
-                >
-                  <option value="">Semua Kantor</option>
-                  {offices.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.nama}
-                    </option>
-                  ))}
-                </select>
-              </div>
+
               <label className="flex items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300 min-h-[36px]">
                 <input
                   type="checkbox"

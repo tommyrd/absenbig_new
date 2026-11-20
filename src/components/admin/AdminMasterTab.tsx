@@ -24,7 +24,6 @@ export function AdminMasterTab() {
     no_hp: '',
     kantor_id: 1,
     bidang_id: 1,
-    jabatan: '',
     username: '',
     role: 'KARYAWAN' as Role,
     aktif: 1,
@@ -86,7 +85,6 @@ export function AdminMasterTab() {
       no_hp: emp.no_hp,
       kantor_id: emp.kantor_id,
       bidang_id: emp.bidang_id,
-      jabatan: emp.jabatan,
       username: emp.username || '',
       role: emp.role || 'KARYAWAN',
       aktif: emp.aktif,
@@ -312,7 +310,7 @@ export function AdminMasterTab() {
         <div className="text-xs">
           <p className="font-medium text-slate-800 dark:text-slate-200">{r.kantor_nama}</p>
           <p className="text-slate-500 dark:text-slate-400">
-            {r.bidang_nama} · {r.jabatan}
+            Bidang: {r.bidang_nama}
           </p>
         </div>
       ),
@@ -323,7 +321,7 @@ export function AdminMasterTab() {
       sortValue: (r) => r.role || '',
       render: (r) => (
         <span className="font-mono text-xs font-semibold text-slate-700 dark:text-slate-300">
-          {r.role}
+          {r.role === 'ADMIN' ? 'OPERATOR' : r.role || 'KARYAWAN'}
         </span>
       ),
     },
@@ -760,30 +758,16 @@ export function AdminMasterTab() {
                   </select>
                 </div>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Jabatan
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={empForm.jabatan}
-                    onChange={(e) => setEmpForm({ ...empForm, jabatan: e.target.value })}
-                    className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    No. HP
-                  </label>
-                  <input
-                    type="text"
-                    value={empForm.no_hp}
-                    onChange={(e) => setEmpForm({ ...empForm, no_hp: e.target.value })}
-                    className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg"
-                  />
-                </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  No. HP
+                </label>
+                <input
+                  type="text"
+                  value={empForm.no_hp}
+                  onChange={(e) => setEmpForm({ ...empForm, no_hp: e.target.value })}
+                  className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg"
+                />
               </div>
               {editingEmp && (
                 <label className="flex items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300 pt-1 min-h-[32px]">

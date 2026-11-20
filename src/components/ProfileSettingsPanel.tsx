@@ -193,11 +193,15 @@ export function ProfileSettingsPanel({
                     <span className="font-mono font-semibold text-slate-700 dark:text-slate-200">
                       {user.nik}
                     </span>{' '}
-                    · {user.jabatan} · Role:{' '}
-                    <strong className="text-navy-900 dark:text-brand-400">{user.role}</strong>
+                    · Role:{' '}
+                    <strong className="text-navy-900 dark:text-brand-400">
+                      {user.role === 'ADMIN' ? 'OPERATOR' : user.role}
+                    </strong>
                   </p>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    {user.bidang_nama} · {user.kantor_nama}
+                    {user.role === 'KARYAWAN'
+                      ? `Bidang: ${user.bidang_nama} · ${user.kantor_nama}`
+                      : user.kantor_nama}
                   </p>
                 </>
               )}

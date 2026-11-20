@@ -131,11 +131,19 @@ export const SCHEMA_SQL = `
     tanggal TEXT NOT NULL,
     nama TEXT NOT NULL,
     kantor_id INTEGER REFERENCES kantor(id),
+    target_scope TEXT NOT NULL DEFAULT 'ALL' CHECK(target_scope IN ('ALL','KANTOR','KARYAWAN')),
     dihitung_masuk INTEGER NOT NULL DEFAULT 1,
     keterangan TEXT NOT NULL DEFAULT '',
     created_by INTEGER NOT NULL,
     created_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS hari_libur_karyawan (
+    hari_libur_id INTEGER NOT NULL REFERENCES hari_libur(id) ON DELETE CASCADE,
+    karyawan_id INTEGER NOT NULL REFERENCES karyawan(id) ON DELETE CASCADE,
+    PRIMARY KEY (hari_libur_id, karyawan_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_hari_libur_karyawan_emp ON hari_libur_karyawan(karyawan_id);
 
   CREATE TABLE IF NOT EXISTS penugasan_kerja_khusus (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -519,7 +519,7 @@ export function AdminDashboardTab({ onNavigateApproval }: { onNavigateApproval: 
       render: (r) => (
         <div>
           <p className="font-semibold text-slate-900 dark:text-slate-100">{r.namaLengkap}</p>
-          <p className="text-xs text-slate-500 dark:text-slate-400">{r.jabatan}</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">{r.bidangNama}</p>
         </div>
       ),
     },

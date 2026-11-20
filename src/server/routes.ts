@@ -2753,8 +2753,8 @@ export function registerApiRoutes(app: Express) {
       email: string;
       no_hp: string;
       kantor_id: number;
-      bidang_id: number;
-      jabatan: string;
+      bidang_id?: number | null;
+      jabatan?: string;
       username: string;
       password?: string;
       role?: Role;
@@ -2769,6 +2769,30 @@ export function registerApiRoutes(app: Express) {
     const today = getWibDateString();
     const empRole: Role = role === 'ADMIN' ? 'ADMIN' : 'KARYAWAN'; // Admin cannot mint SUPERADMIN
 
+    let resolvedBidangId = Number(bidang_id) || 0;
+    let derivedJabatan = empRole === 'ADMIN' ? 'Operator' : 'Karyawan';
+    if (empRole === 'ADMIN') {
+      const fallbackBidang = db
+        .prepare(`SELECT id FROM bidang_kerja ORDER BY CASE WHEN UPPER(kode) = 'ADM' THEN 0 ELSE 1 END, id ASC LIMIT 1`)
+        .get() as { id: number } | undefined;
+      if (!fallbackBidang) {
+        res.status(500).json({ error: 'Konfigurasi master bidang kerja belum tersedia.' });
+        return;
+      }
+      resolvedBidangId = fallbackBidang.id;
+    } else {
+      const bidangRow = db
+        .prepare(`SELECT id, nama FROM bidang_kerja WHERE id = ?`)
+        .get(resolvedBidangId) as { id: number; nama: string } | undefined;
+      if (!bidangRow) {
+        res.status(400).json({ error: 'Bidang kerja yang dipilih tidak ditemukan.' });
+        return;
+      }
+      resolvedBidangId = bidangRow.id;
+      derivedJabatan = bidangRow.nama;
+    }
+    const finalJabatan = (jabatan || '').trim() || derivedJabatan;
+
     db.exec('BEGIN IMMEDIATE');
     try {
       const empInfo = db
@@ -2782,8 +2806,8 @@ export function registerApiRoutes(app: Express) {
           email.trim(),
           (no_hp || '').trim(),
           Number(kantor_id),
-          Number(bidang_id),
-          (jabatan || 'Staff').trim(),
+          resolvedBidangId,
+          finalJabatan,
           today
         );
       const empId = Number(empInfo.lastInsertRowid);
@@ -2800,7 +2824,7 @@ export function registerApiRoutes(app: Express) {
         targetEntity: 'karyawan',
         targetId: empId,
         karyawanId: empId,
-        after: { nik, nama_lengkap, kantor_id, bidang_id, jabatan, role: empRole },
+        after: { nik, nama_lengkap, kantor_id, bidang_id: resolvedBidangId, jabatan: finalJabatan, role: empRole },
       });
       db.exec('COMMIT');
       res.status(201).json({ id: empId });
@@ -2836,28 +2860,31 @@ export function registerApiRoutes(app: Express) {
     const nextBidangId = Number(bidang_id);
     if (
       !nama_lengkap?.trim() ||
-      !jabatan?.trim() ||
       !Number.isInteger(nextKantorId) ||
       !Number.isInteger(nextBidangId) ||
       ![0, 1].includes(Number(aktif))
     ) {
-      res.status(400).json({ error: 'Nama, jabatan, kantor, bidang kerja, dan status karyawan wajib valid.' });
+      res.status(400).json({ error: 'Nama, kantor, bidang kerja, dan status karyawan wajib valid.' });
       return;
     }
 
     const currentOfficeId = (before as { kantor_id: number }).kantor_id;
     const kantorExists = db.prepare(`SELECT id FROM kantor WHERE id = ? AND (aktif = 1 OR id = ?)`).get(nextKantorId, currentOfficeId);
-    const bidangExists = db.prepare(`SELECT id FROM bidang_kerja WHERE id = ?`).get(nextBidangId);
+    const bidangExists = db.prepare(`SELECT id, nama FROM bidang_kerja WHERE id = ?`).get(nextBidangId) as
+      | { id: number; nama: string }
+      | undefined;
     if (!kantorExists || !bidangExists) {
       res.status(400).json({ error: 'Kantor atau bidang kerja yang dipilih tidak ditemukan atau tidak aktif.' });
       return;
     }
 
+    const nextJabatan = (jabatan || '').trim() || bidangExists.nama;
+
     try {
       db.exec('BEGIN IMMEDIATE');
       db.prepare(
         `UPDATE karyawan SET nama_lengkap = ?, no_hp = ?, kantor_id = ?, bidang_id = ?, jabatan = ?, aktif = ? WHERE id = ? AND COALESCE(is_system_archive, 0) = 0`
-      ).run(nama_lengkap.trim(), (no_hp || '').trim(), nextKantorId, nextBidangId, jabatan.trim(), Number(aktif), id);
+      ).run(nama_lengkap.trim(), (no_hp || '').trim(), nextKantorId, nextBidangId, nextJabatan, Number(aktif), id);
       db.prepare(
         `UPDATE pengguna SET nama_tampilan = ?, no_hp = ? WHERE karyawan_id = ?`
       ).run(nama_lengkap.trim(), (no_hp || '').trim(), id);
@@ -3290,49 +3317,186 @@ export function registerApiRoutes(app: Express) {
   });
 
   app.get('/api/v1/holidays', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (_req: Request, res: Response) => {
-    const items = db
+    const rawItems = db
       .prepare(
         `SELECT h.*, kt.nama as kantor_nama
          FROM hari_libur h
          LEFT JOIN kantor kt ON h.kantor_id = kt.id
-         ORDER BY h.tanggal DESC`
+         ORDER BY h.tanggal DESC, h.id DESC`
       )
-      .all();
+      .all() as Array<{
+      id: number;
+      tanggal: string;
+      nama: string;
+      kantor_id: number | null;
+      kantor_nama?: string;
+      target_scope?: 'ALL' | 'KANTOR' | 'KARYAWAN';
+      dihitung_masuk: number;
+      keterangan: string;
+      created_by: number;
+      created_at: string;
+    }>;
+
+    const targetRows = db
+      .prepare(
+        `SELECT hlk.hari_libur_id, k.id, k.nik, k.nama_lengkap, kt.nama as kantor_nama, b.nama as bidang_nama
+         FROM hari_libur_karyawan hlk
+         JOIN karyawan k ON k.id = hlk.karyawan_id
+         LEFT JOIN kantor kt ON kt.id = k.kantor_id
+         LEFT JOIN bidang_kerja b ON b.id = k.bidang_id
+         ORDER BY k.nama_lengkap ASC`
+      )
+      .all() as Array<{
+      hari_libur_id: number;
+      id: number;
+      nik: string;
+      nama_lengkap: string;
+      kantor_nama?: string;
+      bidang_nama?: string;
+    }>;
+
+    const targetsByHoliday = new Map<
+      number,
+      Array<{ id: number; nik: string; nama_lengkap: string; kantor_nama?: string; bidang_nama?: string }>
+    >();
+    for (const row of targetRows) {
+      const list = targetsByHoliday.get(row.hari_libur_id) || [];
+      list.push({
+        id: row.id,
+        nik: row.nik,
+        nama_lengkap: row.nama_lengkap,
+        kantor_nama: row.kantor_nama,
+        bidang_nama: row.bidang_nama,
+      });
+      targetsByHoliday.set(row.hari_libur_id, list);
+    }
+
+    const items = rawItems.map((h) => {
+      const targetKaryawan = targetsByHoliday.get(h.id) || [];
+      const derivedScope: 'ALL' | 'KANTOR' | 'KARYAWAN' =
+        h.target_scope === 'KARYAWAN' || targetKaryawan.length > 0
+          ? 'KARYAWAN'
+          : h.kantor_id
+          ? 'KANTOR'
+          : 'ALL';
+      return {
+        ...h,
+        target_scope: derivedScope,
+        karyawan_ids: targetKaryawan.map((e) => e.id),
+        target_karyawan: targetKaryawan,
+      };
+    });
+
     res.json({ items });
   });
 
   app.post('/api/v1/holidays', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
-    const { tanggal, nama, kantor_id, dihitung_masuk, keterangan } = req.body as {
+    const { tanggal, nama, kantor_id, target_scope, karyawan_ids, dihitung_masuk, keterangan } = req.body as {
       tanggal: string;
       nama: string;
-      kantor_id: number | null;
+      kantor_id?: number | null;
+      target_scope?: 'ALL' | 'KANTOR' | 'KARYAWAN';
+      karyawan_ids?: number[];
       dihitung_masuk: boolean;
-      keterangan: string;
+      keterangan?: string;
     };
-    if (!tanggal || !nama) {
+    if (!tanggal || !nama?.trim()) {
       res.status(400).json({ error: 'Tanggal dan nama hari libur wajib diisi.' });
       return;
     }
-    const nowIso = getWibIsoString();
-    const info = db
-      .prepare(
-        `INSERT INTO hari_libur (tanggal, nama, kantor_id, dihitung_masuk, keterangan, created_by, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(tanggal, nama.trim(), kantor_id ? Number(kantor_id) : null, dihitung_masuk ? 1 : 0, (keterangan || '').trim(), req.authUser!.id, nowIso);
 
-    writeAuditLog(db, {
-      actor: req.authUser!,
-      req,
-      modul: 'KALENDER_LIBUR',
-      aksi: 'CREATE_HOLIDAY',
-      targetEntity: 'hari_libur',
-      targetId: Number(info.lastInsertRowid),
-      tanggalTerdampak: tanggal,
-      after: { tanggal, nama, kantor_id, dihitung_masuk },
-    });
+    const normalizedEmpIds = Array.isArray(karyawan_ids)
+      ? Array.from(new Set(karyawan_ids.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0)))
+      : [];
+
+    const resolvedScope: 'ALL' | 'KANTOR' | 'KARYAWAN' =
+      target_scope === 'KARYAWAN' || (target_scope === undefined && normalizedEmpIds.length > 0)
+        ? 'KARYAWAN'
+        : target_scope === 'KANTOR' || (target_scope === undefined && Boolean(kantor_id))
+        ? 'KANTOR'
+        : 'ALL';
+
+    let finalKantorId: number | null = null;
+    if (resolvedScope === 'KANTOR') {
+      const cid = Number(kantor_id);
+      const office = db.prepare(`SELECT id FROM kantor WHERE id = ?`).get(cid);
+      if (!office) {
+        res.status(400).json({ error: 'Kantor tujuan hari libur wajib dipilih.' });
+        return;
+      }
+      finalKantorId = cid;
+    } else if (resolvedScope === 'KARYAWAN') {
+      if (normalizedEmpIds.length === 0) {
+        res.status(400).json({ error: 'Pilih minimal satu karyawan untuk hari libur spesifik karyawan.' });
+        return;
+      }
+      for (const empId of normalizedEmpIds) {
+        if (!isAttendanceEligibleEmployee(empId)) {
+          res.status(400).json({ error: 'Salah satu karyawan yang dipilih tidak valid atau bukan akun karyawan absensi.' });
+          return;
+        }
+      }
+    }
+
+    const nowIso = getWibIsoString();
+    let newId = 0;
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const info = db
+        .prepare(
+          `INSERT INTO hari_libur (tanggal, nama, kantor_id, target_scope, dihitung_masuk, keterangan, created_by, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          tanggal,
+          nama.trim(),
+          finalKantorId,
+          resolvedScope,
+          dihitung_masuk ? 1 : 0,
+          (keterangan || '').trim(),
+          req.authUser!.id,
+          nowIso
+        );
+      newId = Number(info.lastInsertRowid);
+
+      if (resolvedScope === 'KARYAWAN') {
+        const insertLink = db.prepare(
+          `INSERT OR IGNORE INTO hari_libur_karyawan (hari_libur_id, karyawan_id) VALUES (?, ?)`
+        );
+        for (const empId of normalizedEmpIds) {
+          insertLink.run(newId, empId);
+        }
+      }
+
+      writeAuditLog(db, {
+        actor: req.authUser!,
+        req,
+        modul: 'KALENDER_LIBUR',
+        aksi: 'CREATE_HOLIDAY',
+        targetEntity: 'hari_libur',
+        targetId: newId,
+        tanggalTerdampak: tanggal,
+        after: {
+          tanggal,
+          nama: nama.trim(),
+          target_scope: resolvedScope,
+          kantor_id: finalKantorId,
+          karyawan_ids: resolvedScope === 'KARYAWAN' ? normalizedEmpIds : [],
+          dihitung_masuk: Boolean(dihitung_masuk),
+        },
+      });
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      res.status(400).json({
+        error: 'Gagal menambah hari libur.',
+        detail: safeErrorDetail(err),
+      });
+      return;
+    }
+
     broadcastWorkforceUpdate('HOLIDAY_CREATED');
-    res.status(201).json({ id: Number(info.lastInsertRowid) });
+    res.status(201).json({ id: newId });
   });
 
   app.delete('/api/v1/holidays/:id', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
@@ -3342,18 +3506,30 @@ export function registerApiRoutes(app: Express) {
       res.status(404).json({ error: 'Hari libur tidak ditemukan.' });
       return;
     }
-    db.prepare(`DELETE FROM hari_libur WHERE id = ?`).run(id);
-    writeAuditLog(db, {
-      actor: req.authUser!,
-      req,
-      modul: 'KALENDER_LIBUR',
-      aksi: 'DELETE_HOLIDAY',
-      targetEntity: 'hari_libur',
-      targetId: id,
-      tanggalTerdampak: before.tanggal,
-      before,
-      alasan: 'Penghapusan hari libur oleh Admin',
-    });
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.prepare(`DELETE FROM hari_libur_karyawan WHERE hari_libur_id = ?`).run(id);
+      db.prepare(`DELETE FROM hari_libur WHERE id = ?`).run(id);
+      writeAuditLog(db, {
+        actor: req.authUser!,
+        req,
+        modul: 'KALENDER_LIBUR',
+        aksi: 'DELETE_HOLIDAY',
+        targetEntity: 'hari_libur',
+        targetId: id,
+        tanggalTerdampak: before.tanggal,
+        before,
+        alasan: 'Penghapusan hari libur oleh Admin',
+      });
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      res.status(400).json({
+        error: 'Gagal menghapus hari libur.',
+        detail: safeErrorDetail(err),
+      });
+      return;
+    }
     broadcastWorkforceUpdate('HOLIDAY_DELETED');
     res.json({ ok: true });
   });
@@ -4825,15 +5001,24 @@ export function registerApiRoutes(app: Express) {
       const finalRole: 'KARYAWAN' | 'ADMIN' =
         body.role === 'ADMIN' ? 'ADMIN' : body.role === 'KARYAWAN' ? 'KARYAWAN' : reg.role_diminta;
       const finalKantor = Number(body.kantor_id) || reg.kantor_id;
-      const finalBidang = Number(body.bidang_id) || reg.bidang_id;
-      let derivedJabatan = reg.jabatan || 'Karyawan';
+      let finalBidang = Number(body.bidang_id) || reg.bidang_id;
+      let derivedJabatan = 'Karyawan';
       if (finalRole === 'ADMIN') {
+        const fallbackBidang = db
+          .prepare(`SELECT id FROM bidang_kerja ORDER BY CASE WHEN UPPER(kode) = 'ADM' THEN 0 ELSE 1 END, id ASC LIMIT 1`)
+          .get() as { id: number } | undefined;
+        if (fallbackBidang) finalBidang = fallbackBidang.id;
         derivedJabatan = 'Operator';
       } else {
         const bidangRow = db
-          .prepare(`SELECT nama FROM bidang_kerja WHERE id = ?`)
-          .get(finalBidang) as { nama: string } | undefined;
-        derivedJabatan = bidangRow?.nama || reg.jabatan || 'Karyawan';
+          .prepare(`SELECT id, nama FROM bidang_kerja WHERE id = ?`)
+          .get(finalBidang) as { id: number; nama: string } | undefined;
+        if (!bidangRow) {
+          res.status(400).json({ error: 'Bidang kerja wajib dipilih untuk akun Karyawan.' });
+          return;
+        }
+        finalBidang = bidangRow.id;
+        derivedJabatan = bidangRow.nama;
       }
       const finalJabatan = (body.jabatan || '').trim() || derivedJabatan;
       const nowIso = getWibIsoString();
@@ -5104,6 +5289,30 @@ export function registerApiRoutes(app: Express) {
         }
       }
 
+      let resolvedBidangId = Number(bidang_id) || 0;
+      let derivedJabatan = finalRole === 'ADMIN' ? 'Operator' : 'Karyawan';
+      if (finalRole === 'ADMIN') {
+        const fallbackBidang = db
+          .prepare(`SELECT id FROM bidang_kerja ORDER BY CASE WHEN UPPER(kode) = 'ADM' THEN 0 ELSE 1 END, id ASC LIMIT 1`)
+          .get() as { id: number } | undefined;
+        if (!fallbackBidang) {
+          res.status(500).json({ error: 'Konfigurasi master bidang kerja belum tersedia.' });
+          return;
+        }
+        resolvedBidangId = fallbackBidang.id;
+      } else {
+        const bidangRow = db
+          .prepare(`SELECT id, nama FROM bidang_kerja WHERE id = ?`)
+          .get(resolvedBidangId || 1) as { id: number; nama: string } | undefined;
+        if (!bidangRow) {
+          res.status(400).json({ error: 'Bidang kerja wajib valid untuk akun Karyawan.' });
+          return;
+        }
+        resolvedBidangId = bidangRow.id;
+        derivedJabatan = bidangRow.nama;
+      }
+      const finalJabatan = (jabatan || '').trim() || derivedJabatan;
+
       const nowIso = getWibIsoString();
       const today = getWibDateString();
 
@@ -5122,8 +5331,8 @@ export function registerApiRoutes(app: Express) {
             cleanEmail,
             (no_hp || '').trim(),
             Number(kantor_id) || 1,
-            Number(bidang_id) || 1,
-            (jabatan || 'Staff').trim(),
+            resolvedBidangId,
+            finalJabatan,
             today,
             savedFoto,
             savedFoto ? nowIso : null
@@ -5335,9 +5544,27 @@ export function registerApiRoutes(app: Express) {
       const cleanUser = (body.username ?? existing.username).trim().toLowerCase();
       const cleanEmail = (body.email ?? existing.email).trim().toLowerCase();
       const cleanHp = (body.no_hp ?? existing.no_hp).trim();
-      const cleanJabatan = (body.jabatan ?? existing.jabatan).trim();
       const nextKantor = Number(body.kantor_id ?? existing.kantor_id);
-      const nextBidang = Number(body.bidang_id ?? existing.bidang_id);
+      let nextBidang = Number(body.bidang_id ?? existing.bidang_id);
+      let derivedJabatan = existing.jabatan;
+      if (nextRole === 'ADMIN') {
+        const fallbackBidang = db
+          .prepare(`SELECT id FROM bidang_kerja ORDER BY CASE WHEN UPPER(kode) = 'ADM' THEN 0 ELSE 1 END, id ASC LIMIT 1`)
+          .get() as { id: number } | undefined;
+        if (fallbackBidang) nextBidang = fallbackBidang.id;
+        derivedJabatan = 'Operator';
+      } else {
+        const bidangRow = db
+          .prepare(`SELECT id, nama FROM bidang_kerja WHERE id = ?`)
+          .get(nextBidang) as { id: number; nama: string } | undefined;
+        if (!bidangRow) {
+          res.status(400).json({ error: 'Bidang kerja wajib valid untuk akun Karyawan.' });
+          return;
+        }
+        nextBidang = bidangRow.id;
+        derivedJabatan = bidangRow.nama;
+      }
+      const cleanJabatan = (body.jabatan || '').trim() || derivedJabatan;
       const nowIso = getWibIsoString();
 
       if (cleanName.length < 2 || !/^[a-z0-9._-]{3,30}$/.test(cleanUser) || !cleanEmail.includes('@')) {

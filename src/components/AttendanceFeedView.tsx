@@ -935,7 +935,9 @@ export function AttendanceFeedView({
                 <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
                   {user.role === 'SUPERADMIN' && user.karyawan_id === null
                     ? 'Pemilik Sistem · Bukan Pegawai'
-                    : `${user.jabatan} · ${user.kantor_nama.split('(')[0].trim()}`}
+                    : user.role === 'ADMIN'
+                    ? `Operator · ${user.kantor_nama.split('(')[0].trim()}`
+                    : `${user.bidang_nama} · ${user.kantor_nama.split('(')[0].trim()}`}
                 </p>
               </div>
             </div>

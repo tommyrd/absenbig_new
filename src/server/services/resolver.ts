@@ -213,14 +213,30 @@ export function resolveDayForEmployee(
     .prepare(`SELECT * FROM kalender_kerja WHERE kantor_id = ? AND hari_minggu = ? LIMIT 1`)
     .get(karyawan.kantor_id, dow) as KalenderKerja | undefined;
 
-  // Check Company Holiday (specific office OR all offices)
+  // Check Company Holiday (priority: specific employee > specific office > all offices)
   const holiday = db
     .prepare(
-      `SELECT * FROM hari_libur
-       WHERE tanggal = ? AND (kantor_id = ? OR kantor_id IS NULL)
-       ORDER BY kantor_id DESC LIMIT 1`
+      `SELECT h.*
+       FROM hari_libur h
+       WHERE h.tanggal = ?
+         AND (
+           (COALESCE(h.target_scope, 'ALL') = 'KARYAWAN' AND EXISTS (
+             SELECT 1 FROM hari_libur_karyawan hlk
+             WHERE hlk.hari_libur_id = h.id AND hlk.karyawan_id = ?
+           ))
+           OR (COALESCE(h.target_scope, 'ALL') = 'KANTOR' AND h.kantor_id = ?)
+           OR (COALESCE(h.target_scope, 'ALL') = 'ALL' AND (h.kantor_id IS NULL OR h.kantor_id = ?))
+         )
+       ORDER BY
+         CASE
+           WHEN COALESCE(h.target_scope, 'ALL') = 'KARYAWAN' THEN 0
+           WHEN h.kantor_id IS NOT NULL THEN 1
+           ELSE 2
+         END,
+         h.id DESC
+       LIMIT 1`
     )
-    .get(tanggal, karyawan.kantor_id) as HariLibur | undefined;
+    .get(tanggal, karyawan.id, karyawan.kantor_id, karyawan.kantor_id) as HariLibur | undefined;
 
   // Check Approved Request overlapping this date (exclude KERJA_HARI_LIBUR which resolves via penugasan_kerja_khusus)
   const approvedRequest = db

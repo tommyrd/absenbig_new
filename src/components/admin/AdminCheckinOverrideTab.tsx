@@ -159,7 +159,7 @@ export function AdminCheckinOverrideTab() {
                 <div className="min-w-0">
                   <p className="font-semibold text-sm text-slate-900 dark:text-slate-100 truncate">{item.namaLengkap}</p>
                   <p className="font-mono text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{item.nik}</p>
-                  <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">{item.jabatan} · {item.bidangNama}</p>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">Bidang: {item.bidangNama}</p>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">{item.kantorNama}</p>
                 </div>
                 <span className="shrink-0 rounded-full bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-900 px-2.5 py-1 text-[10px] font-bold text-red-800 dark:text-red-300">

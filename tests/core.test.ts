@@ -998,5 +998,223 @@ test('System setting wajib_gps_absensi controls whether GPS coordinates are requ
   }
 });
 
+test('Employee-specific holidays (target_scope = KARYAWAN) apply only to targeted employees and hydrate via API', async () => {
+  const db = getDb();
+  const app = express();
+  app.use(express.json({ limit: '6mb' }));
+  registerApiRoutes(app);
+
+  const server = http.createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const addr = server.address() as { port: number };
+  const baseUrl = `http://127.0.0.1:${addr.port}`;
+
+  const superadmin = db
+    .prepare(`SELECT id, role, token_version FROM pengguna WHERE role = 'SUPERADMIN' AND aktif = 1 LIMIT 1`)
+    .get() as { id: number; role: Role; token_version: number };
+  const saToken = signToken({
+    userId: superadmin.id,
+    role: superadmin.role,
+    tv: superadmin.token_version,
+    exp: Date.now() + 3_600_000,
+  });
+
+  // Pick two distinct active KARYAWAN employees
+  const empUsers = db
+    .prepare(
+      `SELECT k.* FROM karyawan k
+       JOIN pengguna u ON u.karyawan_id = k.id
+       WHERE k.aktif = 1 AND u.aktif = 1 AND u.role = 'KARYAWAN'
+       ORDER BY k.id ASC LIMIT 2`
+    )
+    .all() as unknown as Karyawan[];
+  assert.ok(empUsers.length >= 2, 'Expected at least 2 active KARYAWAN employees');
+  const [empA, empB] = empUsers;
+
+  // Use a clean Friday far from seeded holidays
+  const testDate = '2026-12-25';
+  let createdHolidayId: number | null = null;
+
+  try {
+    // Reject KARYAWAN scope with empty karyawan_ids
+    const invalidRes = await fetch(`${baseUrl}/api/v1/holidays`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${saToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        tanggal: testDate,
+        nama: 'Libur Natal Khusus',
+        target_scope: 'KARYAWAN',
+        karyawan_ids: [],
+        dihitung_masuk: 1,
+      }),
+    });
+    assert.equal(invalidRes.status, 400);
+
+    // Create employee-specific holiday targeting only empA
+    const createRes = await fetch(`${baseUrl}/api/v1/holidays`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${saToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        tanggal: testDate,
+        nama: 'Libur Natal Khusus',
+        target_scope: 'KARYAWAN',
+        karyawan_ids: [empA.id],
+        dihitung_masuk: 1,
+      }),
+    });
+    assert.equal(createRes.status, 201);
+    const createdJson = (await createRes.json()) as { id: number };
+    createdHolidayId = createdJson.id;
+    assert.ok(createdHolidayId > 0);
+
+    // Verify GET /api/v1/holidays hydrates target_scope and target_karyawan
+    const listRes = await fetch(`${baseUrl}/api/v1/holidays`, {
+      headers: { Authorization: `Bearer ${saToken}` },
+    });
+    assert.equal(listRes.status, 200);
+    const holidays = (await listRes.json()) as Array<{
+      id: number;
+      target_scope: string;
+      karyawan_ids: number[];
+      target_karyawan: Array<{ id: number; nama_lengkap: string }>;
+    }>;
+    const found = holidays.find((h) => h.id === createdHolidayId);
+    assert.ok(found);
+    assert.equal(found.target_scope, 'KARYAWAN');
+    assert.deepEqual(found.karyawan_ids, [empA.id]);
+    assert.equal(found.target_karyawan.length, 1);
+    assert.equal(found.target_karyawan[0].id, empA.id);
+
+    // Resolver: empA gets HARI_LIBUR (DIHITUNG_MASUK), empB stays HARI_KERJA
+    const dayA = resolveDayForEmployee(db, empA, testDate);
+    assert.equal(dayA.dayType, 'HARI_LIBUR');
+    assert.equal(dayA.mustCheckIn, false);
+    assert.equal(dayA.payrollStatus, 'DIHITUNG_MASUK');
+    assert.equal(dayA.holidayInfo?.nama, 'Libur Natal Khusus');
+
+    const dayB = resolveDayForEmployee(db, empB, testDate);
+    assert.notEqual(dayB.dayType, 'HARI_LIBUR');
+    assert.equal(dayB.holidayInfo, null);
+
+    // Delete holiday and ensure join table is cleaned up
+    const delRes = await fetch(`${baseUrl}/api/v1/holidays/${createdHolidayId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${saToken}` },
+    });
+    assert.equal(delRes.status, 200);
+    const leftover = db
+      .prepare('SELECT COUNT(*) as c FROM hari_libur_karyawan WHERE hari_libur_id = ?')
+      .get(createdHolidayId) as { c: number };
+    assert.equal(leftover.c, 0);
+    createdHolidayId = null;
+  } finally {
+    if (createdHolidayId) {
+      db.prepare('DELETE FROM hari_libur_karyawan WHERE hari_libur_id = ?').run(createdHolidayId);
+      db.prepare('DELETE FROM hari_libur WHERE id = ?').run(createdHolidayId);
+    }
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test('Account and employee management works without jabatan and auto-derives from bidang_kerja or Operator role', async () => {
+  const db = getDb();
+  const app = express();
+  app.use(express.json({ limit: '6mb' }));
+  registerApiRoutes(app);
+
+  const server = http.createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const addr = server.address() as { port: number };
+  const baseUrl = `http://127.0.0.1:${addr.port}`;
+
+  const superadmin = db
+    .prepare(`SELECT id, role, token_version FROM pengguna WHERE role = 'SUPERADMIN' AND aktif = 1 LIMIT 1`)
+    .get() as { id: number; role: Role; token_version: number };
+  const saToken = signToken({
+    userId: superadmin.id,
+    role: superadmin.role,
+    tv: superadmin.token_version,
+    exp: Date.now() + 3_600_000,
+  });
+
+  const bidang = db.prepare('SELECT id, nama FROM bidang_kerja WHERE aktif = 1 ORDER BY id ASC LIMIT 1').get() as {
+    id: number;
+    nama: string;
+  };
+  const kantor = db.prepare('SELECT id FROM kantor WHERE aktif = 1 ORDER BY id ASC LIMIT 1').get() as { id: number };
+  const suffix = Date.now();
+  const createdUserIds: number[] = [];
+  const createdEmpIds: number[] = [];
+
+  try {
+    // 1. Create KARYAWAN without jabatan
+    const empRes = await fetch(`${baseUrl}/api/v1/superadmin/accounts`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${saToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        nama_lengkap: 'Uji Tanpa Jabatan',
+        username: `uji_emp_${suffix}`,
+        email: `uji_emp_${suffix}@bignet.id`,
+        no_hp: '081234560001',
+        password: 'Password123!',
+        role: 'KARYAWAN',
+        bidang_id: bidang.id,
+        kantor_id: kantor.id,
+        gaji_bulanan: 4500000,
+      }),
+    });
+    assert.equal(empRes.status, 201);
+    const empCreated = (await empRes.json()) as { user_id: number; karyawan_id: number };
+    createdUserIds.push(empCreated.user_id);
+    createdEmpIds.push(empCreated.karyawan_id);
+
+    const empRow = db.prepare('SELECT jabatan, bidang_id FROM karyawan WHERE id = ?').get(empCreated.karyawan_id) as {
+      jabatan: string;
+      bidang_id: number;
+    };
+    assert.equal(empRow.bidang_id, bidang.id);
+    assert.equal(empRow.jabatan, bidang.nama);
+
+    // 2. Create OPERATOR (ADMIN) without jabatan or bidang_id
+    const opRes = await fetch(`${baseUrl}/api/v1/superadmin/accounts`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${saToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        nama_lengkap: 'Uji Operator Tanpa Bidang',
+        username: `uji_op_${suffix}`,
+        email: `uji_op_${suffix}@bignet.id`,
+        no_hp: '081234560002',
+        password: 'Password123!',
+        role: 'ADMIN',
+        kantor_id: kantor.id,
+        gaji_bulanan: 5000000,
+      }),
+    });
+    assert.equal(opRes.status, 201);
+    const opCreated = (await opRes.json()) as { user_id: number; karyawan_id: number };
+    createdUserIds.push(opCreated.user_id);
+    createdEmpIds.push(opCreated.karyawan_id);
+
+    const opRow = db.prepare('SELECT jabatan FROM karyawan WHERE id = ?').get(opCreated.karyawan_id) as {
+      jabatan: string;
+    };
+    assert.equal(opRow.jabatan, 'Operator');
+  } finally {
+    for (const uid of createdUserIds) {
+      db.prepare('DELETE FROM pengguna WHERE id = ?').run(uid);
+    }
+    for (const eid of createdEmpIds) {
+      db.prepare('DELETE FROM karyawan WHERE id = ?').run(eid);
+    }
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 
 

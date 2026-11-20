@@ -210,12 +210,25 @@ export interface KalenderKerja {
   kantor_nama?: string;
 }
 
+export type HolidayTargetScope = 'ALL' | 'KANTOR' | 'KARYAWAN';
+
+export interface HariLiburTargetEmployee {
+  id: number;
+  nik: string;
+  nama_lengkap: string;
+  kantor_nama?: string;
+  bidang_nama?: string;
+}
+
 export interface HariLibur {
   id: number;
   tanggal: string;
   nama: string;
   kantor_id: number | null;
   kantor_nama?: string;
+  target_scope?: HolidayTargetScope;
+  karyawan_ids?: number[];
+  target_karyawan?: HariLiburTargetEmployee[];
   dihitung_masuk: number;
   keterangan: string;
   created_by: number;

@@ -64,7 +64,6 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
   const [regHp, setRegHp] = useState('');
   const [regKantorId, setRegKantorId] = useState<number>(1);
   const [regBidangId, setRegBidangId] = useState<number>(1);
-  const [regCatatan, setRegCatatan] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regConfirmPassword, setRegConfirmPassword] = useState('');
   const [regFotoBase64, setRegFotoBase64] = useState<string | null>(null);
@@ -163,7 +162,6 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
           role_diminta: regRole,
           kantor_id: regKantorId,
           bidang_id: regRole === 'KARYAWAN' ? regBidangId : null,
-          catatan_pendaftar: regCatatan,
           fotoBase64: regFotoBase64,
         }),
       });
@@ -171,13 +169,13 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
         res.message ||
           'Pendaftaran berhasil dikirim dan menunggu persetujuan (ACC) Superadmin sebelum dapat masuk.'
       );
+      setRegRole('KARYAWAN');
       setRegName('');
       setRegUsername('');
       setRegEmail('');
       setRegHp('');
       setRegPassword('');
       setRegConfirmPassword('');
-      setRegCatatan('');
       setRegFotoBase64(null);
     } catch (err) {
       setRegError(err instanceof Error ? err.message : 'Gagal mengirim pendaftaran akun.');
@@ -293,13 +291,17 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
             </p>
 
             <h2 className="mt-1.5 font-display text-[22px] font-extrabold tracking-tight text-slate-900 dark:text-white sm:text-2xl">
-              {mode === 'login' ? formHeading : 'Buat Akun Baru'}
+              {mode === 'login'
+                ? formHeading
+                : regRole === 'ADMIN'
+                ? 'Daftar Akun Operator'
+                : 'Daftar Akun Karyawan'}
             </h2>
 
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 sm:text-[13px]">
               {mode === 'login'
                 ? 'Masuk untuk melanjutkan ke sistem absensi.'
-                : 'Lengkapi data diri. Akun aktif setelah disetujui Superadmin.'}
+                : 'Lengkapi data diri Anda. Akun aktif setelah di-ACC Superadmin.'}
             </p>
           </div>
 
@@ -403,8 +405,10 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
                 <button
                   type="button"
                   onClick={() => {
+                    handleSelectRegRole('KARYAWAN');
                     setMode('register');
                     setError(null);
+                    setRegError(null);
                     setRegSuccess(null);
                   }}
                   className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
@@ -484,39 +488,43 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
                     </div>
                   )}
 
-                  <div>
-                    <label className={labelClass}>Daftar Sebagai Role</label>
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      <button
-                        type="button"
-                        onClick={() => handleSelectRegRole('KARYAWAN')}
-                        className={
-                          regRole === 'KARYAWAN'
-                            ? 'min-h-14 rounded-xl border border-[#c0392b] bg-brand-50 px-3 py-3 text-left text-brand-900 dark:border-brand-500 dark:bg-brand-950/40 dark:text-brand-100'
-                            : 'min-h-14 rounded-xl border border-slate-200 bg-[#f8f9fb] px-3 py-3 text-left text-slate-700 transition hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'
-                        }
-                      >
-                        <span className="block text-xs font-bold">Karyawan</span>
-                        <span className="mt-0.5 block text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
-                          Absensi sesi, GPS, dan pengajuan
-                        </span>
-                      </button>
+                  {regRole === 'KARYAWAN' ? (
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 px-3.5 py-2.5 dark:border-emerald-900/70 dark:bg-emerald-950/30">
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-emerald-900 dark:text-emerald-200">
+                          Role Pendaftaran: KARYAWAN
+                        </p>
+                        <p className="text-[11px] text-emerald-800/80 dark:text-emerald-300/80">
+                          Untuk pegawai/teknisi yang melakukan absensi harian.
+                        </p>
+                      </div>
                       <button
                         type="button"
                         onClick={() => handleSelectRegRole('ADMIN')}
-                        className={
-                          regRole === 'ADMIN'
-                            ? 'min-h-14 rounded-xl border border-[#c0392b] bg-brand-50 px-3 py-3 text-left text-brand-900 dark:border-brand-500 dark:bg-brand-950/40 dark:text-brand-100'
-                            : 'min-h-14 rounded-xl border border-slate-200 bg-[#f8f9fb] px-3 py-3 text-left text-slate-700 transition hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'
-                        }
+                        className="text-[11px] font-semibold text-slate-600 underline decoration-slate-400 underline-offset-2 transition hover:text-[#c0392b] dark:text-slate-300 dark:hover:text-brand-400"
                       >
-                        <span className="block text-xs font-bold">Operator</span>
-                        <span className="mt-0.5 block text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
-                          Approval, kalender, dan payroll
-                        </span>
+                        Daftar sebagai Operator?
                       </button>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="space-y-2 rounded-xl border border-amber-300 bg-amber-50/90 px-3.5 py-3 dark:border-amber-800 dark:bg-amber-950/40">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs font-bold text-amber-950 dark:text-amber-200">
+                          Role Pendaftaran: OPERATOR (ADMIN)
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => handleSelectRegRole('KARYAWAN')}
+                          className="rounded-lg bg-white px-2.5 py-1 text-[11px] font-semibold text-amber-900 border border-amber-300 hover:bg-amber-100 dark:bg-slate-900 dark:text-amber-200 dark:border-amber-700"
+                        >
+                          ← Ubah ke Karyawan
+                        </button>
+                      </div>
+                      <p className="text-[11px] leading-relaxed text-amber-900 dark:text-amber-300">
+                        Khusus staf pengelola approval, kalender & payroll (tidak melakukan absensi harian dan tidak memiliki bidang kerja). Jika Anda karyawan/teknisi, klik <strong>Ubah ke Karyawan</strong>.
+                      </p>
+                    </div>
+                  )}
 
                   <div className="flex min-w-0 items-center gap-3 rounded-xl border border-slate-200 bg-[#f8f9fb] p-3 dark:border-slate-700 dark:bg-slate-950/60">
                     {regFotoBase64 ? (
@@ -697,32 +705,23 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
                     </div>
                   </div>
 
-                  <div>
-                    <label htmlFor="register-note" className={labelClass}>
-                      Catatan untuk Superadmin (Opsional)
-                    </label>
-                    <input
-                      id="register-note"
-                      type="text"
-                      value={regCatatan}
-                      onChange={(e) => setRegCatatan(e.target.value)}
-                      placeholder="Informasi tambahan"
-                      className={regInputClass}
-                    />
-                  </div>
-
                   <button
                     type="submit"
                     disabled={regLoading}
                     className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#c0392b] px-4 text-sm font-semibold text-white shadow-sm shadow-[#c0392b]/25 transition hover:bg-[#a93226] focus:outline-none focus:ring-4 focus:ring-[#c0392b]/25 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <UserPlus className="h-4 w-4" />
-                    {regLoading ? 'Mengirim Pendaftaran...' : 'Daftar & Ajukan ACC'}
+                    {regLoading
+                      ? 'Mengirim Pendaftaran...'
+                      : regRole === 'ADMIN'
+                      ? 'Daftar Sebagai Operator'
+                      : 'Daftar Sebagai Karyawan'}
                   </button>
 
                   <button
                     type="button"
                     onClick={() => {
+                      handleSelectRegRole('KARYAWAN');
                       setMode('login');
                       setRegError(null);
                     }}
