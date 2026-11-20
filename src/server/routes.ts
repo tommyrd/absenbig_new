@@ -477,7 +477,7 @@ export function registerApiRoutes(app: Express) {
   });
 
   app.get('/api/v1/auth/me', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
-    res.json({ user: req.authUser });
+    res.json({ user: req.authUser, token: extractToken(req) });
   });
 
   app.get('/api/v1/auth/register-options', (_req: Request, res: Response) => {
@@ -1179,8 +1179,8 @@ export function registerApiRoutes(app: Express) {
     });
   });
 
-  // Admin-only exception workflow: reopen a single expired next session for a short time.
-  app.get('/api/v1/admin/attendance/override-checkins', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  // Admin & Superadmin exception workflow: reopen a single expired next session for a short time.
+  app.get('/api/v1/admin/attendance/override-checkins', requireRole('ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const today = getWibDateString();
     const nowIso = getWibIsoString();
     const nowMin = parseHmToMinutes(getWibTimeString().slice(0, 5));
@@ -1232,7 +1232,7 @@ export function registerApiRoutes(app: Express) {
     res.json({ tanggal: today, serverTime: getWibTimeString(), items });
   });
 
-  app.post('/api/v1/admin/attendance/override-checkins', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/v1/admin/attendance/override-checkins', requireRole('ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const { karyawanId, alasan } = req.body as { karyawanId?: number; alasan?: string };
     const durasiMenit = Number((req.body as { durasiMenit?: number }).durasiMenit ?? 15);
     if (!Number.isSafeInteger(Number(karyawanId)) || Number(karyawanId) <= 0) {
@@ -2031,7 +2031,7 @@ export function registerApiRoutes(app: Express) {
     res.json({ items });
   });
 
-  app.post('/api/v1/requests', requireRole('KARYAWAN', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/v1/requests', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const user = req.authUser!;
     const {
       karyawanId,
@@ -2067,11 +2067,12 @@ export function registerApiRoutes(app: Express) {
       return;
     }
 
-    if (user.role === 'ADMIN' && !karyawanId) {
+    const isAdminActor = user.role === 'ADMIN' || user.role === 'SUPERADMIN';
+    if (isAdminActor && !karyawanId) {
       res.status(400).json({ error: 'Admin Operasional wajib memilih karyawan tujuan pengajuan.' });
       return;
     }
-    const targetEmpId = user.role === 'ADMIN' ? Number(karyawanId) : user.karyawan_id;
+    const targetEmpId = isAdminActor ? Number(karyawanId) : user.karyawan_id;
     if (targetEmpId === null || !isAttendanceEligibleEmployee(targetEmpId)) {
       res.status(403).json({ error: 'Pengajuan kehadiran hanya berlaku untuk akun Karyawan.' });
       return;
@@ -2156,7 +2157,7 @@ export function registerApiRoutes(app: Express) {
     }
   });
 
-  app.put('/api/v1/requests/:id', requireRole('KARYAWAN', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  app.put('/api/v1/requests/:id', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const user = req.authUser!;
     const reqId = Number(req.params.id);
     const existing = db.prepare(`SELECT * FROM pengajuan WHERE id = ?`).get(reqId) as Pengajuan | undefined;
@@ -2229,7 +2230,7 @@ export function registerApiRoutes(app: Express) {
     res.json({ ok: true });
   });
 
-  app.post('/api/v1/requests/:id/cancel', requireRole('KARYAWAN', 'ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/v1/requests/:id/cancel', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const user = req.authUser!;
     const reqId = Number(req.params.id);
     const { alasan } = req.body as { alasan?: string };
@@ -2315,7 +2316,7 @@ export function registerApiRoutes(app: Express) {
     res.json({ ok: true });
   });
 
-  app.post('/api/v1/requests/:id/decide', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/v1/requests/:id/decide', requireRole('ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const user = req.authUser!;
     const reqId = Number(req.params.id);
     const { decision, alasanKeputusan, berhakOffPengganti } = req.body as {
@@ -2904,14 +2905,14 @@ export function registerApiRoutes(app: Express) {
         wilayah_nama: office.wilayah_nama ?? null,
         wilayah_polygon_valid: polyValid,
       };
-      return req.authUser?.role === 'ADMIN'
+      return req.authUser?.role === 'ADMIN' || req.authUser?.role === 'SUPERADMIN'
         ? { ...enriched, ...getOfficeDeletionUsage(office.id) }
         : enriched;
     });
     res.json({ items });
   });
 
-  app.post('/api/v1/master/offices', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/v1/master/offices', requireRole('ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const { kode, nama, alamat, lat, lng, radius_meter, wilayah_id, aktif } = req.body as {
       kode?: string;
       nama?: string;
@@ -3007,7 +3008,7 @@ export function registerApiRoutes(app: Express) {
     }
   });
 
-  app.put('/api/v1/master/offices/:id', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  app.put('/api/v1/master/offices/:id', requireRole('ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const id = Number(req.params.id);
     const before = db.prepare(`SELECT * FROM kantor WHERE id = ?`).get(id) as
       | { id: number; wilayah_id?: number | null; aktif: number }
@@ -3077,7 +3078,7 @@ export function registerApiRoutes(app: Express) {
     res.json({ ok: true });
   });
 
-  app.delete('/api/v1/master/offices/:id', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  app.delete('/api/v1/master/offices/:id', requireRole('ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
       res.status(400).json({ error: 'ID kantor tidak valid.' });
@@ -3132,14 +3133,15 @@ export function registerApiRoutes(app: Express) {
 
   app.get('/api/v1/master/bidang', requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const bidangItems = db.prepare(`SELECT * FROM bidang_kerja ORDER BY id ASC`).all() as Array<{ id: number }>;
-    // Usage counts are administrative metadata and are only returned to ADMIN.
-    const items = req.authUser?.role === 'ADMIN'
-      ? bidangItems.map((bidang) => ({ ...bidang, ...getBidangDeletionUsage(bidang.id) }))
-      : bidangItems;
+    // Usage counts are administrative metadata and are only returned to ADMIN and SUPERADMIN.
+    const items =
+      req.authUser?.role === 'ADMIN' || req.authUser?.role === 'SUPERADMIN'
+        ? bidangItems.map((bidang) => ({ ...bidang, ...getBidangDeletionUsage(bidang.id) }))
+        : bidangItems;
     res.json({ items });
   });
 
-  app.post('/api/v1/master/bidang', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/v1/master/bidang', requireRole('ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const { kode, nama, deskripsi } = req.body as { kode?: string; nama?: string; deskripsi?: string };
     const cleanKode = (kode || '').trim().toUpperCase();
     const cleanNama = (nama || '').trim();
@@ -3170,7 +3172,7 @@ export function registerApiRoutes(app: Express) {
     }
   });
 
-  app.put('/api/v1/master/bidang/:id', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  app.put('/api/v1/master/bidang/:id', requireRole('ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const id = Number(req.params.id);
     const before = db.prepare(`SELECT * FROM bidang_kerja WHERE id = ?`).get(id) as
       | { id: number; kode: string; nama: string; deskripsi: string }
@@ -3215,7 +3217,7 @@ export function registerApiRoutes(app: Express) {
     res.json({ ok: true });
   });
 
-  app.delete('/api/v1/master/bidang/:id', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  app.delete('/api/v1/master/bidang/:id', requireRole('ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
       res.status(400).json({ error: 'ID bidang kerja tidak valid.' });
@@ -4058,7 +4060,7 @@ export function registerApiRoutes(app: Express) {
     return { sessions: normalized };
   }
 
-  app.post('/api/v1/policies', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/v1/policies', requireRole('ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const body = req.body as Partial<KebijakanAbsensi> & { sesi?: SesiConfig[] };
     const level = body.level || 'BIDANG';
     if (!['DEFAULT', 'BIDANG', 'KARYAWAN'].includes(level)) {
@@ -4169,7 +4171,7 @@ export function registerApiRoutes(app: Express) {
     }
   });
 
-  app.put('/api/v1/policies/:id', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  app.put('/api/v1/policies/:id', requireRole('ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const id = Number(req.params.id);
     const before = db.prepare(`SELECT * FROM kebijakan_absensi WHERE id = ?`).get(id) as
       | KebijakanAbsensi
@@ -4303,7 +4305,7 @@ export function registerApiRoutes(app: Express) {
     }
   });
 
-  app.delete('/api/v1/policies/:id', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  app.delete('/api/v1/policies/:id', requireRole('ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const id = Number(req.params.id);
     const before = db.prepare(`SELECT * FROM kebijakan_absensi WHERE id = ?`).get(id) as
       | KebijakanAbsensi
@@ -4359,7 +4361,7 @@ export function registerApiRoutes(app: Express) {
     res.json({ items });
   });
 
-  app.put('/api/v1/calendars/:id', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  app.put('/api/v1/calendars/:id', requireRole('ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const id = Number(req.params.id);
     const before = db.prepare(`SELECT * FROM kalender_kerja WHERE id = ?`).get(id);
     if (!before) {
@@ -4466,7 +4468,7 @@ export function registerApiRoutes(app: Express) {
     res.json({ items });
   });
 
-  app.post('/api/v1/holidays', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/v1/holidays', requireRole('ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const { tanggal, nama, kantor_id, target_scope, karyawan_ids, dihitung_masuk, keterangan } = req.body as {
       tanggal: string;
       nama: string;
@@ -4575,7 +4577,7 @@ export function registerApiRoutes(app: Express) {
     res.status(201).json({ id: newId });
   });
 
-  app.delete('/api/v1/holidays/:id', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  app.delete('/api/v1/holidays/:id', requireRole('ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const id = Number(req.params.id);
     const before = db.prepare(`SELECT * FROM hari_libur WHERE id = ?`).get(id) as { tanggal: string } | undefined;
     if (!before) {
@@ -4633,7 +4635,7 @@ export function registerApiRoutes(app: Express) {
     res.json({ items });
   });
 
-  app.post('/api/v1/special-work', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/v1/special-work', requireRole('ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const {
       karyawan_id,
       tanggal,
@@ -4722,7 +4724,7 @@ export function registerApiRoutes(app: Express) {
     }
   });
 
-  app.post('/api/v1/special-work/:id/cancel', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/v1/special-work/:id/cancel', requireRole('ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const id = Number(req.params.id);
     const before = db.prepare(`SELECT * FROM penugasan_kerja_khusus WHERE id = ?`).get(id) as
       | { karyawan_id: number; tanggal: string; status: string }
@@ -4808,7 +4810,7 @@ export function registerApiRoutes(app: Express) {
     res.json({ tanggal, items: rows });
   });
 
-  app.post('/api/v1/payroll/override', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/v1/payroll/override', requireRole('ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const user = req.authUser!;
     const { karyawanId, tanggal, hasilOverride, alasan, koreksiSetelahClosing } = req.body as {
       karyawanId?: number;
@@ -4913,7 +4915,7 @@ export function registerApiRoutes(app: Express) {
     res.json({ items });
   });
 
-  app.post('/api/v1/payroll/close', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/v1/payroll/close', requireRole('ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const user = req.authUser!;
     const { bulan, catatan } = req.body as { bulan?: string; catatan?: string };
     if (!bulan || !/^\d{4}-\d{2}$/.test(bulan)) {

@@ -1,6 +1,7 @@
 import type { AuthUser } from '../shared/types';
 
 const TOKEN_KEY = 'bignet_auth_token';
+const TAB_TOKEN_KEY = 'bignet_tab_auth_token';
 let memoryToken: string | null = null;
 
 function isLoopbackHost(hostname: string): boolean {
@@ -41,21 +42,70 @@ export function buildApiUrl(path: string): string {
   return `${base}${path}`;
 }
 
-export function getStoredToken(): string | null {
+/**
+ * Pins a token strictly to the current browser tab (memory + sessionStorage)
+ * without touching shared localStorage. Prevents multi-tab role/session bleeding.
+ */
+export function pinTabToken(token: string | null) {
+  memoryToken = token;
   try {
-    return localStorage.getItem(TOKEN_KEY) || memoryToken;
+    if (token) {
+      sessionStorage.setItem(TAB_TOKEN_KEY, token);
+    } else {
+      sessionStorage.removeItem(TAB_TOKEN_KEY);
+    }
   } catch {
-    return memoryToken;
+    // Fallback to in-memory token when sessionStorage is blocked in embedded contexts
   }
 }
 
+export function getStoredToken(): string | null {
+  if (memoryToken) return memoryToken;
+  try {
+    const tabToken = sessionStorage.getItem(TAB_TOKEN_KEY);
+    if (tabToken) {
+      memoryToken = tabToken;
+      return tabToken;
+    }
+  } catch {
+    // Ignore storage access errors in restricted iframes
+  }
+  try {
+    const sharedToken = localStorage.getItem(TOKEN_KEY);
+    if (sharedToken) {
+      // Pin the initial session to this tab so a later login in another tab
+      // cannot silently overwrite this tab's active Authorization header.
+      pinTabToken(sharedToken);
+      return sharedToken;
+    }
+  } catch {
+    // Ignore storage access errors
+  }
+  return memoryToken;
+}
+
 export function setStoredToken(token: string | null) {
-  memoryToken = token;
+  const previousTabToken =
+    memoryToken ||
+    (() => {
+      try {
+        return sessionStorage.getItem(TAB_TOKEN_KEY);
+      } catch {
+        return null;
+      }
+    })();
+
+  pinTabToken(token);
   try {
     if (token) {
       localStorage.setItem(TOKEN_KEY, token);
     } else {
-      localStorage.removeItem(TOKEN_KEY);
+      // Only clear shared localStorage if it still points to this tab's session
+      // so logging out in one tab does not clobber another tab's active login.
+      const sharedToken = localStorage.getItem(TOKEN_KEY);
+      if (!previousTabToken || sharedToken === previousTabToken) {
+        localStorage.removeItem(TOKEN_KEY);
+      }
     }
   } catch {
     // Fallback to in-memory token when storage is blocked in embedded contexts

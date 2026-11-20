@@ -994,3 +994,113 @@ test('11. Changing employee placement region cleans old allowed offices, writes 
   assert.equal(historicalRow.kantor_validasi_nama, 'Kantor Pontianak A');
   assert.equal(historicalRow.status_wilayah_absensi, 'DI_DALAM_WILAYAH');
 });
+
+test('12. SUPERADMIN has consistent access to Master Kantor/Bidang & /auth/me returns tab token while KARYAWAN/ADMIN boundaries stay enforced', async () => {
+  // /api/v1/auth/me returns active token for per-tab session pinning
+  const superMe = await apiJson<{ user: { role: string }; token?: string }>('/api/v1/auth/me', {
+    token: superToken,
+  });
+  assert.equal(superMe.status, 200);
+  assert.equal(superMe.data.user.role, 'SUPERADMIN');
+  assert.equal(superMe.data.token, superToken);
+
+  // SUPERADMIN can create, read deletion metadata, update, and delete Master Kantor
+  const createOffice = await apiJson<{ id: number }>('/api/v1/master/offices', {
+    method: 'POST',
+    token: superToken,
+    body: {
+      kode: 'KTR-SA1',
+      nama: 'Kantor Cabang Superadmin Test',
+      alamat: 'Jl. Uji RBAC No. 1',
+      lat: -0.025,
+      lng: 109.34,
+      radius_meter: 250,
+      wilayah_id: regionPontianakId,
+      aktif: 1,
+    },
+  });
+  assert.equal(createOffice.status, 201);
+  assert.ok(createOffice.data.id > 0);
+
+  const listOffices = await apiJson<{ items: Array<{ id: number; can_delete?: boolean }> }>(
+    '/api/v1/master/offices',
+    { token: superToken }
+  );
+  assert.equal(listOffices.status, 200);
+  const createdOffice = listOffices.data.items.find((o) => o.id === createOffice.data.id);
+  assert.ok(createdOffice);
+  assert.equal(createdOffice.can_delete, true);
+
+  const updateOffice = await apiJson(`/api/v1/master/offices/${createOffice.data.id}`, {
+    method: 'PUT',
+    token: superToken,
+    body: {
+      nama: 'Kantor Cabang Superadmin Updated',
+      alamat: 'Jl. Uji RBAC No. 2',
+      lat: -0.025,
+      lng: 109.34,
+      radius_meter: 300,
+      wilayah_id: regionPontianakId,
+      aktif: 1,
+    },
+  });
+  assert.equal(updateOffice.status, 200);
+
+  const deleteOffice = await apiJson(`/api/v1/master/offices/${createOffice.data.id}`, {
+    method: 'DELETE',
+    token: superToken,
+  });
+  assert.equal(deleteOffice.status, 200);
+
+  // SUPERADMIN can create, read deletion metadata, update, and delete Master Bidang
+  const createBidang = await apiJson<{ id: number }>('/api/v1/master/bidang', {
+    method: 'POST',
+    token: superToken,
+    body: { kode: 'BDG-SA1', nama: 'Bidang Superadmin Test', deskripsi: 'Uji RBAC' },
+  });
+  assert.equal(createBidang.status, 201);
+
+  const listBidang = await apiJson<{ items: Array<{ id: number; can_delete?: boolean }> }>(
+    '/api/v1/master/bidang',
+    { token: superToken }
+  );
+  assert.equal(listBidang.status, 200);
+  const createdBidang = listBidang.data.items.find((b) => b.id === createBidang.data.id);
+  assert.ok(createdBidang);
+  assert.equal(createdBidang.can_delete, true);
+
+  const updateBidang = await apiJson(`/api/v1/master/bidang/${createBidang.data.id}`, {
+    method: 'PUT',
+    token: superToken,
+    body: { kode: 'BDG-SA1', nama: 'Bidang Superadmin Updated', deskripsi: 'Updated' },
+  });
+  assert.equal(updateBidang.status, 200);
+
+  const deleteBidang = await apiJson(`/api/v1/master/bidang/${createBidang.data.id}`, {
+    method: 'DELETE',
+    token: superToken,
+  });
+  assert.equal(deleteBidang.status, 200);
+
+  // Boundaries remain strictly enforced:
+  // KARYAWAN still cannot mutate Master Kantor or Master Bidang
+  const empToken = await loginAs('emp_relocate', 'EmpPassword!123');
+  const empCreateOffice = await apiJson('/api/v1/master/offices', {
+    method: 'POST',
+    token: empToken,
+    body: { kode: 'NOPE', nama: 'Forbidden', lat: -0.025, lng: 109.34, radius_meter: 200 },
+  });
+  assert.equal(empCreateOffice.status, 403);
+
+  const empCreateBidang = await apiJson('/api/v1/master/bidang', {
+    method: 'POST',
+    token: empToken,
+    body: { kode: 'NOPE', nama: 'Forbidden' },
+  });
+  assert.equal(empCreateBidang.status, 403);
+
+  // ADMIN still cannot access SUPERADMIN-only endpoints
+  assert.equal((await apiJson('/api/v1/settings', { token: adminToken })).status, 403);
+  assert.equal((await apiJson('/api/v1/superadmin/accounts', { token: adminToken })).status, 403);
+});
+
