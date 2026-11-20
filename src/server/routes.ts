@@ -551,12 +551,26 @@ export function registerApiRoutes(app: Express) {
       return;
     }
 
-    const officeRow = db
-      .prepare(`SELECT id FROM kantor WHERE id = ? AND aktif = 1`)
-      .get(Number(kantor_id)) as { id: number } | undefined;
-    if (!officeRow) {
-      res.status(400).json({ error: 'Pilihan penempatan kantor wajib valid.' });
-      return;
+    let resolvedKantorId: number | null = null;
+    if (requestedRole === 'KARYAWAN') {
+      const officeRow = db
+        .prepare(`SELECT id FROM kantor WHERE id = ? AND aktif = 1`)
+        .get(Number(kantor_id)) as { id: number } | undefined;
+      if (!officeRow) {
+        res.status(400).json({ error: 'Pilihan penempatan kantor wajib valid untuk Karyawan.' });
+        return;
+      }
+      resolvedKantorId = officeRow.id;
+    } else {
+      // Operator (ADMIN) does not select an office/region on registration; assign internal fallback FK
+      const fallbackOffice = db
+        .prepare(`SELECT id FROM kantor ORDER BY aktif DESC, id ASC LIMIT 1`)
+        .get() as { id: number } | undefined;
+      if (!fallbackOffice) {
+        res.status(500).json({ error: 'Konfigurasi master kantor belum tersedia.' });
+        return;
+      }
+      resolvedKantorId = fallbackOffice.id;
     }
 
     let resolvedBidangId: number | null = null;
@@ -608,16 +622,21 @@ export function registerApiRoutes(app: Express) {
       return;
     }
 
+    if (!fotoBase64 || typeof fotoBase64 !== 'string' || !fotoBase64.trim()) {
+      res.status(400).json({
+        error: 'Foto profil wajib diunggah untuk pendaftaran akun Karyawan maupun Operator.',
+      });
+      return;
+    }
+
     let savedFoto: string | null = null;
-    if (fotoBase64) {
-      try {
-        savedFoto = saveAvatarBase64(fotoBase64, `reg_${cleanUser}`);
-      } catch (err) {
-        res.status(400).json({
-          error: err instanceof Error ? err.message : 'Foto profil tidak valid.',
-        });
-        return;
-      }
+    try {
+      savedFoto = saveAvatarBase64(fotoBase64, `reg_${cleanUser}`);
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : 'Foto profil tidak valid.',
+      });
+      return;
     }
 
     const nowIso = getWibIsoString();
@@ -640,7 +659,7 @@ export function registerApiRoutes(app: Express) {
         hashPassword(password),
         requestedRole,
         defaultJabatan,
-        Number(kantor_id),
+        resolvedKantorId,
         resolvedBidangId,
         savedFoto,
         (catatan_pendaftar || '').trim(),
@@ -660,7 +679,7 @@ export function registerApiRoutes(app: Express) {
         email: cleanEmail,
         role_diminta: requestedRole,
         jabatan: defaultJabatan,
-        kantor_id: Number(kantor_id),
+        kantor_id: requestedRole === 'KARYAWAN' ? resolvedKantorId : null,
         bidang_id: requestedRole === 'KARYAWAN' ? resolvedBidangId : null,
         status: 'PENDING',
       },
@@ -6775,8 +6794,8 @@ export function registerApiRoutes(app: Express) {
       }
       const finalJabatan = (jabatan || '').trim() || derivedJabatan;
 
-      // Resolve primary kantor_id: if KANTOR_TERTENTU picked offices and kantor_id wasn't in region, fallback gracefully or use provided kantor_id
-      let resolvedKantorId = Number(kantor_id) || 0;
+      // Resolve primary kantor_id: Operator (ADMIN) uses internal fallback office FK without selecting office/region
+      let resolvedKantorId = finalRole === 'KARYAWAN' ? Number(kantor_id) || 0 : 0;
       if (!resolvedKantorId) {
         if (placementCheck.kantorIzinIds.length > 0) {
           resolvedKantorId = placementCheck.kantorIzinIds[0];
@@ -6784,9 +6803,13 @@ export function registerApiRoutes(app: Express) {
           const regOffice = db
             .prepare(`SELECT id FROM kantor WHERE aktif = 1 AND wilayah_id = ? ORDER BY id ASC LIMIT 1`)
             .get(placementCheck.wilayahPenempatanId) as { id: number } | undefined;
-          resolvedKantorId = regOffice?.id ?? 1;
-        } else {
-          resolvedKantorId = 1;
+          resolvedKantorId = regOffice?.id ?? 0;
+        }
+        if (!resolvedKantorId) {
+          const fallbackOffice = db
+            .prepare(`SELECT id FROM kantor ORDER BY aktif DESC, id ASC LIMIT 1`)
+            .get() as { id: number } | undefined;
+          resolvedKantorId = fallbackOffice?.id ?? 1;
         }
       }
 

@@ -533,6 +533,10 @@ export function SuperadminAccountsTab({
 
   const submitAccount = async (e: FormEvent) => {
     e.preventDefault();
+    if (!editingAccount && accountForm.role !== 'SUPERADMIN' && !accountForm.fotoBase64) {
+      setModalErr('Foto profil wajib diunggah untuk membuat akun Karyawan maupun Operator.');
+      return;
+    }
     if (
       accountForm.role === 'KARYAWAN' &&
       accountForm.cakupan_lokasi_absensi === 'KANTOR_TERTENTU' &&
@@ -571,7 +575,7 @@ export function SuperadminAccountsTab({
             email: accountForm.email,
             no_hp: accountForm.no_hp,
             role: accountForm.role,
-            kantor_id: accountForm.kantor_id,
+            kantor_id: accountForm.role === 'KARYAWAN' ? accountForm.kantor_id : undefined,
             bidang_id: accountForm.role === 'KARYAWAN' ? accountForm.bidang_id : undefined,
             aktif: accountForm.aktif,
             fotoBase64: accountForm.fotoBase64,
@@ -591,6 +595,7 @@ export function SuperadminAccountsTab({
           method: 'POST',
           body: JSON.stringify({
             ...accountForm,
+            kantor_id: accountForm.role === 'KARYAWAN' ? accountForm.kantor_id : undefined,
             bidang_id: accountForm.role === 'KARYAWAN' ? accountForm.bidang_id : undefined,
             ...placementPayload,
           }),
@@ -1704,30 +1709,26 @@ export function SuperadminAccountsTab({
                 </div>
               </div>
 
-              <div
-                className={`grid grid-cols-1 gap-3 ${
-                  approveForm.role === 'KARYAWAN' ? 'sm:grid-cols-2' : ''
-                }`}
-              >
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Penempatan Kantor
-                  </label>
-                  <select
-                    value={approveForm.kantor_id}
-                    onChange={(e) =>
-                      setApproveForm({ ...approveForm, kantor_id: Number(e.target.value) })
-                    }
-                    className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
-                  >
-                    {offices.map((o) => (
-                      <option key={o.id} value={o.id}>
-                        {o.nama}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {approveForm.role === 'KARYAWAN' && (
+              {approveForm.role === 'KARYAWAN' ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Penempatan Kantor
+                    </label>
+                    <select
+                      value={approveForm.kantor_id}
+                      onChange={(e) =>
+                        setApproveForm({ ...approveForm, kantor_id: Number(e.target.value) })
+                      }
+                      className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
+                    >
+                      {offices.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.nama}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                       Bidang Kerja
@@ -1746,8 +1747,12 @@ export function SuperadminAccountsTab({
                       ))}
                     </select>
                   </div>
-                )}
-              </div>
+                </div>
+              ) : (
+                <p className="text-[11px] text-indigo-800 dark:text-indigo-300 bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200/70 dark:border-indigo-900 rounded-lg px-3 py-2">
+                  Akun <strong>Operator</strong> tidak memerlukan pemilihan kantor, wilayah penempatan, maupun bidang kerja karena tidak melakukan absensi harian.
+                </p>
+              )}
 
               {approveForm.role === 'KARYAWAN' && (
                 <EmployeePlacementSection
@@ -1905,11 +1910,26 @@ export function SuperadminAccountsTab({
                   size="lg"
                 />
                 <div className="flex-1 min-w-0 space-y-1.5">
-                  <p className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-                    Foto Profil Akun
-                  </p>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <p className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                      Foto Profil Akun
+                    </p>
+                    {!editingAccount && (
+                      accountForm.fotoBase64 ? (
+                        <span className="inline-flex items-center rounded-full bg-emerald-100 dark:bg-emerald-950/70 px-2 py-0.5 text-[10px] font-bold text-emerald-800 dark:text-emerald-300">
+                          Foto siap
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center rounded-full bg-red-100 dark:bg-red-950/70 px-2 py-0.5 text-[10px] font-bold text-red-700 dark:text-red-300">
+                          Wajib
+                        </span>
+                      )
+                    )}
+                  </div>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    PNG, JPG, atau WEBP maksimal 10 MB.
+                    {!editingAccount
+                      ? 'Wajib untuk Karyawan maupun Operator. PNG, JPG, atau WEBP maks. 10 MB.'
+                      : 'PNG, JPG, atau WEBP maksimal 10 MB.'}
                   </p>
                   <div className="flex flex-wrap items-center gap-2">
                     <label className="min-h-[38px] px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-100 inline-flex items-center gap-1.5 cursor-pointer">
@@ -2026,30 +2046,26 @@ export function SuperadminAccountsTab({
 
               {accountForm.role !== 'SUPERADMIN' && (
               <>
-              <div
-                className={`grid grid-cols-1 gap-3 ${
-                  accountForm.role === 'KARYAWAN' ? 'sm:grid-cols-2' : ''
-                }`}
-              >
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Penempatan Kantor
-                  </label>
-                  <select
-                    value={accountForm.kantor_id}
-                    onChange={(e) =>
-                      setAccountForm({ ...accountForm, kantor_id: Number(e.target.value) })
-                    }
-                    className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
-                  >
-                    {offices.map((o) => (
-                      <option key={o.id} value={o.id}>
-                        {o.nama}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {accountForm.role === 'KARYAWAN' && (
+              {accountForm.role === 'KARYAWAN' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Penempatan Kantor
+                    </label>
+                    <select
+                      value={accountForm.kantor_id}
+                      onChange={(e) =>
+                        setAccountForm({ ...accountForm, kantor_id: Number(e.target.value) })
+                      }
+                      className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
+                    >
+                      {offices.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.nama}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                       Bidang Kerja
@@ -2068,12 +2084,12 @@ export function SuperadminAccountsTab({
                       ))}
                     </select>
                   </div>
-                )}
-              </div>
+                </div>
+              )}
 
               {accountForm.role === 'ADMIN' && (
                 <p className="text-[11px] text-indigo-800 dark:text-indigo-300 bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200/70 dark:border-indigo-900 rounded-lg px-3 py-2">
-                  Akun <strong>Operator</strong> tidak memiliki bidang kerja, wilayah penempatan, maupun cakupan kantor absensi, dan digunakan khusus untuk mengelola monitoring, approval, kalender, serta payroll.
+                  Akun <strong>Operator</strong> tidak memilih kantor, bidang kerja, wilayah penempatan, maupun cakupan lokasi absensi karena tidak melakukan absensi harian.
                 </p>
               )}
 

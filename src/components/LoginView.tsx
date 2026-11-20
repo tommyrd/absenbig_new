@@ -67,6 +67,7 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
   const [regPassword, setRegPassword] = useState('');
   const [regConfirmPassword, setRegConfirmPassword] = useState('');
   const [regFotoBase64, setRegFotoBase64] = useState<string | null>(null);
+  const [regPhotoMissing, setRegPhotoMissing] = useState(false);
   const [regSuccess, setRegSuccess] = useState<string | null>(null);
   const [regError, setRegError] = useState<string | null>(null);
   const [regLoading, setRegLoading] = useState(false);
@@ -104,6 +105,7 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
     reader.onload = () => {
       if (typeof reader.result === 'string') {
         setRegFotoBase64(reader.result);
+        setRegPhotoMissing(false);
         setRegError(null);
       }
     };
@@ -144,6 +146,12 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
     setRegError(null);
     setRegSuccess(null);
 
+    if (!regFotoBase64) {
+      setRegPhotoMissing(true);
+      setRegError('Foto profil wajib diunggah sebelum mengirim pendaftaran akun.');
+      return;
+    }
+
     if (regPassword !== regConfirmPassword) {
       setRegError('Konfirmasi kata sandi tidak cocok.');
       return;
@@ -160,7 +168,7 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
           no_hp: regHp,
           password: regPassword,
           role_diminta: regRole,
-          kantor_id: regKantorId,
+          kantor_id: regRole === 'KARYAWAN' ? regKantorId : null,
           bidang_id: regRole === 'KARYAWAN' ? regBidangId : null,
           fotoBase64: regFotoBase64,
         }),
@@ -177,6 +185,7 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
       setRegPassword('');
       setRegConfirmPassword('');
       setRegFotoBase64(null);
+      setRegPhotoMissing(false);
     } catch (err) {
       setRegError(err instanceof Error ? err.message : 'Gagal mengirim pendaftaran akun.');
     } finally {
@@ -521,12 +530,18 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
                         </button>
                       </div>
                       <p className="text-[11px] leading-relaxed text-amber-900 dark:text-amber-300">
-                        Khusus staf pengelola approval, kalender & payroll (tidak melakukan absensi harian dan tidak memiliki bidang kerja). Jika Anda karyawan/teknisi, klik <strong>Ubah ke Karyawan</strong>.
+                        Khusus staf pengelola approval, kalender &amp; payroll (tidak melakukan absensi harian, tidak perlu memilih wilayah/kantor maupun bidang kerja). Jika Anda karyawan/teknisi, klik <strong>Ubah ke Karyawan</strong>.
                       </p>
                     </div>
                   )}
 
-                  <div className="flex min-w-0 items-center gap-3 rounded-xl border border-slate-200 bg-[#f8f9fb] p-3 dark:border-slate-700 dark:bg-slate-950/60">
+                  <div
+                    className={`flex min-w-0 items-center gap-3 rounded-xl border p-3 transition-colors ${
+                      regPhotoMissing && !regFotoBase64
+                        ? 'border-red-400 bg-red-50/50 dark:border-red-700 dark:bg-red-950/30'
+                        : 'border-slate-200 bg-[#f8f9fb] dark:border-slate-700 dark:bg-slate-950/60'
+                    }`}
+                  >
                     {regFotoBase64 ? (
                       <img
                         src={regFotoBase64}
@@ -539,15 +554,27 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
                       </div>
                     )}
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-                        Foto Profil Akun
-                      </p>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <p className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                          Foto Profil Akun
+                        </p>
+                        {regFotoBase64 ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300">
+                            <CheckCircle2 className="h-3 w-3" />
+                            Foto siap
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-700 dark:bg-red-950/70 dark:text-red-300">
+                            Wajib
+                          </span>
+                        )}
+                      </div>
                       <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
-                        PNG, JPG, atau WEBP maksimal 10 MB.
+                        Wajib diunggah untuk Karyawan maupun Operator. PNG, JPG, atau WEBP maks. 10 MB.
                       </p>
                       <label className="mt-2 inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
                         <Camera className="h-3.5 w-3.5" />
-                        {regFotoBase64 ? 'Ganti Foto' : 'Pilih Foto'}
+                        {regFotoBase64 ? 'Ganti Foto' : 'Unggah Foto Profil *'}
                         <input
                           type="file"
                           accept="image/png,image/jpeg,image/webp"
@@ -627,29 +654,25 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
                     </div>
                   </div>
 
-                  <div
-                    className={`grid grid-cols-1 gap-3 ${
-                      regRole === 'KARYAWAN' ? 'sm:grid-cols-2' : ''
-                    }`}
-                  >
-                    <div className="min-w-0">
-                      <label htmlFor="register-office" className={labelClass}>
-                        Penempatan Kantor
-                      </label>
-                      <select
-                        id="register-office"
-                        value={regKantorId}
-                        onChange={(e) => setRegKantorId(Number(e.target.value))}
-                        className={regInputClass}
-                      >
-                        {offices.map((o) => (
-                          <option key={o.id} value={o.id}>
-                            {o.nama}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    {regRole === 'KARYAWAN' && (
+                  {regRole === 'KARYAWAN' && (
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div className="min-w-0">
+                        <label htmlFor="register-office" className={labelClass}>
+                          Penempatan Kantor
+                        </label>
+                        <select
+                          id="register-office"
+                          value={regKantorId}
+                          onChange={(e) => setRegKantorId(Number(e.target.value))}
+                          className={regInputClass}
+                        >
+                          {offices.map((o) => (
+                            <option key={o.id} value={o.id}>
+                              {o.nama}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                       <div className="min-w-0">
                         <label htmlFor="register-department" className={labelClass}>
                           Bidang Kerja
@@ -667,8 +690,8 @@ export function LoginView({ settings, onSuccess }: LoginViewProps) {
                           ))}
                         </select>
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div className="min-w-0">

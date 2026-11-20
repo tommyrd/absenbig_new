@@ -389,7 +389,34 @@ test('4. Superadmin can create Admin & Karyawan accounts (explicit password enfo
   assert.equal(techLogin.status, 200);
   karyawanToken = techLogin.data.token;
 
-  // Reject path blocks login with rejection reason
+  // Registration without profile photo must fail for BOTH Karyawan and Operator
+  const missingPhotoEmp = await apiJson('/api/v1/auth/register', {
+    method: 'POST',
+    body: {
+      nama_lengkap: 'Tanpa Foto Karyawan',
+      username: 'tanpafoto_emp',
+      email: 'tanpafoto_emp@bignet.co.id',
+      password: 'Password123',
+      role_diminta: 'KARYAWAN',
+      kantor_id: 1,
+      bidang_id: 1,
+    },
+  });
+  assert.equal(missingPhotoEmp.status, 400);
+
+  const missingPhotoOp = await apiJson('/api/v1/auth/register', {
+    method: 'POST',
+    body: {
+      nama_lengkap: 'Tanpa Foto Operator',
+      username: 'tanpafoto_op',
+      email: 'tanpafoto_op@bignet.co.id',
+      password: 'Password123',
+      role_diminta: 'ADMIN',
+    },
+  });
+  assert.equal(missingPhotoOp.status, 400);
+
+  // Reject path: Operator registers WITHOUT selecting kantor_id/bidang_id (only mandatory photo)
   const rejectCandidate = await apiJson<{ id: number }>('/api/v1/auth/register', {
     method: 'POST',
     body: {
@@ -398,8 +425,7 @@ test('4. Superadmin can create Admin & Karyawan accounts (explicit password enfo
       email: 'ditolak1@bignet.co.id',
       password: 'Password123',
       role_diminta: 'ADMIN',
-      kantor_id: 1,
-      bidang_id: 3,
+      fotoBase64: SAMPLE_PNG_BASE64,
     },
   });
   assert.equal(rejectCandidate.status, 201);
