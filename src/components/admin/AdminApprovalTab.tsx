@@ -5,6 +5,7 @@ import { getServerWibDateString } from '../../lib/server-clock-client';
 import type { Karyawan, Pengajuan, RequestType } from '../../shared/types';
 import { DataTable, type ColumnDef } from '../DataTable';
 import { StatusBadge } from '../StatusBadge';
+import { UserAvatar } from '../UserAvatar';
 
 export function AdminApprovalTab() {
   const [requests, setRequests] = useState<Pengajuan[]>([]);
@@ -130,11 +131,21 @@ export function AdminApprovalTab() {
       header: 'Karyawan',
       sortValue: (r) => r.karyawan_nama || '',
       render: (r) => (
-        <div>
-          <p className="font-semibold text-slate-900 dark:text-slate-100">{r.karyawan_nama}</p>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            {r.nik} · {r.bidang_nama}
-          </p>
+        <div className="flex items-center gap-2.5 min-w-0">
+          <UserAvatar
+            karyawanId={r.karyawan_id}
+            name={r.karyawan_nama || 'Karyawan'}
+            role="KARYAWAN"
+            subtitle={[r.nik, r.bidang_nama].filter(Boolean).join(' · ')}
+            size="sm"
+            className="!rounded-full"
+          />
+          <div className="min-w-0">
+            <p className="font-semibold text-slate-900 dark:text-slate-100 truncate">{r.karyawan_nama}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+              {r.nik} · {r.bidang_nama}
+            </p>
+          </div>
         </div>
       ),
     },

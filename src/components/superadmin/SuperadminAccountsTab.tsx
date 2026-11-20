@@ -577,6 +577,11 @@ export function SuperadminAccountsTab({
           <UserAvatar
             name={r.nama_lengkap}
             role={r.role_diminta}
+            subtitle={
+              r.role_diminta === 'KARYAWAN'
+                ? [r.bidang_nama, r.kantor_nama?.split('(')[0].trim()].filter(Boolean).join(' · ')
+                : `Calon Operator · ${r.kantor_nama?.split('(')[0].trim() || ''}`
+            }
             srcOverride={getAuthorizedRegistrationAvatarUrl(r.id)}
             size="md"
           />
@@ -690,9 +695,16 @@ export function SuperadminAccountsTab({
         <div className="flex items-center gap-3">
           <UserAvatar
             karyawanId={r.karyawan_id}
-            userId={r.karyawan_id === null ? r.user_id : null}
+            userId={r.user_id}
             name={r.nama_lengkap}
             role={r.role}
+            subtitle={
+              r.role === 'SUPERADMIN'
+                ? 'Pemilik Sistem'
+                : r.role === 'ADMIN'
+                ? `Operator · ${r.kantor_nama?.split('(')[0].trim() || ''}`
+                : [r.nik, r.bidang_nama, r.kantor_nama?.split('(')[0].trim()].filter(Boolean).join(' · ')
+            }
             version={r.foto_profil_updated_at}
             size="md"
           />
@@ -879,8 +891,10 @@ export function SuperadminAccountsTab({
         <div className="flex items-center gap-3">
           <UserAvatar
             karyawanId={r.karyawan_id}
+            userId={r.user_id}
             name={r.nama_lengkap}
             role={r.role}
+            subtitle={[r.nik, r.bidang_nama, r.kantor_nama?.split('(')[0].trim()].filter(Boolean).join(' · ')}
             version={r.foto_profil_updated_at}
             size="sm"
           />

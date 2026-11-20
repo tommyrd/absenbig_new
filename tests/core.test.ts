@@ -1443,5 +1443,77 @@ test('Employee offboarding, reactivation, and audited permanent delete by Operat
   }
 });
 
+test('All roles (KARYAWAN, ADMIN, SUPERADMIN) can access team directory and view each other profile photos', async () => {
+  const db = getDb();
+  const app = express();
+  app.use(express.json({ limit: '6mb' }));
+  registerApiRoutes(app);
+
+  const server = http.createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const addr = server.address() as { port: number };
+  const baseUrl = `http://127.0.0.1:${addr.port}`;
+
+  const superadmin = db
+    .prepare(`SELECT id, role, token_version FROM pengguna WHERE role = 'SUPERADMIN' AND aktif = 1 LIMIT 1`)
+    .get() as { id: number; role: Role; token_version: number };
+  const operator = db
+    .prepare(`SELECT id, karyawan_id, role, token_version FROM pengguna WHERE role = 'ADMIN' AND aktif = 1 LIMIT 1`)
+    .get() as { id: number; karyawan_id: number | null; role: Role; token_version: number };
+  const karyawan = db
+    .prepare(`SELECT id, karyawan_id, role, token_version FROM pengguna WHERE role = 'KARYAWAN' AND aktif = 1 LIMIT 1`)
+    .get() as { id: number; karyawan_id: number; role: Role; token_version: number };
+
+  const mkToken = (u: { id: number; role: Role; token_version: number }) =>
+    signToken({ userId: u.id, role: u.role, tv: u.token_version, exp: Date.now() + 3_600_000 });
+
+  const empToken = mkToken(karyawan);
+  const opToken = mkToken(operator);
+  const saToken = mkToken(superadmin);
+
+  try {
+    // Every role can list the cross-role team directory and see all 3 roles without leaking private fields
+    for (const token of [empToken, opToken, saToken]) {
+      const dirRes = await fetch(`${baseUrl}/api/v1/team/directory`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      assert.equal(dirRes.status, 200);
+      const payload = (await dirRes.json()) as {
+        items: Array<Record<string, unknown>>;
+      };
+      assert.ok(payload.items.some((m) => m.role === 'SUPERADMIN'));
+      assert.ok(payload.items.some((m) => m.role === 'ADMIN'));
+      assert.ok(payload.items.some((m) => m.role === 'KARYAWAN'));
+      for (const item of payload.items) {
+        assert.equal('email' in item, false);
+        assert.equal('no_hp' in item, false);
+        assert.equal('password_hash' in item, false);
+      }
+    }
+
+    // Karyawan can view Superadmin, Operator, and Karyawan avatars
+    const saAvatarRes = await fetch(`${baseUrl}/api/v1/avatars/pengguna/${superadmin.id}`, {
+      headers: { Authorization: `Bearer ${empToken}` },
+    });
+    assert.equal(saAvatarRes.status, 200);
+    assert.ok((saAvatarRes.headers.get('content-type') || '').startsWith('image/'));
+
+    const opAvatarRes = await fetch(`${baseUrl}/api/v1/avatars/pengguna/${operator.id}`, {
+      headers: { Authorization: `Bearer ${empToken}` },
+    });
+    assert.equal(opAvatarRes.status, 200);
+    assert.ok((opAvatarRes.headers.get('content-type') || '').startsWith('image/'));
+
+    const empAvatarRes = await fetch(`${baseUrl}/api/v1/avatars/karyawan/${karyawan.karyawan_id}`, {
+      headers: { Authorization: `Bearer ${saToken}` },
+    });
+    assert.equal(empAvatarRes.status, 200);
+    assert.ok((empAvatarRes.headers.get('content-type') || '').startsWith('image/'));
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 
 

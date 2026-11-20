@@ -163,6 +163,7 @@ export function AdminShell({
             role={user.role}
             version={user.foto_profil_updated_at}
             size="md"
+            previewable={false}
           />
           <div className="min-w-0">
             <p className="font-semibold text-white truncate">{user.nama_lengkap}</p>
@@ -257,6 +258,7 @@ export function AdminShell({
                 role={user.role}
                 version={user.foto_profil_updated_at}
                 size="sm"
+                previewable={false}
               />
               <div className="min-w-0 text-xs">
                 <p className="font-semibold text-white truncate">{user.nama_lengkap}</p>
@@ -346,6 +348,7 @@ export function AdminShell({
                 role={user.role}
                 version={user.foto_profil_updated_at}
                 size="xs"
+                previewable={false}
               />
               <span className="hidden sm:inline">Profil</span>
             </button>

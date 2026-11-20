@@ -30,6 +30,8 @@ import type {
   BidangKerja,
   Kantor,
   ResolvedDay,
+  Role,
+  TeamDirectoryMember,
 } from '../shared/types';
 import { StatusBadge } from './StatusBadge';
 import { UserAvatar } from './UserAvatar';
@@ -138,6 +140,10 @@ export function AttendanceFeedView({
   const [search, setSearch] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [rosterModalOpen, setRosterModalOpen] = useState(false);
+  const [rosterModalTab, setRosterModalTab] = useState<'today' | 'directory'>('today');
+  const [teamDirectory, setTeamDirectory] = useState<TeamDirectoryMember[]>([]);
+  const [directorySearch, setDirectorySearch] = useState('');
+  const [directoryRoleFilter, setDirectoryRoleFilter] = useState<'ALL' | Role>('ALL');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [liveConnected, setLiveConnected] = useState(false);
@@ -169,6 +175,15 @@ export function AttendanceFeedView({
     }
   }, [scope, kantorFilter, bidangFilter]);
 
+  const loadDirectory = useCallback(async () => {
+    try {
+      const res = await apiFetch<{ items: TeamDirectoryMember[] }>('/api/v1/team/directory');
+      setTeamDirectory(res.items);
+    } catch {
+      // Non-blocking
+    }
+  }, []);
+
   useEffect(() => {
     Promise.all([
       apiFetch<{ items: Kantor[] }>('/api/v1/master/offices'),
@@ -179,7 +194,27 @@ export function AttendanceFeedView({
         setBidangList(b.items);
       })
       .catch(() => {});
-  }, []);
+    void loadDirectory();
+  }, [loadDirectory]);
+
+  const managementMembers = useMemo(
+    () => teamDirectory.filter((m) => m.role === 'SUPERADMIN' || m.role === 'ADMIN'),
+    [teamDirectory]
+  );
+
+  const filteredDirectory = useMemo(() => {
+    const q = directorySearch.trim().toLowerCase();
+    return teamDirectory.filter((m) => {
+      if (directoryRoleFilter !== 'ALL' && m.role !== directoryRoleFilter) return false;
+      if (!q) return true;
+      return (
+        m.namaLengkap.toLowerCase().includes(q) ||
+        (m.bidangNama || '').toLowerCase().includes(q) ||
+        (m.kantorNama || '').toLowerCase().includes(q) ||
+        (m.role === 'ADMIN' ? 'operator admin' : m.role.toLowerCase()).includes(q)
+      );
+    });
+  }, [teamDirectory, directoryRoleFilter, directorySearch]);
 
   useEffect(() => {
     void loadFeed();
@@ -197,13 +232,14 @@ export function AttendanceFeedView({
     es.addEventListener('connected', () => setLiveConnected(true));
     es.addEventListener('workforce', () => {
       void loadFeed();
+      void loadDirectory();
     });
     es.onerror = () => setLiveConnected(false);
     return () => {
       es.close();
       setLiveConnected(false);
     };
-  }, [loadFeed]);
+  }, [loadFeed, loadDirectory]);
 
   useEffect(() => {
     if (
@@ -473,6 +509,7 @@ export function AttendanceFeedView({
                             role={person.role}
                             version={person.fotoProfilUpdatedAt}
                             size="lg"
+                            previewable={false}
                             className="!w-full !h-full !rounded-full !border-0"
                           />
                         </div>
@@ -552,8 +589,12 @@ export function AttendanceFeedView({
 
               <button
                 type="button"
-                onClick={() => setRosterModalOpen(true)}
+                onClick={() => {
+                  setRosterModalTab('today');
+                  setRosterModalOpen(true);
+                }}
                 className="lg:hidden min-h-[40px] px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center gap-1.5 shrink-0"
+                title="Lihat daftar tim & foto profil semua role"
               >
                 <Users className="w-4 h-4" />
                 <span className="font-mono tabular-nums">
@@ -733,6 +774,7 @@ export function AttendanceFeedView({
                               karyawanId={post.karyawanId}
                               name={post.namaLengkap}
                               role={post.role}
+                              subtitle={`${post.bidangNama} · ${post.kantorNama.split('(')[0].trim()}`}
                               version={post.fotoProfilUpdatedAt}
                               size="sm"
                               className="!w-8 !h-8 !rounded-full !border-0"
@@ -924,6 +966,13 @@ export function AttendanceFeedView({
                 userId={user.karyawan_id === null ? user.id : null}
                 name={user.nama_lengkap}
                 role={user.role}
+                subtitle={
+                  user.role === 'SUPERADMIN' && user.karyawan_id === null
+                    ? 'Pemilik Sistem'
+                    : user.role === 'ADMIN'
+                    ? `Operator · ${user.kantor_nama.split('(')[0].trim()}`
+                    : `${user.bidang_nama} · ${user.kantor_nama.split('(')[0].trim()}`
+                }
                 version={user.foto_profil_updated_at}
                 size="md"
                 className="!rounded-full"
@@ -981,6 +1030,80 @@ export function AttendanceFeedView({
           )}
         </div>
 
+        {/* Leadership & Operators Directory Card (Cross-Role Profile Photos) */}
+        {managementMembers.length > 0 && (
+          <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl overflow-hidden shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+            <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+              <div>
+                <h2 className="font-display text-sm font-bold text-slate-900 dark:text-slate-100">
+                  Pimpinan & Operator
+                </h2>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Klik foto profil untuk memperbesar
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setRosterModalTab('directory');
+                  setRosterModalOpen(true);
+                }}
+                className="text-[11px] font-semibold text-brand-600 dark:text-brand-400 hover:underline shrink-0"
+              >
+                Semua Tim ({teamDirectory.length})
+              </button>
+            </div>
+            <div className="divide-y divide-slate-100 dark:divide-slate-800 max-h-[220px] overflow-y-auto">
+              {managementMembers.map((m) => {
+                const sub =
+                  m.role === 'SUPERADMIN'
+                    ? m.kantorNama
+                      ? `Superadmin · ${m.kantorNama.split('(')[0].trim()}`
+                      : 'Superadmin · Pemilik Sistem'
+                    : m.kantorNama
+                    ? `Operator · ${m.kantorNama.split('(')[0].trim()}`
+                    : 'Operator';
+                return (
+                  <div
+                    key={m.userId}
+                    className="px-4 py-2.5 flex items-center justify-between gap-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <UserAvatar
+                        karyawanId={m.karyawanId}
+                        userId={m.userId}
+                        name={m.namaLengkap}
+                        role={m.role}
+                        subtitle={sub}
+                        version={m.fotoProfilUpdatedAt}
+                        size="sm"
+                        className="!rounded-full"
+                      />
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                          {m.namaLengkap}
+                        </p>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                          {sub}
+                        </p>
+                      </div>
+                    </div>
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-md shrink-0 ${
+                        m.role === 'SUPERADMIN'
+                          ? 'bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+                          : 'bg-brand-50 dark:bg-brand-950/50 text-brand-700 dark:text-brand-300 border border-brand-200 dark:border-brand-800'
+                      }`}
+                    >
+                      {m.role === 'SUPERADMIN' ? 'Superadmin' : 'Operator'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Today's Colleagues */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl overflow-hidden shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
           <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
@@ -996,37 +1119,45 @@ export function AttendanceFeedView({
               {sortedRoster.length} org
             </span>
           </div>
-          <div className="divide-y divide-slate-100 dark:divide-slate-800 max-h-[520px] overflow-y-auto">
+          <div className="divide-y divide-slate-100 dark:divide-slate-800 max-h-[420px] overflow-y-auto">
             {sortedRoster.map((m) => {
               const isSelected = selectedEmpId === m.karyawanId;
+              const sub = `${m.bidangNama} · ${m.kantorNama.split('(')[0].trim()}`;
               return (
-                <button
+                <div
                   key={m.karyawanId}
-                  type="button"
-                  onClick={() => setSelectedEmpId(isSelected ? null : m.karyawanId)}
-                  className={`w-full px-4 py-2.5 text-left flex items-center justify-between gap-3 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/60 ${
+                  className={`w-full px-4 py-2.5 flex items-center justify-between gap-3 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/60 ${
                     isSelected ? 'bg-brand-50/70 dark:bg-brand-950/35' : ''
                   }`}
                 >
-                  <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
                     <UserAvatar
                       karyawanId={m.karyawanId}
                       name={m.namaLengkap}
                       role={m.role}
+                      subtitle={sub}
                       version={m.fotoProfilUpdatedAt}
                       size="sm"
                       className="!rounded-full"
                     />
-                    <div className="min-w-0">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedEmpId(isSelected ? null : m.karyawanId)}
+                      className="min-w-0 flex-1 text-left"
+                    >
                       <p className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
                         {m.namaLengkap}
                       </p>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                        {m.bidangNama} · {m.kantorNama.split('(')[0].trim()}
+                        {sub}
                       </p>
-                    </div>
+                    </button>
                   </div>
-                  <div className="text-right shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedEmpId(isSelected ? null : m.karyawanId)}
+                    className="text-right shrink-0"
+                  >
                     {m.sessionsCompleted > 0 ? (
                       <span className="inline-flex items-center gap-1 text-xs font-mono font-semibold text-emerald-700 dark:text-emerald-400 tabular-nums">
                         <CheckCircle2 className="w-3.5 h-3.5" />
@@ -1038,82 +1169,225 @@ export function AttendanceFeedView({
                         {m.operationalStatus.replace(/_/g, ' ')}
                       </span>
                     )}
-                  </div>
-                </button>
+                  </button>
+                </div>
               );
             })}
           </div>
         </div>
       </aside>
 
-      {/* Mobile Roster Sheet */}
+      {/* Roster & Cross-Role Team Directory Modal (Mobile & Desktop) */}
       {rosterModalOpen && (
         <div
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end justify-center lg:hidden"
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4"
           onClick={() => setRosterModalOpen(false)}
         >
           <div
-            className="bg-white dark:bg-slate-900 rounded-t-3xl w-full max-h-[82vh] flex flex-col border-t border-slate-200 dark:border-slate-800"
+            className="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-2xl w-full sm:max-w-lg max-h-[85vh] flex flex-col border-t sm:border border-slate-200 dark:border-slate-800 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="w-10 h-1.5 bg-slate-300 dark:bg-slate-700 rounded-full mx-auto mt-3 mb-1" />
-            <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+            <div className="w-10 h-1.5 bg-slate-300 dark:bg-slate-700 rounded-full mx-auto mt-3 mb-1 sm:hidden" />
+            <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
               <div>
                 <h2 className="font-display text-sm font-bold text-slate-900 dark:text-slate-100">
-                  Daftar Pegawai Hari Ini
+                  {rosterModalTab === 'today' ? 'Daftar Pegawai Hari Ini' : 'Direktori Tim (Semua Role)'}
                 </h2>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Ketuk nama pegawai untuk memfilter linimasa
+                  {rosterModalTab === 'today'
+                    ? 'Ketuk foto profil untuk memperbesar · ketuk nama untuk filter linimasa'
+                    : 'Klik foto profil Superadmin, Operator, atau Karyawan untuk memperbesar'}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setRosterModalOpen(false)}
-                className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg"
-                aria-label="Tutup daftar pegawai"
+                className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+                aria-label="Tutup daftar tim"
               >
                 <X className="w-5 h-5 text-slate-500 dark:text-slate-400" />
               </button>
             </div>
-            <div className="divide-y divide-slate-100 dark:divide-slate-800 overflow-y-auto p-1">
-              {sortedRoster.map((m) => (
+
+            <div className="px-4 pt-3 pb-2 border-b border-slate-100 dark:border-slate-800 space-y-2.5">
+              <div className="grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
                 <button
-                  key={m.karyawanId}
                   type="button"
-                  onClick={() => {
-                    setSelectedEmpId(selectedEmpId === m.karyawanId ? null : m.karyawanId);
-                    setRosterModalOpen(false);
-                  }}
-                  className="w-full px-3.5 py-3 flex items-center justify-between gap-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                  onClick={() => setRosterModalTab('today')}
+                  className={`py-2 px-3 rounded-lg text-xs font-semibold transition-colors ${
+                    rosterModalTab === 'today'
+                      ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
                 >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <UserAvatar
-                      karyawanId={m.karyawanId}
-                      name={m.namaLengkap}
-                      role={m.role}
-                      version={m.fotoProfilUpdatedAt}
-                      size="sm"
-                      className="!rounded-full"
-                    />
-                    <div className="min-w-0">
-                      <p className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
-                        {m.namaLengkap}
-                      </p>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                        {m.bidangNama} · {m.kantorNama.split('(')[0].trim()}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <span className="font-mono text-xs font-semibold text-slate-700 dark:text-slate-200 tabular-nums">
-                      {m.sessionsCompleted}/{m.sessionsTotal}
-                    </span>
-                    {m.lastSessionTime && (
-                      <p className="text-[10px] font-mono text-slate-400">{m.lastSessionTime} WIB</p>
-                    )}
-                  </div>
+                  Pegawai Hari Ini ({sortedRoster.length})
                 </button>
-              ))}
+                <button
+                  type="button"
+                  onClick={() => setRosterModalTab('directory')}
+                  className={`py-2 px-3 rounded-lg text-xs font-semibold transition-colors ${
+                    rosterModalTab === 'directory'
+                      ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  Semua Role ({teamDirectory.length})
+                </button>
+              </div>
+
+              {rosterModalTab === 'directory' && (
+                <div className="space-y-2">
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={directorySearch}
+                      onChange={(e) => setDirectorySearch(e.target.value)}
+                      placeholder="Cari nama, bidang, kantor, atau role..."
+                      className="w-full h-9 pl-9 pr-3 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(
+                      [
+                        { id: 'ALL', label: 'Semua' },
+                        { id: 'SUPERADMIN', label: 'Superadmin' },
+                        { id: 'ADMIN', label: 'Operator' },
+                        { id: 'KARYAWAN', label: 'Karyawan' },
+                      ] as const
+                    ).map((r) => (
+                      <button
+                        key={r.id}
+                        type="button"
+                        onClick={() => setDirectoryRoleFilter(r.id)}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors ${
+                          directoryRoleFilter === r.id
+                            ? 'bg-brand-600 text-white border-brand-600'
+                            : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                        }`}
+                      >
+                        {r.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="divide-y divide-slate-100 dark:divide-slate-800 overflow-y-auto p-1 flex-1">
+              {rosterModalTab === 'today' ? (
+                sortedRoster.map((m) => {
+                  const sub = `${m.bidangNama} · ${m.kantorNama.split('(')[0].trim()}`;
+                  return (
+                    <div
+                      key={m.karyawanId}
+                      className="w-full px-3.5 py-3 flex items-center justify-between gap-3 hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                    >
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <UserAvatar
+                          karyawanId={m.karyawanId}
+                          name={m.namaLengkap}
+                          role={m.role}
+                          subtitle={sub}
+                          version={m.fotoProfilUpdatedAt}
+                          size="sm"
+                          className="!rounded-full"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedEmpId(selectedEmpId === m.karyawanId ? null : m.karyawanId);
+                            setRosterModalOpen(false);
+                          }}
+                          className="min-w-0 flex-1 text-left"
+                        >
+                          <p className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                            {m.namaLengkap}
+                          </p>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                            {sub}
+                          </p>
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedEmpId(selectedEmpId === m.karyawanId ? null : m.karyawanId);
+                          setRosterModalOpen(false);
+                        }}
+                        className="text-right shrink-0"
+                      >
+                        <span className="font-mono text-xs font-semibold text-slate-700 dark:text-slate-200 tabular-nums">
+                          {m.sessionsCompleted}/{m.sessionsTotal}
+                        </span>
+                        {m.lastSessionTime && (
+                          <p className="text-[10px] font-mono text-slate-400">{m.lastSessionTime} WIB</p>
+                        )}
+                      </button>
+                    </div>
+                  );
+                })
+              ) : filteredDirectory.length === 0 ? (
+                <div className="px-4 py-8 text-center text-xs text-slate-500 dark:text-slate-400">
+                  Tidak ada anggota tim yang cocok dengan pencarian.
+                </div>
+              ) : (
+                filteredDirectory.map((m) => {
+                  const kantorShort = m.kantorNama ? m.kantorNama.split('(')[0].trim() : null;
+                  const sub =
+                    m.role === 'SUPERADMIN'
+                      ? kantorShort
+                        ? `Superadmin · ${kantorShort}`
+                        : 'Superadmin · Pemilik Sistem'
+                      : m.role === 'ADMIN'
+                      ? kantorShort
+                        ? `Operator · ${kantorShort}`
+                        : 'Operator'
+                      : [m.bidangNama, kantorShort].filter(Boolean).join(' · ');
+                  return (
+                    <div
+                      key={m.userId}
+                      className="w-full px-3.5 py-3 flex items-center justify-between gap-3 hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <UserAvatar
+                          karyawanId={m.karyawanId}
+                          userId={m.userId}
+                          name={m.namaLengkap}
+                          role={m.role}
+                          subtitle={sub}
+                          version={m.fotoProfilUpdatedAt}
+                          size="md"
+                          className="!rounded-full"
+                        />
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                            {m.namaLengkap}
+                          </p>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                            {sub}
+                          </p>
+                        </div>
+                      </div>
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-md shrink-0 ${
+                          m.role === 'SUPERADMIN'
+                            ? 'bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+                            : m.role === 'ADMIN'
+                            ? 'bg-brand-50 dark:bg-brand-950/50 text-brand-700 dark:text-brand-300 border border-brand-200 dark:border-brand-800'
+                            : 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                        }`}
+                      >
+                        {m.role === 'SUPERADMIN'
+                          ? 'Superadmin'
+                          : m.role === 'ADMIN'
+                          ? 'Operator'
+                          : 'Karyawan'}
+                      </span>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
         </div>
@@ -1135,6 +1409,7 @@ export function AttendanceFeedView({
                   karyawanId={lightboxPost.karyawanId}
                   name={lightboxPost.namaLengkap}
                   role={lightboxPost.role}
+                  subtitle={`${lightboxPost.bidangNama} · ${lightboxPost.kantorNama.split('(')[0].trim()}`}
                   version={lightboxPost.fotoProfilUpdatedAt}
                   size="sm"
                   className="!rounded-full"

@@ -448,6 +448,7 @@ export function EmployeeShell({
               role={user.role}
               version={user.foto_profil_updated_at}
               size="xs"
+              previewable={false}
             />
             <span className="hidden xl:inline max-w-[120px] truncate">{user.nama_lengkap}</span>
           </button>

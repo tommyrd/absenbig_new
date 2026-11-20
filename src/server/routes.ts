@@ -4975,10 +4975,12 @@ export function registerApiRoutes(app: Express) {
       const userId = Number(req.params.userId);
       const row = db
         .prepare(
-          `SELECT COALESCE(NULLIF(nama_tampilan, ''), username) as nama_lengkap,
-                  foto_profil_path, role
-           FROM pengguna
-           WHERE id = ?`
+          `SELECT COALESCE(k.nama_lengkap, NULLIF(u.nama_tampilan, ''), u.username) as nama_lengkap,
+                  COALESCE(k.foto_profil_path, u.foto_profil_path) as foto_profil_path,
+                  u.role
+           FROM pengguna u
+           LEFT JOIN karyawan k ON u.karyawan_id = k.id
+           WHERE u.id = ?`
         )
         .get(userId) as
         | { nama_lengkap: string; foto_profil_path: string | null; role: string }
@@ -4995,8 +4997,13 @@ export function registerApiRoutes(app: Express) {
         if (fs.existsSync(fullPath)) {
           const ext = path.extname(safeFile).toLowerCase();
           const mime =
-            ext === '.png' ? 'image/png' :
-            ext === '.webp' ? 'image/webp' : 'image/jpeg';
+            ext === '.svg'
+              ? 'image/svg+xml'
+              : ext === '.png'
+              ? 'image/png'
+              : ext === '.webp'
+              ? 'image/webp'
+              : 'image/jpeg';
           res.setHeader('Content-Type', mime);
           res.setHeader('X-Content-Type-Options', 'nosniff');
           res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
@@ -5010,6 +5017,57 @@ export function registerApiRoutes(app: Express) {
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('Cache-Control', 'no-cache');
       res.send(Buffer.from(buildDefaultAvatarSvg(row.nama_lengkap, row.role), 'utf8'));
+    }
+  );
+
+  // Cross-role company team directory so all roles (KARYAWAN, ADMIN/Operator, SUPERADMIN)
+  // can view each other's profile photos and basic work identity safely.
+  app.get(
+    '/api/v1/team/directory',
+    requireRole('KARYAWAN', 'ADMIN', 'SUPERADMIN'),
+    (_req: Request, res: Response) => {
+      const rows = db
+        .prepare(
+          `SELECT u.id as user_id,
+                  u.karyawan_id,
+                  COALESCE(k.nama_lengkap, NULLIF(u.nama_tampilan, ''), u.username) as nama_lengkap,
+                  u.role,
+                  CASE WHEN u.role = 'KARYAWAN' THEN b.nama ELSE NULL END as bidang_nama,
+                  kt.nama as kantor_nama,
+                  CASE WHEN COALESCE(k.foto_profil_path, u.foto_profil_path) IS NOT NULL THEN 1 ELSE 0 END as has_foto_profil,
+                  COALESCE(k.foto_profil_updated_at, u.foto_profil_updated_at) as foto_profil_updated_at
+           FROM pengguna u
+           LEFT JOIN karyawan k ON u.karyawan_id = k.id
+           LEFT JOIN bidang_kerja b ON k.bidang_id = b.id
+           LEFT JOIN kantor kt ON k.kantor_id = kt.id
+           WHERE u.aktif = 1
+             AND (u.karyawan_id IS NULL OR (k.aktif = 1 AND COALESCE(k.is_system_archive, 0) = 0))
+           ORDER BY CASE u.role WHEN 'SUPERADMIN' THEN 1 WHEN 'ADMIN' THEN 2 ELSE 3 END,
+                    LOWER(COALESCE(k.nama_lengkap, NULLIF(u.nama_tampilan, ''), u.username)) ASC`
+        )
+        .all() as Array<{
+        user_id: number;
+        karyawan_id: number | null;
+        nama_lengkap: string;
+        role: Role;
+        bidang_nama: string | null;
+        kantor_nama: string | null;
+        has_foto_profil: number;
+        foto_profil_updated_at: string | null;
+      }>;
+
+      res.json({
+        items: rows.map((r) => ({
+          userId: r.user_id,
+          karyawanId: r.karyawan_id,
+          namaLengkap: r.nama_lengkap,
+          role: r.role,
+          bidangNama: r.bidang_nama,
+          kantorNama: r.kantor_nama,
+          hasFotoProfil: Boolean(r.has_foto_profil),
+          fotoProfilUpdatedAt: r.foto_profil_updated_at,
+        })),
+      });
     }
   );
 

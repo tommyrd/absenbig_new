@@ -507,6 +507,17 @@ export interface AttendanceFeedRosterItem extends WorkforceMember {
   fotoProfilUpdatedAt: string | null;
 }
 
+export interface TeamDirectoryMember {
+  userId: number;
+  karyawanId: number | null;
+  namaLengkap: string;
+  role: Role;
+  bidangNama: string | null;
+  kantorNama: string | null;
+  hasFotoProfil: boolean;
+  fotoProfilUpdatedAt: string | null;
+}
+
 export interface PeriodePayroll {
   id: number;
   bulan: string;

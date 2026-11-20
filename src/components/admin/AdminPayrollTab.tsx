@@ -23,6 +23,7 @@ import type {
 } from '../../shared/types';
 import { DataTable, type ColumnDef } from '../DataTable';
 import { StatusBadge } from '../StatusBadge';
+import { UserAvatar } from '../UserAvatar';
 
 interface AdminPayrollTabProps {
   settings?: SystemSettings | null;
@@ -202,11 +203,21 @@ export function AdminPayrollTab({ settings = null, printedByName }: AdminPayroll
       header: 'Karyawan',
       sortValue: (r) => r.karyawanNama,
       render: (r) => (
-        <div>
-          <p className="font-semibold text-slate-900 dark:text-slate-100">{r.karyawanNama}</p>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            {r.kantorNama.split('(')[0].trim()} · {r.bidangNama}
-          </p>
+        <div className="flex items-center gap-2.5 min-w-0">
+          <UserAvatar
+            karyawanId={r.karyawanId}
+            name={r.karyawanNama}
+            role="KARYAWAN"
+            subtitle={`${r.bidangNama} · ${r.kantorNama.split('(')[0].trim()}`}
+            size="sm"
+            className="!rounded-full"
+          />
+          <div className="min-w-0">
+            <p className="font-semibold text-slate-900 dark:text-slate-100 truncate">{r.karyawanNama}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+              {r.kantorNama.split('(')[0].trim()} · {r.bidangNama}
+            </p>
+          </div>
         </div>
       ),
     },

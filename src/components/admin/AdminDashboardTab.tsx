@@ -31,6 +31,7 @@ import type { BidangKerja, Kantor, Pengajuan, WorkforceMember } from '../../shar
 import { AttendanceTrendChart } from '../AttendanceTrendChart';
 import { DataTable, type ColumnDef } from '../DataTable';
 import { StatusBadge } from '../StatusBadge';
+import { UserAvatar } from '../UserAvatar';
 import { AdminMonitoringMapModal } from './AdminMonitoringMapModal';
 
 type QuickStatusFilter = 'ALL' | 'CHECKED_IN' | 'LATE' | 'NOT_CHECKED_IN' | 'LEAVE_OR_OFF';
@@ -517,9 +518,19 @@ export function AdminDashboardTab({ onNavigateApproval }: { onNavigateApproval: 
       header: 'Karyawan',
       sortValue: (r) => r.namaLengkap,
       render: (r) => (
-        <div>
-          <p className="font-semibold text-slate-900 dark:text-slate-100">{r.namaLengkap}</p>
-          <p className="text-xs text-slate-500 dark:text-slate-400">{r.bidangNama}</p>
+        <div className="flex items-center gap-2.5 min-w-0">
+          <UserAvatar
+            karyawanId={r.karyawanId}
+            name={r.namaLengkap}
+            role="KARYAWAN"
+            subtitle={`${r.bidangNama} · ${r.kantorNama.split('(')[0].trim()}`}
+            size="sm"
+            className="!rounded-full"
+          />
+          <div className="min-w-0">
+            <p className="font-semibold text-slate-900 dark:text-slate-100 truncate">{r.namaLengkap}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{r.bidangNama}</p>
+          </div>
         </div>
       ),
     },

@@ -283,9 +283,18 @@ export function SuperadminConsole({
       header: 'Karyawan',
       sortValue: (r) => r.karyawan_nama || '',
       render: (r) => (
-        <span className="font-semibold text-slate-900 dark:text-slate-100">
-          {r.karyawan_nama}
-        </span>
+        <div className="flex items-center gap-2.5 min-w-0">
+          <UserAvatar
+            karyawanId={r.karyawan_id}
+            name={r.karyawan_nama || 'Karyawan'}
+            role="KARYAWAN"
+            size="xs"
+            className="!rounded-full"
+          />
+          <span className="font-semibold text-slate-900 dark:text-slate-100 truncate">
+            {r.karyawan_nama}
+          </span>
+        </div>
       ),
     },
     {
@@ -334,9 +343,21 @@ export function SuperadminConsole({
       header: 'Aktor & Role',
       sortValue: (r) => r.actor_name,
       render: (r) => (
-        <div className="text-xs">
-          <p className="font-semibold text-slate-900 dark:text-slate-100">{r.actor_name}</p>
-          <p className="font-mono text-slate-500 dark:text-slate-400">{r.actor_role}</p>
+        <div className="flex items-center gap-2.5 text-xs min-w-0">
+          <UserAvatar
+            userId={r.actor_id}
+            name={r.actor_name}
+            role={r.actor_role}
+            subtitle={r.actor_role === 'ADMIN' ? 'Operator' : r.actor_role}
+            size="xs"
+            className="!rounded-full"
+          />
+          <div className="min-w-0">
+            <p className="font-semibold text-slate-900 dark:text-slate-100 truncate">{r.actor_name}</p>
+            <p className="font-mono text-slate-500 dark:text-slate-400">
+              {r.actor_role === 'ADMIN' ? 'OPERATOR' : r.actor_role}
+            </p>
+          </div>
         </div>
       ),
     },
@@ -405,11 +426,21 @@ export function SuperadminConsole({
       header: 'Karyawan',
       sortValue: (r) => r.nama_lengkap,
       render: (r) => (
-        <div className="text-xs">
-          <p className="font-semibold text-slate-900 dark:text-slate-100">{r.nama_lengkap}</p>
-          <p className="text-slate-500 dark:text-slate-400">
-            {r.nik} · {r.kantor_nama.split('(')[0].trim()}
-          </p>
+        <div className="flex items-center gap-2.5 text-xs min-w-0">
+          <UserAvatar
+            karyawanId={r.karyawan_id}
+            name={r.nama_lengkap}
+            role="KARYAWAN"
+            subtitle={`${r.bidang_nama} · ${r.kantor_nama.split('(')[0].trim()}`}
+            size="sm"
+            className="!rounded-full"
+          />
+          <div className="min-w-0">
+            <p className="font-semibold text-slate-900 dark:text-slate-100 truncate">{r.nama_lengkap}</p>
+            <p className="text-slate-500 dark:text-slate-400 truncate">
+              {r.nik} · {r.kantor_nama.split('(')[0].trim()}
+            </p>
+          </div>
         </div>
       ),
     },
@@ -565,6 +596,7 @@ export function SuperadminConsole({
             role={user.role}
             version={user.foto_profil_updated_at}
             size="md"
+            previewable={false}
           />
           <div className="min-w-0">
             <p className="font-semibold text-white truncate">{user.nama_lengkap}</p>
@@ -656,6 +688,7 @@ export function SuperadminConsole({
                 role={user.role}
                 version={user.foto_profil_updated_at}
                 size="sm"
+                previewable={false}
               />
               <div className="min-w-0 text-xs">
                 <p className="font-semibold text-white truncate">{user.nama_lengkap}</p>
@@ -753,6 +786,7 @@ export function SuperadminConsole({
                 role={user.role}
                 version={user.foto_profil_updated_at}
                 size="xs"
+                previewable={false}
               />
               <span className="hidden xl:inline">Profil</span>
             </button>

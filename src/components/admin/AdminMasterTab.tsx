@@ -485,7 +485,8 @@ export function AdminMasterTab({
           <UserAvatar
             karyawanId={r.id}
             name={r.nama_lengkap}
-            role={r.role}
+            role={r.role || 'KARYAWAN'}
+            subtitle={[r.nik, r.bidang_nama, r.kantor_nama?.split('(')[0].trim()].filter(Boolean).join(' · ')}
             version={r.foto_profil_updated_at}
             size="sm"
           />
