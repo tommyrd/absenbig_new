@@ -967,37 +967,54 @@ export function AttendanceFeedView({
                         </span>
                       </div>
 
-                      {/* Row 3: Structured Office/Region Verification & Location Card */}
-                      {(post.statusWilayahAbsensi === 'DI_LUAR_WILAYAH' ||
-                        post.jarakKantorMeter !== null ||
-                        post.lokasiAktualAlamat) && (
-                        <div className="rounded-xl bg-slate-50/90 dark:bg-slate-800/50 border border-slate-200/75 dark:border-slate-700/70 px-3 py-2 space-y-1">
-                          {post.statusWilayahAbsensi === 'DI_LUAR_WILAYAH' ? (
-                            <div className="flex items-center justify-between gap-2 text-[11px]">
-                              <span className="inline-flex items-center gap-1.5 font-semibold text-sky-700 dark:text-sky-300 min-w-0">
-                                <MapPin className="w-3.5 h-3.5 shrink-0" />
-                                <span className="truncate">
-                                  Di luar wilayah{post.wilayahTerdeteksiNama ? ` · ${post.wilayahTerdeteksiNama}` : ''}
-                                </span>
-                              </span>
-                              <span className="shrink-0 whitespace-nowrap font-semibold text-[10px] px-2 py-0.5 rounded-md bg-sky-100/80 dark:bg-sky-950/70 text-sky-800 dark:text-sky-200">
-                                Bebas geofence
-                              </span>
+                      {/* Row 3: Complete Location & Office/Region Verification Detail Card */}
+                      <div className="rounded-xl bg-slate-50/90 dark:bg-slate-800/50 border border-slate-200/75 dark:border-slate-700/70 px-3 py-2.5 space-y-1.5">
+                        {post.statusWilayahAbsensi === 'DI_LUAR_WILAYAH' ? (
+                          <div className="flex items-start justify-between gap-2 text-[11px]">
+                            <div className="flex items-start gap-1.5 min-w-0">
+                              <MapPin className="w-3.5 h-3.5 shrink-0 mt-0.5 text-sky-600 dark:text-sky-400" />
+                              <div className="min-w-0">
+                                <p className="font-semibold text-sky-800 dark:text-sky-200 leading-snug">
+                                  Di Luar Wilayah Penempatan
+                                  {post.wilayahPenempatanNama
+                                    ? ` (${post.wilayahPenempatanNama})`
+                                    : ''}
+                                </p>
+                                {post.wilayahTerdeteksiNama && (
+                                  <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-0.5">
+                                    Area terdeteksi: {post.wilayahTerdeteksiNama}
+                                  </p>
+                                )}
+                              </div>
                             </div>
-                          ) : post.jarakKantorMeter !== null ? (
-                            <div className="flex items-center justify-between gap-2.5 text-[11px]">
-                              <div className="flex items-center gap-1.5 min-w-0">
-                                <MapPin
-                                  className={`w-3.5 h-3.5 shrink-0 ${
-                                    post.dalamGeofence
+                            <span className="shrink-0 whitespace-nowrap font-semibold text-[10px] px-2 py-0.5 rounded-md bg-sky-100/80 dark:bg-sky-950/70 border border-sky-200/80 dark:border-sky-800/60 text-sky-800 dark:text-sky-200">
+                              Bebas geofence
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex items-start justify-between gap-2.5 text-[11px]">
+                            <div className="flex items-start gap-1.5 min-w-0">
+                              <MapPin
+                                className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${
+                                  post.jarakKantorMeter === null
+                                    ? 'text-slate-400 dark:text-slate-500'
+                                    : post.dalamGeofence
                                       ? 'text-emerald-600 dark:text-emerald-400'
                                       : 'text-rose-600 dark:text-rose-400'
-                                  }`}
-                                />
-                                <span className="truncate font-semibold text-slate-700 dark:text-slate-200">
+                                }`}
+                              />
+                              <div className="min-w-0">
+                                <p className="font-semibold text-slate-800 dark:text-slate-100 leading-snug break-words">
                                   {post.kantorValidasiNama || post.kantorNama}
-                                </span>
+                                </p>
+                                {post.wilayahPenempatanNama && (
+                                  <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                    Wilayah {post.wilayahPenempatanNama}
+                                  </p>
+                                )}
                               </div>
+                            </div>
+                            {post.jarakKantorMeter !== null ? (
                               <span
                                 className={`shrink-0 whitespace-nowrap font-mono tabular-nums text-[11px] font-bold px-2 py-0.5 rounded-md border ${
                                   post.dalamGeofence
@@ -1008,16 +1025,45 @@ export function AttendanceFeedView({
                                 {post.dalamGeofence ? 'Dalam radius · ' : 'Luar radius · '}
                                 {formatDistance(post.jarakKantorMeter)}
                               </span>
-                            </div>
-                          ) : null}
+                            ) : (
+                              <span className="shrink-0 whitespace-nowrap text-[10px] font-semibold px-2 py-0.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400">
+                                Tanpa GPS
+                              </span>
+                            )}
+                          </div>
+                        )}
 
-                          {post.lokasiAktualAlamat && (
-                            <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400 pl-5 line-clamp-2">
-                              {post.lokasiAktualAlamat}
-                            </p>
-                          )}
-                        </div>
-                      )}
+                        {(post.lokasiAktualAlamat || post.kantorAlamat) && (
+                          <p className="text-[11px] leading-relaxed text-slate-600 dark:text-slate-300 pl-5 break-words">
+                            {post.lokasiAktualAlamat || post.kantorAlamat}
+                          </p>
+                        )}
+
+                        {post.alasanPengecualianGeofence && (
+                          <p className="text-[11px] leading-snug text-sky-700 dark:text-sky-300 pl-5">
+                            {post.alasanPengecualianGeofence}
+                          </p>
+                        )}
+
+                        {post.lat !== null && post.lng !== null && (
+                          <div className="pl-5 pt-1.5 mt-1 border-t border-slate-200/70 dark:border-slate-700/60 flex items-center justify-between gap-2 text-[10px]">
+                            <span className="font-mono tabular-nums text-slate-500 dark:text-slate-400 truncate">
+                              GPS {post.lat.toFixed(6)}, {post.lng.toFixed(6)}
+                            </span>
+                            {mapsUrl && (
+                              <a
+                                href={mapsUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="shrink-0 inline-flex items-center gap-1 font-semibold text-brand-600 dark:text-brand-400 hover:underline whitespace-nowrap"
+                              >
+                                <Navigation className="w-3 h-3" />
+                                Buka Maps
+                              </a>
+                            )}
+                          </div>
+                        )}
+                      </div>
 
                       {/* Row 4: Clean Hairline Meta Footer */}
                       <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2 text-[10px] font-medium uppercase tracking-wider text-slate-400 dark:text-slate-500">

@@ -216,6 +216,7 @@ export function EmployeeAbsensiPage({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const cameraRequestIdRef = useRef(0);
+  const activeFacingRef = useRef<'user' | 'environment'>('user');
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraLoading, setCameraLoading] = useState(false);
@@ -573,6 +574,7 @@ export function EmployeeAbsensiPage({
           ? actualFacing
           : requestedFacing;
       streamRef.current = stream;
+      activeFacingRef.current = resolvedFacing;
       setFacingMode(resolvedFacing);
       setCameraActive(true);
     } catch (err) {
@@ -600,6 +602,7 @@ export function EmployeeAbsensiPage({
     if (cameraActive) {
       void startCamera(nextMode, true);
     } else {
+      activeFacingRef.current = nextMode;
       setFacingMode(nextMode);
     }
   };
@@ -626,7 +629,18 @@ export function EmployeeAbsensiPage({
         setCameraError('Gagal memproses gambar. Silakan buka kamera kembali.');
         return;
       }
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      // Mirror horizontally for front camera (Android & iPhone) so saved photo
+      // matches the mirrored live preview, while keeping watermark text normal.
+      const shouldMirror = activeFacingRef.current === 'user';
+      if (shouldMirror) {
+        ctx.save();
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        ctx.restore();
+      } else {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      }
 
       const nextSesiCfg = data?.day.policySnapshot.sesiList[data.day.sessionsCompleted];
       const nextSesiLabel = nextSesiCfg?.nama || 'Absensi';
@@ -1790,7 +1804,11 @@ export function EmployeeAbsensiPage({
                             autoPlay
                             playsInline
                             muted
-                            className="w-full h-full object-cover"
+                            className={`w-full h-full object-cover ${
+                              facingMode === 'user'
+                                ? '[-webkit-transform:scaleX(-1)] [transform:scaleX(-1)]'
+                                : ''
+                            }`}
                           />
                           {/* Camera Mode Indicator */}
                           <div className="pointer-events-none absolute top-2.5 left-2.5 px-2.5 py-1 rounded-md bg-slate-950/70 text-white text-[10px] font-semibold tracking-wide backdrop-blur-xs">
