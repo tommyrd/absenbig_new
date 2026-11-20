@@ -670,7 +670,7 @@ export function EmployeeAbsensiPage({
         return;
       }
       // Mirror horizontally for front camera (Android & iPhone) so saved photo
-      // matches the mirrored live preview, while keeping watermark text normal.
+      // matches the mirrored live preview, without stamping text watermark on photo.
       const shouldMirror = activeFacingRef.current === 'user';
       if (shouldMirror) {
         ctx.save();
@@ -682,46 +682,7 @@ export function EmployeeAbsensiPage({
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       }
 
-      const nextSesiCfg = data?.day.policySnapshot.sesiList[data.day.sessionsCompleted];
-      const nextSesiLabel = nextSesiCfg?.nama || 'Absensi';
-      const rawLocation = resolvedAddress || user.kantor_nama.split('(')[0].trim();
-      const shortLocation =
-        rawLocation.length > 64 ? `${rawLocation.slice(0, 61).trim()}...` : rawLocation;
-
-      const barHeight = Math.max(60, Math.round(canvas.height * 0.13));
-      const padX = Math.max(14, Math.round(canvas.width * 0.025));
-      const accentW = Math.max(4, Math.round(canvas.width * 0.008));
-      const titleSize = Math.max(13, Math.round(canvas.height * 0.029));
-      const subSize = Math.max(11, Math.round(canvas.height * 0.022));
-
-      const grad = ctx.createLinearGradient(0, canvas.height - barHeight - 16, 0, canvas.height);
-      grad.addColorStop(0, 'rgba(15, 23, 42, 0)');
-      grad.addColorStop(0.28, 'rgba(15, 23, 42, 0.72)');
-      grad.addColorStop(1, 'rgba(15, 23, 42, 0.90)');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, canvas.height - barHeight - 16, canvas.width, barHeight + 16);
-
-      ctx.fillStyle = '#c0392b';
-      ctx.fillRect(padX, canvas.height - barHeight + 10, accentW, barHeight - 20);
-
-      const textX = padX + accentW + 10;
-      ctx.fillStyle = '#ffffff';
-      ctx.font = `700 ${titleSize}px sans-serif`;
-      ctx.fillText(
-        `${user.nama_lengkap} · ${nextSesiLabel}`,
-        textX,
-        canvas.height - barHeight + 12 + titleSize
-      );
-
-      ctx.fillStyle = 'rgba(226, 232, 240, 0.95)';
-      ctx.font = `500 ${subSize}px sans-serif`;
-      ctx.fillText(
-        `${data?.serverDate || ''} ${liveWibHm} WIB · ${shortLocation}`,
-        textX,
-        canvas.height - 13
-      );
-
-      const capturedPhoto = canvas.toDataURL('image/jpeg', 0.86);
+      const capturedPhoto = canvas.toDataURL('image/jpeg', 0.88);
       if (!capturedPhoto.startsWith('data:image/jpeg;base64,')) {
         setCameraError('Hasil foto tidak valid. Silakan ambil foto ulang.');
         return;
@@ -1857,61 +1818,126 @@ export function EmployeeAbsensiPage({
                             }`}
                           />
                           {/* Camera Mode Indicator */}
-                          <div className="pointer-events-none absolute top-2.5 left-2.5 px-2.5 py-1 rounded-md bg-slate-950/70 text-white text-[10px] font-semibold tracking-wide backdrop-blur-xs">
+                          <div className="pointer-events-none absolute top-2.5 left-2.5 z-10 px-2.5 py-1 rounded-full bg-slate-950/65 text-white text-[10px] font-semibold tracking-wide backdrop-blur-xs border border-white/15">
                             {facingMode === 'user'
-                              ? 'Kamera Depan · Posisikan Wajah'
+                              ? 'Kamera Depan · Mode Selfie'
                               : 'Kamera Belakang · Bidik Aktivitas'}
                           </div>
-                          {/* Face-Guide Oval (Front) or Viewfinder Frame (Rear) */}
+
+                          {/* Refined Selfie Silhouette Guide (Front) or Viewfinder Frame (Rear) */}
                           {facingMode === 'user' ? (
-                            <svg
-                              viewBox={cameraOrientation === 'portrait' ? '0 0 300 400' : '0 0 400 300'}
-                              preserveAspectRatio="xMidYMid meet"
-                              className="pointer-events-none absolute inset-0 w-full h-full"
-                              aria-hidden="true"
-                            >
-                              {cameraOrientation === 'portrait' ? (
-                                <>
-                                  <ellipse
-                                    cx="150"
-                                    cy="168"
-                                    rx="82"
-                                    ry="108"
-                                    fill="none"
-                                    stroke="rgba(255,255,255,0.72)"
-                                    strokeWidth="2.5"
-                                    strokeDasharray="8 6"
-                                  />
-                                  <path
-                                    d="M62 326 Q150 284 238 326"
-                                    fill="none"
-                                    stroke="rgba(255,255,255,0.45)"
-                                    strokeWidth="2"
-                                    strokeLinecap="round"
-                                  />
-                                </>
-                              ) : (
-                                <>
-                                  <ellipse
-                                    cx="200"
-                                    cy="142"
-                                    rx="78"
-                                    ry="102"
-                                    fill="none"
-                                    stroke="rgba(255,255,255,0.72)"
-                                    strokeWidth="2.5"
-                                    strokeDasharray="8 6"
-                                  />
-                                  <path
-                                    d="M126 248 Q200 220 274 248"
-                                    fill="none"
-                                    stroke="rgba(255,255,255,0.45)"
-                                    strokeWidth="2"
-                                    strokeLinecap="round"
-                                  />
-                                </>
-                              )}
-                            </svg>
+                            <>
+                              <svg
+                                viewBox={cameraOrientation === 'portrait' ? '0 0 300 400' : '0 0 400 300'}
+                                preserveAspectRatio="xMidYMid slice"
+                                className="pointer-events-none absolute inset-0 w-full h-full"
+                                aria-hidden="true"
+                              >
+                                <defs>
+                                  <mask id="selfie-silhouette-cutout">
+                                    <rect
+                                      x="0"
+                                      y="0"
+                                      width={cameraOrientation === 'portrait' ? 300 : 400}
+                                      height={cameraOrientation === 'portrait' ? 400 : 300}
+                                      fill="white"
+                                    />
+                                    <path
+                                      d={
+                                        cameraOrientation === 'portrait'
+                                          ? 'M 150 74 C 188 74 208 104 206 144 C 204 176 190 202 170 214 C 166 226 168 242 178 249 C 228 264 264 304 274 378 L 276 400 L 24 400 L 26 378 C 36 304 72 264 122 249 C 132 242 134 226 130 214 C 110 202 96 176 94 144 C 92 104 112 74 150 74 Z'
+                                          : 'M 200 44 C 234 44 252 70 250 104 C 248 132 235 154 218 164 C 214 174 216 186 226 192 C 270 205 304 236 314 288 L 316 300 L 84 300 L 86 288 C 96 236 130 205 174 192 C 184 186 186 174 182 164 C 165 154 152 132 150 104 C 148 70 166 44 200 44 Z'
+                                      }
+                                      fill="black"
+                                    />
+                                  </mask>
+                                  <filter id="selfie-guide-shadow" x="-10%" y="-10%" width="120%" height="120%">
+                                    <feDropShadow dx="0" dy="1" stdDeviation="2.5" floodColor="rgba(0,0,0,0.55)" />
+                                  </filter>
+                                </defs>
+
+                                {/* Soft Dark Scrim Outside Silhouette */}
+                                <rect
+                                  x="0"
+                                  y="0"
+                                  width={cameraOrientation === 'portrait' ? 300 : 400}
+                                  height={cameraOrientation === 'portrait' ? 400 : 300}
+                                  fill="rgba(15, 23, 42, 0.36)"
+                                  mask="url(#selfie-silhouette-cutout)"
+                                />
+
+                                {/* Crisp Anatomical Head-and-Shoulders Guide Outline */}
+                                <path
+                                  d={
+                                    cameraOrientation === 'portrait'
+                                      ? 'M 26 398 L 28 378 C 38 306 73 266 122 250 C 132 243 134 226 130 214 C 110 202 96 176 94 144 C 92 104 112 74 150 74 C 188 74 208 104 206 144 C 204 176 190 202 170 214 C 166 226 168 243 178 250 C 227 266 262 306 272 378 L 274 398'
+                                      : 'M 86 298 L 88 288 C 98 238 131 206 174 192 C 184 186 186 174 182 164 C 165 154 152 132 150 104 C 148 70 166 44 200 44 C 234 44 252 70 250 104 C 248 132 235 154 218 164 C 214 174 216 186 226 192 C 269 206 302 238 312 288 L 314 298'
+                                  }
+                                  fill="none"
+                                  stroke="rgba(255, 255, 255, 0.88)"
+                                  strokeWidth="2.4"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  filter="url(#selfie-guide-shadow)"
+                                />
+
+                                {/* Subtle Inner Dashed Face Contour Accent & Corner Framing Brackets */}
+                                {cameraOrientation === 'portrait' ? (
+                                  <>
+                                    <path
+                                      d="M 150 84 C 181 84 197 109 195 144 C 193 175 175 204 150 204 C 125 204 107 175 105 144 C 103 109 119 84 150 84 Z"
+                                      fill="none"
+                                      stroke="rgba(255, 255, 255, 0.34)"
+                                      strokeWidth="1.25"
+                                      strokeDasharray="5 5"
+                                    />
+                                    <path
+                                      d="M 68 142 H 80 M 220 142 H 232"
+                                      stroke="rgba(255, 255, 255, 0.45)"
+                                      strokeWidth="1.6"
+                                      strokeLinecap="round"
+                                    />
+                                    <path
+                                      d="M 30 78 V 52 H 56 M 244 52 H 270 V 78"
+                                      fill="none"
+                                      stroke="rgba(255, 255, 255, 0.65)"
+                                      strokeWidth="2.4"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    />
+                                  </>
+                                ) : (
+                                  <>
+                                    <path
+                                      d="M 200 53 C 228 53 242 75 240 104 C 238 131 222 155 200 155 C 178 155 162 131 160 104 C 158 75 172 53 200 53 Z"
+                                      fill="none"
+                                      stroke="rgba(255, 255, 255, 0.34)"
+                                      strokeWidth="1.25"
+                                      strokeDasharray="5 5"
+                                    />
+                                    <path
+                                      d="M 128 102 H 139 M 261 102 H 272"
+                                      stroke="rgba(255, 255, 255, 0.45)"
+                                      strokeWidth="1.6"
+                                      strokeLinecap="round"
+                                    />
+                                    <path
+                                      d="M 96 56 V 32 H 120 M 280 32 H 304 V 56"
+                                      fill="none"
+                                      stroke="rgba(255, 255, 255, 0.65)"
+                                      strokeWidth="2.4"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    />
+                                  </>
+                                )}
+                              </svg>
+                              <div className="pointer-events-none absolute bottom-2.5 inset-x-3 z-10 flex justify-center">
+                                <span className="px-3 py-1 rounded-full bg-slate-950/65 text-white/95 text-[10px] font-medium tracking-wide backdrop-blur-xs border border-white/15 text-center">
+                                  Posisikan wajah &amp; bahu di dalam panduan
+                                </span>
+                              </div>
+                            </>
                           ) : (
                             <svg
                               viewBox="0 0 400 300"
