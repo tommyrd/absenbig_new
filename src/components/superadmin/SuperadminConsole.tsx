@@ -784,6 +784,7 @@ export function SuperadminConsole({
           ) : tab === 'accounts' ? (
             <SuperadminAccountsTab
               currentUser={user}
+              settings={settings}
               onCurrentUserUpdated={onUserUpdated}
               onPendingCountChange={setPendingRegCount}
             />

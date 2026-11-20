@@ -148,6 +148,14 @@ function deleteAvatarFile(fileName: string | null | undefined) {
   }
 }
 
+function deleteAttendancePhotoFile(fileName: string | null | undefined) {
+  if (!fileName) return;
+  const safePath = path.join(getPhotosDir(), path.basename(fileName));
+  if (fs.existsSync(safePath)) {
+    fs.unlinkSync(safePath);
+  }
+}
+
 function buildDefaultAvatarSvg(namaLengkap: string, role?: string): string {
   const words = (namaLengkap || 'BG').trim().split(/\s+/);
   const initials = words
@@ -2732,15 +2740,17 @@ export function registerApiRoutes(app: Express) {
     const items = db
       .prepare(
         `SELECT k.*, kt.nama as kantor_nama, kt.kode as kantor_kode, b.nama as bidang_nama,
-                u.role, u.username,
-                CASE WHEN k.foto_profil_path IS NOT NULL THEN 1 ELSE 0 END as has_foto_profil
+                u.id as user_id, u.role, u.username, u.aktif as user_aktif,
+                CASE WHEN k.foto_profil_path IS NOT NULL THEN 1 ELSE 0 END as has_foto_profil,
+                (SELECT COUNT(*) FROM absensi_sesi a WHERE a.karyawan_id = k.id) as jumlah_absensi,
+                (SELECT COUNT(*) FROM pengajuan p WHERE p.karyawan_id = k.id) as jumlah_pengajuan
          FROM karyawan k
          JOIN kantor kt ON k.kantor_id = kt.id
          JOIN bidang_kerja b ON k.bidang_id = b.id
          LEFT JOIN pengguna u ON u.karyawan_id = k.id
          WHERE COALESCE(k.is_system_archive, 0) = 0
            AND ${KARYAWAN_ONLY_SQL}
-         ORDER BY k.nik ASC`
+         ORDER BY k.aktif DESC, k.nik ASC`
       )
       .all();
     res.json({ items });
@@ -2837,38 +2847,43 @@ export function registerApiRoutes(app: Express) {
     }
   });
 
-  app.put('/api/v1/master/employees/:id', requireRole('ADMIN'), (req: AuthenticatedRequest, res: Response) => {
+  app.put('/api/v1/master/employees/:id', requireRole('ADMIN', 'SUPERADMIN'), (req: AuthenticatedRequest, res: Response) => {
     const id = Number(req.params.id);
     if (!isAttendanceEligibleEmployee(id)) {
-      res.status(403).json({ error: 'Admin Operasional hanya dapat mengubah data Karyawan. Pengelolaan akun Admin/Superadmin dilakukan oleh Superadmin.' });
+      res.status(403).json({ error: 'Endpoint ini hanya untuk mengubah data Karyawan. Pengelolaan akun Operator/Superadmin dilakukan di Manajemen Akun Superadmin.' });
       return;
     }
-    const before = db.prepare(`SELECT * FROM karyawan WHERE id = ? AND COALESCE(is_system_archive, 0) = 0`).get(id);
+    const before = db.prepare(`SELECT * FROM karyawan WHERE id = ? AND COALESCE(is_system_archive, 0) = 0`).get(id) as
+      | (Karyawan & { tanggal_keluar?: string | null; alasan_keluar?: string })
+      | undefined;
     if (!before) {
       res.status(404).json({ error: 'Karyawan tidak ditemukan.' });
       return;
     }
-    const { nama_lengkap, no_hp, kantor_id, bidang_id, jabatan, aktif } = req.body as {
+    const { nama_lengkap, no_hp, kantor_id, bidang_id, jabatan, aktif, tanggal_keluar, alasan_keluar } = req.body as {
       nama_lengkap?: string;
       no_hp?: string;
       kantor_id?: number;
       bidang_id?: number;
       jabatan?: string;
       aktif?: number;
+      tanggal_keluar?: string | null;
+      alasan_keluar?: string;
     };
     const nextKantorId = Number(kantor_id);
     const nextBidangId = Number(bidang_id);
+    const nextAktif = Number(aktif);
     if (
       !nama_lengkap?.trim() ||
       !Number.isInteger(nextKantorId) ||
       !Number.isInteger(nextBidangId) ||
-      ![0, 1].includes(Number(aktif))
+      ![0, 1].includes(nextAktif)
     ) {
       res.status(400).json({ error: 'Nama, kantor, bidang kerja, dan status karyawan wajib valid.' });
       return;
     }
 
-    const currentOfficeId = (before as { kantor_id: number }).kantor_id;
+    const currentOfficeId = before.kantor_id;
     const kantorExists = db.prepare(`SELECT id FROM kantor WHERE id = ? AND (aktif = 1 OR id = ?)`).get(nextKantorId, currentOfficeId);
     const bidangExists = db.prepare(`SELECT id, nama FROM bidang_kerja WHERE id = ?`).get(nextBidangId) as
       | { id: number; nama: string }
@@ -2879,15 +2894,40 @@ export function registerApiRoutes(app: Express) {
     }
 
     const nextJabatan = (jabatan || '').trim() || bidangExists.nama;
+    const today = getWibDateString();
+    const nextTanggalKeluar =
+      nextAktif === 1
+        ? null
+        : (tanggal_keluar && /^\d{4}-\d{2}-\d{2}$/.test(tanggal_keluar) ? tanggal_keluar : before.tanggal_keluar || today);
+    const nextAlasanKeluar =
+      nextAktif === 1
+        ? ''
+        : (alasan_keluar !== undefined ? alasan_keluar.trim() : before.alasan_keluar || '');
 
     try {
       db.exec('BEGIN IMMEDIATE');
       db.prepare(
-        `UPDATE karyawan SET nama_lengkap = ?, no_hp = ?, kantor_id = ?, bidang_id = ?, jabatan = ?, aktif = ? WHERE id = ? AND COALESCE(is_system_archive, 0) = 0`
-      ).run(nama_lengkap.trim(), (no_hp || '').trim(), nextKantorId, nextBidangId, nextJabatan, Number(aktif), id);
+        `UPDATE karyawan
+         SET nama_lengkap = ?, no_hp = ?, kantor_id = ?, bidang_id = ?, jabatan = ?,
+             aktif = ?, tanggal_keluar = ?, alasan_keluar = ?
+         WHERE id = ? AND COALESCE(is_system_archive, 0) = 0`
+      ).run(
+        nama_lengkap.trim(),
+        (no_hp || '').trim(),
+        nextKantorId,
+        nextBidangId,
+        nextJabatan,
+        nextAktif,
+        nextTanggalKeluar,
+        nextAlasanKeluar,
+        id
+      );
       db.prepare(
-        `UPDATE pengguna SET nama_tampilan = ?, no_hp = ? WHERE karyawan_id = ?`
-      ).run(nama_lengkap.trim(), (no_hp || '').trim(), id);
+        `UPDATE pengguna
+         SET nama_tampilan = ?, no_hp = ?, aktif = ?,
+             token_version = CASE WHEN ? = 1 THEN COALESCE(token_version, 1) + 1 ELSE COALESCE(token_version, 1) END
+         WHERE karyawan_id = ?`
+      ).run(nama_lengkap.trim(), (no_hp || '').trim(), nextAktif, nextAktif === 0 ? 1 : 0, id);
       db.exec('COMMIT');
     } catch (err) {
       try { db.exec('ROLLBACK'); } catch { /* ignore */ }
@@ -2909,8 +2949,221 @@ export function registerApiRoutes(app: Express) {
       before,
       after,
     });
+    broadcastWorkforceUpdate('EMPLOYEE_UPDATED');
     res.json({ ok: true });
   });
+
+  app.post(
+    '/api/v1/master/employees/:id/status',
+    requireRole('ADMIN', 'SUPERADMIN'),
+    (req: AuthenticatedRequest, res: Response) => {
+      const id = Number(req.params.id);
+      if (!isAttendanceEligibleEmployee(id)) {
+        res.status(403).json({ error: 'Hanya status Karyawan yang dapat diubah melalui endpoint ini.' });
+        return;
+      }
+      const before = db
+        .prepare(`SELECT * FROM karyawan WHERE id = ? AND COALESCE(is_system_archive, 0) = 0`)
+        .get(id) as (Karyawan & { tanggal_keluar?: string | null; alasan_keluar?: string }) | undefined;
+      if (!before) {
+        res.status(404).json({ error: 'Karyawan tidak ditemukan.' });
+        return;
+      }
+
+      const { aktif, tanggal_keluar, alasan_keluar } = req.body as {
+        aktif?: number | boolean;
+        tanggal_keluar?: string | null;
+        alasan_keluar?: string;
+      };
+      const nextAktif = aktif ? 1 : 0;
+      const today = getWibDateString();
+      const cleanAlasan = (alasan_keluar || '').trim();
+
+      if (nextAktif === 0 && cleanAlasan.length < 3) {
+        res.status(400).json({ error: 'Alasan keluar / nonaktif wajib diisi minimal 3 karakter.' });
+        return;
+      }
+      const cleanTanggalKeluar =
+        nextAktif === 1
+          ? null
+          : tanggal_keluar && /^\d{4}-\d{2}-\d{2}$/.test(tanggal_keluar)
+          ? tanggal_keluar
+          : today;
+
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        db.prepare(
+          `UPDATE karyawan
+           SET aktif = ?, tanggal_keluar = ?, alasan_keluar = ?
+           WHERE id = ? AND COALESCE(is_system_archive, 0) = 0`
+        ).run(nextAktif, cleanTanggalKeluar, nextAktif === 1 ? '' : cleanAlasan, id);
+
+        db.prepare(
+          `UPDATE pengguna
+           SET aktif = ?,
+               token_version = CASE WHEN ? = 1 THEN COALESCE(token_version, 1) + 1 ELSE COALESCE(token_version, 1) END
+           WHERE karyawan_id = ?`
+        ).run(nextAktif, nextAktif === 0 ? 1 : 0, id);
+
+        const after = db.prepare(`SELECT * FROM karyawan WHERE id = ?`).get(id);
+        writeAuditLog(db, {
+          actor: req.authUser!,
+          req,
+          modul: 'MASTER_KARYAWAN',
+          aksi: nextAktif === 0 ? 'TANDAI_KELUAR_KARYAWAN' : 'AKTIFKAN_KEMBALI_KARYAWAN',
+          targetEntity: 'karyawan',
+          targetId: id,
+          karyawanId: id,
+          tanggalTerdampak: cleanTanggalKeluar ?? today,
+          before: {
+            nik: before.nik,
+            nama_lengkap: before.nama_lengkap,
+            aktif: before.aktif,
+            tanggal_keluar: before.tanggal_keluar ?? null,
+            alasan_keluar: before.alasan_keluar ?? '',
+          },
+          after,
+          alasan:
+            nextAktif === 0
+              ? `Karyawan keluar per ${cleanTanggalKeluar}: ${cleanAlasan}`
+              : cleanAlasan || 'Karyawan diaktifkan kembali',
+        });
+        db.exec('COMMIT');
+        broadcastWorkforceUpdate(nextAktif === 0 ? 'EMPLOYEE_DEACTIVATED' : 'EMPLOYEE_REACTIVATED');
+        res.json({ ok: true, aktif: nextAktif, tanggal_keluar: cleanTanggalKeluar });
+      } catch (err) {
+        try { db.exec('ROLLBACK'); } catch { /* ignore */ }
+        res.status(400).json({
+          error: 'Gagal memperbarui status karyawan.',
+          detail: safeErrorDetail(err),
+        });
+      }
+    }
+  );
+
+  app.delete(
+    '/api/v1/master/employees/:id',
+    requireRole('ADMIN', 'SUPERADMIN'),
+    (req: AuthenticatedRequest, res: Response) => {
+      const id = Number(req.params.id);
+      if (!isAttendanceEligibleEmployee(id)) {
+        res.status(403).json({
+          error: 'Operator hanya dapat menghapus data akun Karyawan. Akun Operator/Superadmin hanya dapat dikelola oleh Superadmin.',
+        });
+        return;
+      }
+
+      const body = (req.body || {}) as { alasan?: string };
+      const cleanAlasan = (body.alasan || '').trim();
+      if (cleanAlasan.length < 5) {
+        res.status(400).json({ error: 'Alasan penghapusan permanen wajib diisi minimal 5 karakter.' });
+        return;
+      }
+
+      const emp = db
+        .prepare(
+          `SELECT k.*, kt.nama as kantor_nama, b.nama as bidang_nama,
+                  u.id as user_id, u.username, u.role
+           FROM karyawan k
+           LEFT JOIN kantor kt ON k.kantor_id = kt.id
+           LEFT JOIN bidang_kerja b ON k.bidang_id = b.id
+           LEFT JOIN pengguna u ON u.karyawan_id = k.id
+           WHERE k.id = ? AND COALESCE(k.is_system_archive, 0) = 0`
+        )
+        .get(id) as
+        | {
+            id: number;
+            nik: string;
+            nama_lengkap: string;
+            email: string;
+            no_hp: string;
+            kantor_nama: string | null;
+            bidang_nama: string | null;
+            foto_profil_path: string | null;
+            user_id: number | null;
+            username: string | null;
+            role: Role | null;
+          }
+        | undefined;
+
+      if (!emp) {
+        res.status(404).json({ error: 'Data karyawan tidak ditemukan.' });
+        return;
+      }
+      if (emp.role && emp.role !== 'KARYAWAN') {
+        res.status(403).json({ error: 'Hanya data karyawan ber-role KARYAWAN yang dapat dihapus melalui menu ini.' });
+        return;
+      }
+
+      const attendancePhotos = db
+        .prepare(`SELECT foto_path FROM absensi_sesi WHERE karyawan_id = ? AND foto_path IS NOT NULL`)
+        .all(id) as { foto_path: string }[];
+      const counts = {
+        absensi: (db.prepare(`SELECT COUNT(*) as c FROM absensi_sesi WHERE karyawan_id = ?`).get(id) as { c: number }).c,
+        pengajuan: (db.prepare(`SELECT COUNT(*) as c FROM pengajuan WHERE karyawan_id = ?`).get(id) as { c: number }).c,
+        kerja_khusus: (db.prepare(`SELECT COUNT(*) as c FROM penugasan_kerja_khusus WHERE karyawan_id = ?`).get(id) as { c: number }).c,
+      };
+
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        db.prepare(`DELETE FROM override_akses_absensi WHERE karyawan_id = ?`).run(id);
+        db.prepare(`DELETE FROM override_kehadiran WHERE karyawan_id = ?`).run(id);
+        db.prepare(`DELETE FROM penggunaan_off_pengganti WHERE karyawan_id = ?`).run(id);
+        db.prepare(`DELETE FROM pengajuan WHERE karyawan_id = ?`).run(id);
+        db.prepare(`DELETE FROM hak_off_pengganti WHERE karyawan_id = ?`).run(id);
+        db.prepare(`DELETE FROM penugasan_kerja_khusus WHERE karyawan_id = ?`).run(id);
+        db.prepare(`DELETE FROM absensi_sesi WHERE karyawan_id = ?`).run(id);
+        db.prepare(`DELETE FROM hari_libur_karyawan WHERE karyawan_id = ?`).run(id);
+        db.prepare(`DELETE FROM kebijakan_absensi WHERE karyawan_id = ?`).run(id);
+        if (emp.user_id) {
+          db.prepare(`UPDATE pengajuan SET diproses_oleh = NULL WHERE diproses_oleh = ?`).run(emp.user_id);
+          db.prepare(`UPDATE pendaftaran_akun SET diproses_oleh = NULL WHERE diproses_oleh = ?`).run(emp.user_id);
+          db.prepare(`UPDATE periode_payroll SET ditutup_oleh = NULL WHERE ditutup_oleh = ?`).run(emp.user_id);
+          db.prepare(`DELETE FROM pengguna WHERE id = ?`).run(emp.user_id);
+        }
+        db.prepare(`DELETE FROM karyawan WHERE id = ?`).run(id);
+
+        writeAuditLog(db, {
+          actor: req.authUser!,
+          req,
+          modul: 'MASTER_KARYAWAN',
+          aksi: 'DELETE_KARYAWAN_PERMANEN',
+          targetEntity: 'karyawan',
+          targetId: id,
+          karyawanId: id,
+          before: {
+            nik: emp.nik,
+            nama_lengkap: emp.nama_lengkap,
+            username: emp.username,
+            email: emp.email,
+            no_hp: emp.no_hp,
+            kantor_nama: emp.kantor_nama,
+            bidang_nama: emp.bidang_nama,
+            deleted_related_counts: counts,
+          },
+          after: null,
+          alasan: cleanAlasan,
+        });
+        db.exec('COMMIT');
+      } catch (err) {
+        try { db.exec('ROLLBACK'); } catch { /* ignore */ }
+        res.status(400).json({
+          error: 'Gagal menghapus data karyawan secara permanen.',
+          detail: safeErrorDetail(err),
+        });
+        return;
+      }
+
+      // Clean up physical photo files after DB commit succeeds
+      deleteAvatarFile(emp.foto_profil_path);
+      for (const p of attendancePhotos) {
+        deleteAttendancePhotoFile(p.foto_path);
+      }
+
+      broadcastWorkforceUpdate('EMPLOYEE_DELETED');
+      res.json({ ok: true, deletedCounts: counts });
+    }
+  );
 
   // 9. Policies & Sesi
   app.get('/api/v1/policies', requireRole('ADMIN', 'SUPERADMIN'), (_req: Request, res: Response) => {
@@ -5180,15 +5433,19 @@ export function registerApiRoutes(app: Express) {
                 COALESCE(k.jabatan, 'Akun Pengelola Sistem') as jabatan,
                 u.role, k.kantor_id, kt.nama as kantor_nama,
                 k.bidang_id, b.nama as bidang_nama, k.tanggal_masuk,
+                k.tanggal_keluar, COALESCE(k.alasan_keluar, '') as alasan_keluar,
                 u.aktif as user_aktif, k.aktif as karyawan_aktif,
                 CASE WHEN COALESCE(k.foto_profil_path, u.foto_profil_path) IS NOT NULL THEN 1 ELSE 0 END as has_foto_profil,
                 COALESCE(k.foto_profil_updated_at, u.foto_profil_updated_at) as foto_profil_updated_at,
-                u.created_at
+                u.created_at,
+                CASE WHEN k.id IS NOT NULL THEN (SELECT COUNT(*) FROM absensi_sesi a WHERE a.karyawan_id = k.id) ELSE 0 END as jumlah_absensi,
+                CASE WHEN k.id IS NOT NULL THEN (SELECT COUNT(*) FROM pengajuan p WHERE p.karyawan_id = k.id) ELSE 0 END as jumlah_pengajuan
          FROM pengguna u
          LEFT JOIN karyawan k ON u.karyawan_id = k.id
          LEFT JOIN kantor kt ON k.kantor_id = kt.id
          LEFT JOIN bidang_kerja b ON k.bidang_id = b.id
          ORDER BY CASE u.role WHEN 'SUPERADMIN' THEN 1 WHEN 'ADMIN' THEN 2 ELSE 3 END,
+                  u.aktif DESC,
                   COALESCE(k.nik, u.username) ASC`
       )
       .all();
@@ -5383,7 +5640,8 @@ export function registerApiRoutes(app: Express) {
                   COALESCE(NULLIF(u.nama_tampilan, ''), k.nama_lengkap, 'Superadmin') as nama_lengkap,
                   COALESCE(k.no_hp, u.no_hp, '') as no_hp,
                   k.id as karyawan_id, k.nik, COALESCE(k.jabatan, 'Akun Pengelola Sistem') as jabatan,
-                  k.kantor_id, k.bidang_id, k.aktif as karyawan_aktif, k.foto_profil_path
+                  k.kantor_id, k.bidang_id, k.aktif as karyawan_aktif, k.foto_profil_path,
+                  k.tanggal_keluar, COALESCE(k.alasan_keluar, '') as alasan_keluar
            FROM pengguna u
            LEFT JOIN karyawan k ON u.karyawan_id = k.id
            WHERE u.id = ?`
@@ -5405,6 +5663,8 @@ export function registerApiRoutes(app: Express) {
             bidang_id: number | null;
             karyawan_aktif: number | null;
             foto_profil_path: string | null;
+            tanggal_keluar: string | null;
+            alasan_keluar: string;
           }
         | undefined;
 
@@ -5423,6 +5683,8 @@ export function registerApiRoutes(app: Express) {
         kantor_id?: number;
         bidang_id?: number;
         aktif?: boolean | number;
+        tanggal_keluar?: string | null;
+        alasan_keluar?: string;
         fotoBase64?: string | null;
         removePhoto?: boolean;
       };
@@ -5600,10 +5862,25 @@ export function registerApiRoutes(app: Express) {
            WHERE id = ?`
         ).run(cleanUser, cleanEmail, cleanName, cleanHp, nextRole, nextAktif, shouldBumpTokenVersion ? 1 : 0, targetUserId);
 
+        const today = getWibDateString();
+        const nextTanggalKeluar =
+          nextAktif === 1
+            ? null
+            : body.tanggal_keluar && /^\d{4}-\d{2}-\d{2}$/.test(body.tanggal_keluar)
+            ? body.tanggal_keluar
+            : existing.tanggal_keluar || today;
+        const nextAlasanKeluar =
+          nextAktif === 1
+            ? ''
+            : body.alasan_keluar !== undefined
+            ? body.alasan_keluar.trim()
+            : existing.alasan_keluar || '';
+
         db.prepare(
           `UPDATE karyawan
            SET nama_lengkap = ?, email = ?, no_hp = ?, jabatan = ?, kantor_id = ?, bidang_id = ?,
-               aktif = ?, foto_profil_path = ?, foto_profil_updated_at = COALESCE(?, foto_profil_updated_at)
+               aktif = ?, tanggal_keluar = ?, alasan_keluar = ?,
+               foto_profil_path = ?, foto_profil_updated_at = COALESCE(?, foto_profil_updated_at)
            WHERE id = ?`
         ).run(
           cleanName,
@@ -5613,6 +5890,8 @@ export function registerApiRoutes(app: Express) {
           nextKantor,
           nextBidang,
           nextAktif,
+          nextTanggalKeluar,
+          nextAlasanKeluar,
           nextFoto,
           fotoChanged ? nowIso : null,
           existing.karyawan_id
@@ -5691,6 +5970,160 @@ export function registerApiRoutes(app: Express) {
       });
 
       res.json({ ok: true });
+    }
+  );
+
+  app.delete(
+    '/api/v1/superadmin/accounts/:userId',
+    requireRole('SUPERADMIN'),
+    (req: AuthenticatedRequest, res: Response) => {
+      const targetUserId = Number(req.params.userId);
+      const body = (req.body || {}) as { alasan?: string };
+      const cleanAlasan = (body.alasan || '').trim();
+      if (cleanAlasan.length < 5) {
+        res.status(400).json({ error: 'Alasan penghapusan permanen wajib diisi minimal 5 karakter.' });
+        return;
+      }
+      if (targetUserId === req.authUser!.id) {
+        res.status(400).json({ error: 'Anda tidak dapat menghapus akun Superadmin Anda sendiri.' });
+        return;
+      }
+
+      const target = db
+        .prepare(
+          `SELECT u.id as user_id, u.username, u.email, u.role, u.aktif as user_aktif,
+                  u.nama_tampilan, u.foto_profil_path as user_foto_path,
+                  k.id as karyawan_id, k.nik, k.nama_lengkap, k.no_hp,
+                  k.foto_profil_path as emp_foto_path,
+                  kt.nama as kantor_nama, b.nama as bidang_nama
+           FROM pengguna u
+           LEFT JOIN karyawan k ON u.karyawan_id = k.id
+           LEFT JOIN kantor kt ON k.kantor_id = kt.id
+           LEFT JOIN bidang_kerja b ON k.bidang_id = b.id
+           WHERE u.id = ?`
+        )
+        .get(targetUserId) as
+        | {
+            user_id: number;
+            username: string;
+            email: string;
+            role: Role;
+            user_aktif: number;
+            nama_tampilan: string;
+            user_foto_path: string | null;
+            karyawan_id: number | null;
+            nik: string | null;
+            nama_lengkap: string | null;
+            no_hp: string | null;
+            emp_foto_path: string | null;
+            kantor_nama: string | null;
+            bidang_nama: string | null;
+          }
+        | undefined;
+
+      if (!target) {
+        res.status(404).json({ error: 'Akun pengguna tidak ditemukan.' });
+        return;
+      }
+
+      if (target.role === 'SUPERADMIN') {
+        const activeCount = (
+          db.prepare(`SELECT COUNT(*) as c FROM pengguna WHERE role = 'SUPERADMIN' AND aktif = 1 AND id <> ?`).get(targetUserId) as { c: number }
+        ).c;
+        if (activeCount < 1) {
+          res.status(400).json({ error: 'Minimal harus tersisa satu akun Superadmin aktif.' });
+          return;
+        }
+      }
+
+      // Check if this user authored admin override records (NOT NULL FK to pengguna.id)
+      const overrideAuthored =
+        (db.prepare(`SELECT COUNT(*) as c FROM override_kehadiran WHERE admin_id = ?`).get(targetUserId) as { c: number }).c +
+        (db.prepare(`SELECT COUNT(*) as c FROM override_akses_absensi WHERE admin_id = ?`).get(targetUserId) as { c: number }).c;
+      if (overrideAuthored > 0) {
+        res.status(409).json({
+          error:
+            'Akun ini pernah mengeksekusi override kehadiran sehingga tidak dapat dihapus permanen demi keutuhan jejak audit. Gunakan opsi Nonaktifkan / Tandai Keluar sebagai gantinya.',
+        });
+        return;
+      }
+
+      const attendancePhotos = target.karyawan_id
+        ? (db
+            .prepare(`SELECT foto_path FROM absensi_sesi WHERE karyawan_id = ? AND foto_path IS NOT NULL`)
+            .all(target.karyawan_id) as { foto_path: string }[])
+        : [];
+      const counts = target.karyawan_id
+        ? {
+            absensi: (db.prepare(`SELECT COUNT(*) as c FROM absensi_sesi WHERE karyawan_id = ?`).get(target.karyawan_id) as { c: number }).c,
+            pengajuan: (db.prepare(`SELECT COUNT(*) as c FROM pengajuan WHERE karyawan_id = ?`).get(target.karyawan_id) as { c: number }).c,
+            kerja_khusus: (db.prepare(`SELECT COUNT(*) as c FROM penugasan_kerja_khusus WHERE karyawan_id = ?`).get(target.karyawan_id) as { c: number }).c,
+          }
+        : { absensi: 0, pengajuan: 0, kerja_khusus: 0 };
+
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        db.prepare(`UPDATE pengajuan SET diproses_oleh = NULL WHERE diproses_oleh = ?`).run(targetUserId);
+        db.prepare(`UPDATE pendaftaran_akun SET diproses_oleh = NULL WHERE diproses_oleh = ?`).run(targetUserId);
+        db.prepare(`UPDATE periode_payroll SET ditutup_oleh = NULL WHERE ditutup_oleh = ?`).run(targetUserId);
+
+        if (target.karyawan_id) {
+          const kid = target.karyawan_id;
+          db.prepare(`DELETE FROM override_akses_absensi WHERE karyawan_id = ?`).run(kid);
+          db.prepare(`DELETE FROM override_kehadiran WHERE karyawan_id = ?`).run(kid);
+          db.prepare(`DELETE FROM penggunaan_off_pengganti WHERE karyawan_id = ?`).run(kid);
+          db.prepare(`DELETE FROM pengajuan WHERE karyawan_id = ?`).run(kid);
+          db.prepare(`DELETE FROM hak_off_pengganti WHERE karyawan_id = ?`).run(kid);
+          db.prepare(`DELETE FROM penugasan_kerja_khusus WHERE karyawan_id = ?`).run(kid);
+          db.prepare(`DELETE FROM absensi_sesi WHERE karyawan_id = ?`).run(kid);
+          db.prepare(`DELETE FROM hari_libur_karyawan WHERE karyawan_id = ?`).run(kid);
+          db.prepare(`DELETE FROM kebijakan_absensi WHERE karyawan_id = ?`).run(kid);
+        }
+
+        db.prepare(`DELETE FROM pengguna WHERE id = ?`).run(targetUserId);
+        if (target.karyawan_id) {
+          db.prepare(`DELETE FROM karyawan WHERE id = ?`).run(target.karyawan_id);
+        }
+
+        writeAuditLog(db, {
+          actor: req.authUser!,
+          req,
+          modul: 'MANAJEMEN_AKUN',
+          aksi: 'DELETE_ACCOUNT_PERMANEN',
+          targetEntity: 'pengguna',
+          targetId: targetUserId,
+          karyawanId: target.karyawan_id,
+          before: {
+            username: target.username,
+            email: target.email,
+            role: target.role,
+            nik: target.nik,
+            nama_lengkap: target.nama_lengkap || target.nama_tampilan,
+            kantor_nama: target.kantor_nama,
+            bidang_nama: target.bidang_nama,
+            deleted_related_counts: counts,
+          },
+          after: null,
+          alasan: cleanAlasan,
+        });
+        db.exec('COMMIT');
+      } catch (err) {
+        try { db.exec('ROLLBACK'); } catch { /* ignore */ }
+        res.status(400).json({
+          error: 'Gagal menghapus akun secara permanen.',
+          detail: safeErrorDetail(err),
+        });
+        return;
+      }
+
+      deleteAvatarFile(target.emp_foto_path);
+      deleteAvatarFile(target.user_foto_path);
+      for (const p of attendancePhotos) {
+        deleteAttendancePhotoFile(p.foto_path);
+      }
+
+      broadcastWorkforceUpdate('ACCOUNT_DELETED');
+      res.json({ ok: true, deletedCounts: counts });
     }
   );
 

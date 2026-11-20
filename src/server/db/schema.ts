@@ -35,6 +35,8 @@ export const SCHEMA_SQL = `
     bidang_id INTEGER NOT NULL REFERENCES bidang_kerja(id),
     jabatan TEXT NOT NULL,
     tanggal_masuk TEXT NOT NULL,
+    tanggal_keluar TEXT,
+    alasan_keluar TEXT NOT NULL DEFAULT '',
     foto_profil_path TEXT,
     foto_profil_updated_at TEXT,
     aktif INTEGER NOT NULL DEFAULT 1,

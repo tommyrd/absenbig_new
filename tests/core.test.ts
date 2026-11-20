@@ -113,6 +113,8 @@ test('Migration detaches legacy Superadmin from employees and archives its old p
       '013_standalone_superadmin_profile_photos',
       '014_allow_single_session_attendance_policies',
       '015_support_holiday_emergency_work_requests',
+      '016_employee_specific_holidays',
+      '017_employee_offboarding_columns',
     ]);
 
     const ownerAccount = db.prepare(
@@ -1009,13 +1011,13 @@ test('Employee-specific holidays (target_scope = KARYAWAN) apply only to targete
   const addr = server.address() as { port: number };
   const baseUrl = `http://127.0.0.1:${addr.port}`;
 
-  const superadmin = db
-    .prepare(`SELECT id, role, token_version FROM pengguna WHERE role = 'SUPERADMIN' AND aktif = 1 LIMIT 1`)
+  const operator = db
+    .prepare(`SELECT id, role, token_version FROM pengguna WHERE role = 'ADMIN' AND aktif = 1 LIMIT 1`)
     .get() as { id: number; role: Role; token_version: number };
   const saToken = signToken({
-    userId: superadmin.id,
-    role: superadmin.role,
-    tv: superadmin.token_version,
+    userId: operator.id,
+    role: operator.role,
+    tv: operator.token_version,
     exp: Date.now() + 3_600_000,
   });
 
@@ -1078,12 +1080,14 @@ test('Employee-specific holidays (target_scope = KARYAWAN) apply only to targete
       headers: { Authorization: `Bearer ${saToken}` },
     });
     assert.equal(listRes.status, 200);
-    const holidays = (await listRes.json()) as Array<{
-      id: number;
-      target_scope: string;
-      karyawan_ids: number[];
-      target_karyawan: Array<{ id: number; nama_lengkap: string }>;
-    }>;
+    const { items: holidays } = (await listRes.json()) as {
+      items: Array<{
+        id: number;
+        target_scope: string;
+        karyawan_ids: number[];
+        target_karyawan: Array<{ id: number; nama_lengkap: string }>;
+      }>;
+    };
     const found = holidays.find((h) => h.id === createdHolidayId);
     assert.ok(found);
     assert.equal(found.target_scope, 'KARYAWAN');
@@ -1118,6 +1122,7 @@ test('Employee-specific holidays (target_scope = KARYAWAN) apply only to targete
       db.prepare('DELETE FROM hari_libur_karyawan WHERE hari_libur_id = ?').run(createdHolidayId);
       db.prepare('DELETE FROM hari_libur WHERE id = ?').run(createdHolidayId);
     }
+    server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
@@ -1143,7 +1148,7 @@ test('Account and employee management works without jabatan and auto-derives fro
     exp: Date.now() + 3_600_000,
   });
 
-  const bidang = db.prepare('SELECT id, nama FROM bidang_kerja WHERE aktif = 1 ORDER BY id ASC LIMIT 1').get() as {
+  const bidang = db.prepare('SELECT id, nama FROM bidang_kerja ORDER BY id ASC LIMIT 1').get() as {
     id: number;
     nama: string;
   };
@@ -1170,11 +1175,11 @@ test('Account and employee management works without jabatan and auto-derives fro
       }),
     });
     assert.equal(empRes.status, 201);
-    const empCreated = (await empRes.json()) as { user_id: number; karyawan_id: number };
-    createdUserIds.push(empCreated.user_id);
-    createdEmpIds.push(empCreated.karyawan_id);
+    const empCreated = (await empRes.json()) as { userId: number; karyawanId: number };
+    createdUserIds.push(empCreated.userId);
+    createdEmpIds.push(empCreated.karyawanId);
 
-    const empRow = db.prepare('SELECT jabatan, bidang_id FROM karyawan WHERE id = ?').get(empCreated.karyawan_id) as {
+    const empRow = db.prepare('SELECT jabatan, bidang_id FROM karyawan WHERE id = ?').get(empCreated.karyawanId) as {
       jabatan: string;
       bidang_id: number;
     };
@@ -1197,11 +1202,11 @@ test('Account and employee management works without jabatan and auto-derives fro
       }),
     });
     assert.equal(opRes.status, 201);
-    const opCreated = (await opRes.json()) as { user_id: number; karyawan_id: number };
-    createdUserIds.push(opCreated.user_id);
-    createdEmpIds.push(opCreated.karyawan_id);
+    const opCreated = (await opRes.json()) as { userId: number; karyawanId: number };
+    createdUserIds.push(opCreated.userId);
+    createdEmpIds.push(opCreated.karyawanId);
 
-    const opRow = db.prepare('SELECT jabatan FROM karyawan WHERE id = ?').get(opCreated.karyawan_id) as {
+    const opRow = db.prepare('SELECT jabatan FROM karyawan WHERE id = ?').get(opCreated.karyawanId) as {
       jabatan: string;
     };
     assert.equal(opRow.jabatan, 'Operator');
@@ -1212,6 +1217,228 @@ test('Account and employee management works without jabatan and auto-derives fro
     for (const eid of createdEmpIds) {
       db.prepare('DELETE FROM karyawan WHERE id = ?').run(eid);
     }
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test('Employee offboarding, reactivation, and audited permanent delete by Operator and Superadmin', async () => {
+  const db = getDb();
+  const app = express();
+  app.use(express.json({ limit: '6mb' }));
+  registerApiRoutes(app);
+
+  const server = http.createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const addr = server.address() as { port: number };
+  const baseUrl = `http://127.0.0.1:${addr.port}`;
+
+  const superadmin = db
+    .prepare(`SELECT id, role, token_version FROM pengguna WHERE role = 'SUPERADMIN' AND aktif = 1 LIMIT 1`)
+    .get() as { id: number; role: Role; token_version: number };
+  const operator = db
+    .prepare(`SELECT id, role, token_version FROM pengguna WHERE role = 'ADMIN' AND aktif = 1 LIMIT 1`)
+    .get() as { id: number; role: Role; token_version: number };
+
+  const saToken = signToken({
+    userId: superadmin.id,
+    role: superadmin.role,
+    tv: superadmin.token_version,
+    exp: Date.now() + 3_600_000,
+  });
+  const opToken = signToken({
+    userId: operator.id,
+    role: operator.role,
+    tv: operator.token_version,
+    exp: Date.now() + 3_600_000,
+  });
+
+  const bidang = db.prepare('SELECT id FROM bidang_kerja ORDER BY id ASC LIMIT 1').get() as { id: number };
+  const kantor = db.prepare('SELECT id FROM kantor WHERE aktif = 1 ORDER BY id ASC LIMIT 1').get() as { id: number };
+  const suffix = Date.now();
+  const cleanupUserIds: number[] = [];
+  const cleanupEmpIds: number[] = [];
+
+  try {
+    // Create temporary KARYAWAN and temporary OPERATOR
+    const empCreateRes = await fetch(`${baseUrl}/api/v1/superadmin/accounts`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${saToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        nama_lengkap: 'Uji Resign Hapus',
+        username: `uji_resign_${suffix}`,
+        email: `uji_resign_${suffix}@bignet.id`,
+        no_hp: '081234569001',
+        password: 'Password123!',
+        role: 'KARYAWAN',
+        bidang_id: bidang.id,
+        kantor_id: kantor.id,
+        gaji_bulanan: 4200000,
+      }),
+    });
+    assert.equal(empCreateRes.status, 201);
+    const empCreated = (await empCreateRes.json()) as { userId: number; karyawanId: number };
+    cleanupUserIds.push(empCreated.userId);
+    cleanupEmpIds.push(empCreated.karyawanId);
+
+    const tempOpRes = await fetch(`${baseUrl}/api/v1/superadmin/accounts`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${saToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        nama_lengkap: 'Uji Operator Hapus',
+        username: `uji_opdel_${suffix}`,
+        email: `uji_opdel_${suffix}@bignet.id`,
+        no_hp: '081234569002',
+        password: 'Password123!',
+        role: 'ADMIN',
+        kantor_id: kantor.id,
+        gaji_bulanan: 5000000,
+      }),
+    });
+    assert.equal(tempOpRes.status, 201);
+    const tempOp = (await tempOpRes.json()) as { userId: number; karyawanId: number };
+    cleanupUserIds.push(tempOp.userId);
+    cleanupEmpIds.push(tempOp.karyawanId);
+
+    // Capture initial employee token_version
+    const empUserBefore = db
+      .prepare('SELECT token_version, aktif FROM pengguna WHERE id = ?')
+      .get(empCreated.userId) as { token_version: number; aktif: number };
+    const empToken = signToken({
+      userId: empCreated.userId,
+      role: 'KARYAWAN',
+      tv: empUserBefore.token_version,
+      exp: Date.now() + 3_600_000,
+    });
+
+    // 1. Offboarding without sufficient reason -> 400
+    const badOffRes = await fetch(`${baseUrl}/api/v1/master/employees/${empCreated.karyawanId}/status`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${opToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ aktif: 0, tanggal_keluar: '2026-04-15', alasan_keluar: 'x' }),
+    });
+    assert.equal(badOffRes.status, 400);
+
+    // 2. Operator marks employee as Keluar -> 200, revokes token, records audit
+    const offRes = await fetch(`${baseUrl}/api/v1/master/employees/${empCreated.karyawanId}/status`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${opToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        aktif: 0,
+        tanggal_keluar: '2026-04-15',
+        alasan_keluar: 'Mengundurkan diri secara baik-baik',
+      }),
+    });
+    assert.equal(offRes.status, 200);
+
+    const empAfterOff = db
+      .prepare('SELECT aktif, tanggal_keluar, alasan_keluar FROM karyawan WHERE id = ?')
+      .get(empCreated.karyawanId) as { aktif: number; tanggal_keluar: string | null; alasan_keluar: string };
+    assert.equal(empAfterOff.aktif, 0);
+    assert.equal(empAfterOff.tanggal_keluar, '2026-04-15');
+    assert.equal(empAfterOff.alasan_keluar, 'Mengundurkan diri secara baik-baik');
+
+    const userAfterOff = db
+      .prepare('SELECT aktif, token_version FROM pengguna WHERE id = ?')
+      .get(empCreated.userId) as { aktif: number; token_version: number };
+    assert.equal(userAfterOff.aktif, 0);
+    assert.ok(userAfterOff.token_version > empUserBefore.token_version);
+
+    // Old employee token must now be rejected (401)
+    const meAfterOff = await fetch(`${baseUrl}/api/v1/auth/me`, {
+      headers: { Authorization: `Bearer ${empToken}` },
+    });
+    assert.equal(meAfterOff.status, 401);
+
+    // 3. Operator reactivates employee -> clears tanggal_keluar & alasan_keluar
+    const reactRes = await fetch(`${baseUrl}/api/v1/master/employees/${empCreated.karyawanId}/status`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${opToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ aktif: 1, alasan_keluar: 'Masuk kerja kembali' }),
+    });
+    assert.equal(reactRes.status, 200);
+
+    const empAfterReact = db
+      .prepare('SELECT aktif, tanggal_keluar, alasan_keluar FROM karyawan WHERE id = ?')
+      .get(empCreated.karyawanId) as { aktif: number; tanggal_keluar: string | null; alasan_keluar: string };
+    assert.equal(empAfterReact.aktif, 1);
+    assert.equal(empAfterReact.tanggal_keluar, null);
+    assert.equal(empAfterReact.alasan_keluar, '');
+
+    // Add dependent pengajuan row to ensure FK cascade cleanup works cleanly
+    const nowIso = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO pengajuan (karyawan_id, jenis, tanggal_mulai, tanggal_akhir, alasan, status, created_at, updated_at)
+       VALUES (?, 'IZIN', '2026-04-20', '2026-04-20', 'Uji hapus relasi', 'PENDING', ?, ?)`
+    ).run(empCreated.karyawanId, nowIso, nowIso);
+
+    // 4. Operator delete with short reason -> 400
+    const badDelRes = await fetch(`${baseUrl}/api/v1/master/employees/${empCreated.karyawanId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${opToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ alasan: 'abc' }),
+    });
+    assert.equal(badDelRes.status, 400);
+
+    // 5. Operator cannot delete an ADMIN/Operator account -> 403
+    const forbidOpDel = await fetch(`${baseUrl}/api/v1/master/employees/${tempOp.karyawanId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${opToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ alasan: 'Percobaan hapus operator oleh operator' }),
+    });
+    assert.equal(forbidOpDel.status, 403);
+
+    // 6. Operator permanently deletes KARYAWAN with dependent rows -> 200 & audited
+    const delEmpRes = await fetch(`${baseUrl}/api/v1/master/employees/${empCreated.karyawanId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${opToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ alasan: 'Akun duplikat uji coba dihapus permanen' }),
+    });
+    assert.equal(delEmpRes.status, 200);
+    const delEmpPayload = (await delEmpRes.json()) as { ok: boolean; deletedCounts: { pengajuan: number } };
+    assert.equal(delEmpPayload.ok, true);
+    assert.equal(delEmpPayload.deletedCounts.pengajuan, 1);
+
+    assert.equal(
+      db.prepare('SELECT id FROM karyawan WHERE id = ?').get(empCreated.karyawanId),
+      undefined
+    );
+    assert.equal(
+      db.prepare('SELECT id FROM pengguna WHERE id = ?').get(empCreated.userId),
+      undefined
+    );
+    const delAudit = db
+      .prepare(`SELECT aksi, alasan FROM audit_log WHERE aksi = 'DELETE_KARYAWAN_PERMANEN' AND karyawan_id = ? ORDER BY id DESC LIMIT 1`)
+      .get(empCreated.karyawanId) as { aksi: string; alasan: string } | undefined;
+    assert.ok(delAudit);
+    assert.equal(delAudit.alasan, 'Akun duplikat uji coba dihapus permanen');
+
+    // 7. Superadmin cannot delete self -> 400
+    const selfDelRes = await fetch(`${baseUrl}/api/v1/superadmin/accounts/${superadmin.id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${saToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ alasan: 'Percobaan hapus akun sendiri' }),
+    });
+    assert.equal(selfDelRes.status, 400);
+
+    // 8. Superadmin permanently deletes temporary Operator account -> 200 & audited
+    const saDelOpRes = await fetch(`${baseUrl}/api/v1/superadmin/accounts/${tempOp.userId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${saToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ alasan: 'Hapus operator sementara setelah pengujian' }),
+    });
+    assert.equal(saDelOpRes.status, 200);
+    assert.equal(db.prepare('SELECT id FROM pengguna WHERE id = ?').get(tempOp.userId), undefined);
+    assert.equal(db.prepare('SELECT id FROM karyawan WHERE id = ?').get(tempOp.karyawanId), undefined);
+  } finally {
+    for (const uid of cleanupUserIds) {
+      db.prepare('DELETE FROM pengguna WHERE id = ?').run(uid);
+    }
+    for (const eid of cleanupEmpIds) {
+      db.prepare('DELETE FROM pengajuan WHERE karyawan_id = ?').run(eid);
+      db.prepare('DELETE FROM karyawan WHERE id = ?').run(eid);
+    }
+    server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });

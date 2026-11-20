@@ -460,22 +460,44 @@ const MIGRATIONS: MigrationDef[] = [
     version: '016',
     name: 'employee_specific_holidays',
     up(db) {
-      if (!hasColumn(db, 'hari_libur', 'target_scope')) {
-        db.exec(
-          `ALTER TABLE hari_libur ADD COLUMN target_scope TEXT NOT NULL DEFAULT 'ALL' CHECK(target_scope IN ('ALL','KANTOR','KARYAWAN'));`
-        );
-        db.exec(
-          `UPDATE hari_libur SET target_scope = CASE WHEN kantor_id IS NOT NULL THEN 'KANTOR' ELSE 'ALL' END;`
-        );
+      const hariLiburTable = db
+        .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'hari_libur'`)
+        .get() as { name?: string } | undefined;
+      if (hariLiburTable?.name) {
+        if (!hasColumn(db, 'hari_libur', 'target_scope')) {
+          db.exec(
+            `ALTER TABLE hari_libur ADD COLUMN target_scope TEXT NOT NULL DEFAULT 'ALL' CHECK(target_scope IN ('ALL','KANTOR','KARYAWAN'));`
+          );
+          db.exec(
+            `UPDATE hari_libur SET target_scope = CASE WHEN kantor_id IS NOT NULL THEN 'KANTOR' ELSE 'ALL' END;`
+          );
+        }
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS hari_libur_karyawan (
+            hari_libur_id INTEGER NOT NULL REFERENCES hari_libur(id) ON DELETE CASCADE,
+            karyawan_id INTEGER NOT NULL REFERENCES karyawan(id) ON DELETE CASCADE,
+            PRIMARY KEY (hari_libur_id, karyawan_id)
+          );
+          CREATE INDEX IF NOT EXISTS idx_hari_libur_karyawan_emp ON hari_libur_karyawan(karyawan_id);
+        `);
       }
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS hari_libur_karyawan (
-          hari_libur_id INTEGER NOT NULL REFERENCES hari_libur(id) ON DELETE CASCADE,
-          karyawan_id INTEGER NOT NULL REFERENCES karyawan(id) ON DELETE CASCADE,
-          PRIMARY KEY (hari_libur_id, karyawan_id)
-        );
-        CREATE INDEX IF NOT EXISTS idx_hari_libur_karyawan_emp ON hari_libur_karyawan(karyawan_id);
-      `);
+    },
+  },
+  {
+    version: '017',
+    name: 'employee_offboarding_columns',
+    up(db) {
+      const karyawanTable = db
+        .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'karyawan'`)
+        .get() as { name?: string } | undefined;
+      if (karyawanTable?.name) {
+        if (!hasColumn(db, 'karyawan', 'tanggal_keluar')) {
+          db.exec(`ALTER TABLE karyawan ADD COLUMN tanggal_keluar TEXT;`);
+        }
+        if (!hasColumn(db, 'karyawan', 'alasan_keluar')) {
+          db.exec(`ALTER TABLE karyawan ADD COLUMN alasan_keluar TEXT NOT NULL DEFAULT '';`);
+        }
+      }
     },
   },
 ];

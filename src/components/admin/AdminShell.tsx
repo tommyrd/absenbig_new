@@ -379,7 +379,9 @@ export function AdminShell({
           )}
           {tab === 'calendar' && <AdminCalendarTab />}
           {tab === 'policy' && <AdminPolicyTab />}
-          {tab === 'master' && <AdminMasterTab />}
+          {tab === 'master' && (
+            <AdminMasterTab settings={settings} printedByName={user.nama_lengkap} />
+          )}
           {tab === 'profile' && (
             <ProfileSettingsPanel
               user={user}

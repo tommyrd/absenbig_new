@@ -66,7 +66,11 @@ export interface Karyawan {
   bidang_id: number;
   jabatan: string;
   tanggal_masuk: string;
+  tanggal_keluar?: string | null;
+  alasan_keluar?: string;
   aktif: number;
+  user_id?: number;
+  user_aktif?: number;
   kantor_nama?: string;
   kantor_kode?: string;
   bidang_nama?: string;
@@ -75,6 +79,8 @@ export interface Karyawan {
   has_foto_profil?: boolean;
   foto_profil_updated_at?: string | null;
   is_system_archive?: number;
+  jumlah_absensi?: number;
+  jumlah_pengajuan?: number;
 }
 
 export interface AuthUser {
@@ -137,11 +143,15 @@ export interface ManagedAccount {
   bidang_id: number | null;
   bidang_nama: string | null;
   tanggal_masuk: string | null;
+  tanggal_keluar?: string | null;
+  alasan_keluar?: string;
   user_aktif: number;
   karyawan_aktif: number | null;
   has_foto_profil: boolean;
   foto_profil_updated_at: string | null;
   created_at: string;
+  jumlah_absensi?: number;
+  jumlah_pengajuan?: number;
 }
 
 export interface SystemSettings {

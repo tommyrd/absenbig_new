@@ -1,12 +1,19 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import {
+  AlertTriangle,
   Camera,
   CheckCircle2,
   Edit3,
+  Image as ImageIcon,
   KeyRound,
   Plus,
+  Printer,
+  RotateCcw,
+  Trash2,
   UserCheck,
+  UserMinus,
   UserPlus,
+  Users,
   X,
   XCircle,
 } from 'lucide-react';
@@ -14,6 +21,11 @@ import {
   apiFetch,
   getAuthorizedRegistrationAvatarUrl,
 } from '../../lib/api';
+import {
+  exportEmployeeDirectoryPng,
+  printEmployeeDirectoryPdf,
+} from '../../lib/employee-directory-export';
+import { getServerWibDateString } from '../../lib/server-clock-client';
 import type {
   AuthUser,
   BidangKerja,
@@ -21,6 +33,7 @@ import type {
   ManagedAccount,
   PendaftaranAkun,
   Role,
+  SystemSettings,
 } from '../../shared/types';
 import { DataTable, type ColumnDef } from '../DataTable';
 import { StatusBadge } from '../StatusBadge';
@@ -28,6 +41,7 @@ import { UserAvatar } from '../UserAvatar';
 
 interface SuperadminAccountsTabProps {
   currentUser: AuthUser;
+  settings?: SystemSettings | null;
   onCurrentUserUpdated: (user: AuthUser) => void;
   onPendingCountChange?: (count: number) => void;
 }
@@ -62,13 +76,22 @@ function RoleBadge({ role }: { role: Role }) {
 
 export function SuperadminAccountsTab({
   currentUser,
+  settings = null,
   onCurrentUserUpdated,
   onPendingCountChange,
 }: SuperadminAccountsTabProps) {
-  const [subtab, setSubtab] = useState<'registrations' | 'accounts'>('registrations');
+  const [subtab, setSubtab] = useState<'registrations' | 'employees' | 'accounts'>('registrations');
   const [regStatusFilter, setRegStatusFilter] = useState<'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL'>('PENDING');
   const [roleFilter, setRoleFilter] = useState<string>('');
   const [bidangFilter, setBidangFilter] = useState<string>('');
+  const [officeFilter, setOfficeFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<'AKTIF' | 'KELUAR' | 'ALL'>('AKTIF');
+  const [exportingDir, setExportingDir] = useState(false);
+
+  // Dedicated Karyawan Directory Filters
+  const [empStatusFilter, setEmpStatusFilter] = useState<'AKTIF' | 'KELUAR' | 'ALL'>('AKTIF');
+  const [empOfficeFilter, setEmpOfficeFilter] = useState<string>('');
+  const [empBidangFilter, setEmpBidangFilter] = useState<string>('');
 
   const [registrations, setRegistrations] = useState<PendaftaranAkun[]>([]);
   const [accounts, setAccounts] = useState<ManagedAccount[]>([]);
@@ -114,6 +137,16 @@ export function SuperadminAccountsTab({
   const [resetTarget, setResetTarget] = useState<ManagedAccount | null>(null);
   const [newPassword, setNewPassword] = useState('');
 
+  // Offboarding (Tandai Keluar / Nonaktif) modal state
+  const [resignTarget, setResignTarget] = useState<ManagedAccount | null>(null);
+  const [resignDate, setResignDate] = useState('');
+  const [resignReason, setResignReason] = useState('');
+
+  // Permanent Delete Account modal state
+  const [deleteTarget, setDeleteTarget] = useState<ManagedAccount | null>(null);
+  const [deleteReason, setDeleteReason] = useState('');
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+
   const [modalErr, setModalErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -146,19 +179,94 @@ export function SuperadminAccountsTab({
     loadAll();
   }, [loadAll]);
 
+  const isAccountActive = (a: ManagedAccount) =>
+    a.user_aktif === 1 && (a.karyawan_id === null || a.karyawan_aktif === 1);
+
   const pendingRegsCount = registrations.filter((r) => r.status === 'PENDING').length;
+  const employeeAccounts = accounts.filter((a) => a.role === 'KARYAWAN');
+  const activeEmployeeCount = employeeAccounts.filter(isAccountActive).length;
+  const resignedEmployeeCount = employeeAccounts.length - activeEmployeeCount;
+
   const filteredRegs =
     regStatusFilter === 'ALL'
       ? registrations
       : registrations.filter((r) => r.status === regStatusFilter);
+
+  const filteredEmployees = employeeAccounts.filter((a) => {
+    const active = isAccountActive(a);
+    if (empStatusFilter === 'AKTIF' && !active) return false;
+    if (empStatusFilter === 'KELUAR' && active) return false;
+    if (empOfficeFilter && String(a.kantor_id) !== empOfficeFilter) return false;
+    if (empBidangFilter && String(a.bidang_id) !== empBidangFilter) return false;
+    return true;
+  });
+
   const filteredAccounts = accounts.filter((a) => {
+    const active = isAccountActive(a);
+    if (statusFilter === 'AKTIF' && !active) return false;
+    if (statusFilter === 'KELUAR' && active) return false;
     if (roleFilter && a.role !== roleFilter) return false;
+    if (officeFilter && String(a.kantor_id) !== officeFilter) return false;
     if (bidangFilter) {
       if (a.role !== 'KARYAWAN') return false;
       if (String(a.bidang_id) !== bidangFilter) return false;
     }
     return true;
   });
+
+  const getEmployeeExportPayload = () => {
+    const statusLabel =
+      empStatusFilter === 'AKTIF'
+        ? 'Karyawan Aktif'
+        : empStatusFilter === 'KELUAR'
+        ? 'Karyawan Keluar / Nonaktif'
+        : 'Semua Status Karyawan';
+    const officeLabel = empOfficeFilter
+      ? offices.find((o) => String(o.id) === empOfficeFilter)?.nama || 'Kantor Terpilih'
+      : 'Semua Kantor';
+    const bidangLabel = empBidangFilter
+      ? bidangList.find((b) => String(b.id) === empBidangFilter)?.nama || 'Bidang Terpilih'
+      : 'Semua Bidang Kerja';
+    return {
+      items: filteredEmployees.map((a) => ({
+        nik: a.nik || '—',
+        nama_lengkap: a.nama_lengkap,
+        username: a.username,
+        email: a.email,
+        no_hp: a.no_hp,
+        kantor_nama: a.kantor_nama || '-',
+        bidang_nama: a.bidang_nama || '-',
+        tanggal_masuk: a.tanggal_masuk || '-',
+        tanggal_keluar: a.tanggal_keluar ?? null,
+        alasan_keluar: a.alasan_keluar ?? '',
+        aktif: isAccountActive(a) ? 1 : 0,
+      })),
+      settings,
+      printedByName: currentUser.nama_lengkap,
+      printedByRoleLabel: 'Superadmin / Owner',
+      statusLabel,
+      officeLabel,
+      bidangLabel,
+    };
+  };
+
+  const handleExportEmployeePng = async () => {
+    if (exportingDir || filteredEmployees.length === 0) return;
+    setExportingDir(true);
+    setError(null);
+    try {
+      await exportEmployeeDirectoryPng(getEmployeeExportPayload());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal mengekspor PNG daftar karyawan.');
+    } finally {
+      setExportingDir(false);
+    }
+  };
+
+  const handleExportEmployeePdf = () => {
+    if (filteredEmployees.length === 0) return;
+    printEmployeeDirectoryPdf(getEmployeeExportPayload());
+  };
 
   const openApproveModal = (r: PendaftaranAkun) => {
     setApproveTarget(r);
@@ -355,6 +463,110 @@ export function SuperadminAccountsTab({
     }
   };
 
+  const openResignModal = (acc: ManagedAccount) => {
+    setResignTarget(acc);
+    setResignDate(getServerWibDateString());
+    setResignReason('');
+    setModalErr(null);
+  };
+
+  const submitResignAccount = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!resignTarget) return;
+    setSaving(true);
+    setModalErr(null);
+    try {
+      if (resignTarget.role === 'KARYAWAN' && resignTarget.karyawan_id) {
+        await apiFetch(`/api/v1/master/employees/${resignTarget.karyawan_id}/status`, {
+          method: 'POST',
+          body: JSON.stringify({
+            aktif: 0,
+            tanggal_keluar: resignDate,
+            alasan_keluar: resignReason,
+          }),
+        });
+      } else {
+        await apiFetch(`/api/v1/superadmin/accounts/${resignTarget.user_id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            aktif: 0,
+            tanggal_keluar: resignDate,
+            alasan_keluar: resignReason,
+          }),
+        });
+      }
+      setBannerMsg(
+        `${resignTarget.nama_lengkap} (@${resignTarget.username}) ditandai KELUAR per ${resignDate}. Sesi login diputus & riwayat tetap tersimpan.`
+      );
+      setResignTarget(null);
+      await loadAll();
+    } catch (err) {
+      setModalErr(err instanceof Error ? err.message : 'Gagal menandai akun keluar.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleReactivateAccount = async (acc: ManagedAccount) => {
+    setSaving(true);
+    setError(null);
+    try {
+      if (acc.role === 'KARYAWAN' && acc.karyawan_id) {
+        await apiFetch(`/api/v1/master/employees/${acc.karyawan_id}/status`, {
+          method: 'POST',
+          body: JSON.stringify({
+            aktif: 1,
+            alasan_keluar: 'Diaktifkan kembali oleh Superadmin',
+          }),
+        });
+      } else {
+        await apiFetch(`/api/v1/superadmin/accounts/${acc.user_id}`, {
+          method: 'PUT',
+          body: JSON.stringify({ aktif: 1, tanggal_keluar: null, alasan_keluar: '' }),
+        });
+      }
+      setBannerMsg(`Akun ${acc.nama_lengkap} (@${acc.username}) berhasil diaktifkan kembali.`);
+      await loadAll();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal mengaktifkan kembali akun.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openDeleteAccountModal = (acc: ManagedAccount) => {
+    setDeleteTarget(acc);
+    setDeleteReason('');
+    setDeleteConfirmText('');
+    setModalErr(null);
+  };
+
+  const submitDeleteAccount = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!deleteTarget) return;
+    if (deleteConfirmText.trim().toUpperCase() !== 'HAPUS') {
+      setModalErr('Ketik kata HAPUS pada kolom konfirmasi untuk menghapus permanen.');
+      return;
+    }
+    setSaving(true);
+    setModalErr(null);
+    try {
+      await apiFetch(`/api/v1/superadmin/accounts/${deleteTarget.user_id}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ alasan: deleteReason }),
+      });
+      setBannerMsg(
+        `Akun ${deleteTarget.nama_lengkap} (@${deleteTarget.username}) telah dihapus permanen dan dicatat di Audit Trail.`
+      );
+      setDeleteTarget(null);
+      await loadAll();
+    } catch (err) {
+      setModalErr(err instanceof Error ? err.message : 'Gagal menghapus akun secara permanen.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const regCols: ColumnDef<PendaftaranAkun>[] = [
     {
       key: 'pemohon',
@@ -546,47 +758,244 @@ export function SuperadminAccountsTab({
     {
       key: 'status',
       header: 'Status Akun',
-      sortValue: (r) => r.user_aktif,
-      render: (r) => (
-        <span
-          className={`text-xs font-semibold ${
-            r.user_aktif && (r.karyawan_id === null || r.karyawan_aktif === 1)
-              ? 'text-emerald-700 dark:text-emerald-400'
-              : 'text-red-700 dark:text-red-400'
-          }`}
-        >
-          {r.user_aktif && (r.karyawan_id === null || r.karyawan_aktif === 1) ? 'Aktif' : 'Nonaktif'}
-        </span>
-      ),
+      sortValue: (r) => (isAccountActive(r) ? 1 : 0),
+      render: (r) => {
+        const active = isAccountActive(r);
+        return (
+          <div className="text-xs space-y-0.5">
+            {active ? (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800">
+                AKTIF
+              </span>
+            ) : (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-red-100 text-red-900 border border-red-200 dark:bg-red-950/60 dark:text-red-300 dark:border-red-800">
+                KELUAR / NONAKTIF
+              </span>
+            )}
+            {r.tanggal_masuk && (
+              <p className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                Masuk: {r.tanggal_masuk}
+              </p>
+            )}
+            {!active && r.tanggal_keluar && (
+              <p className="text-[11px] font-mono text-red-700 dark:text-red-400">
+                Keluar: {r.tanggal_keluar}
+              </p>
+            )}
+            {!active && r.alasan_keluar && (
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-[160px] truncate" title={r.alasan_keluar}>
+                {r.alasan_keluar}
+              </p>
+            )}
+          </div>
+        );
+      },
     },
     {
       key: 'aksi',
       header: 'Kelola',
       align: 'right',
+      render: (r) => {
+        const active = isAccountActive(r);
+        const isSelf = r.user_id === currentUser.id;
+        return (
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
+            <button
+              type="button"
+              onClick={() => openEditAccount(r)}
+              className="inline-flex items-center gap-1 min-h-[34px] px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-100"
+            >
+              <Edit3 className="w-3.5 h-3.5" />
+              Kelola
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setResetTarget(r);
+                setNewPassword('');
+                setModalErr(null);
+              }}
+              className="inline-flex items-center gap-1 min-h-[34px] px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-semibold text-amber-800 dark:text-amber-300"
+            >
+              <KeyRound className="w-3.5 h-3.5" />
+              Sandi
+            </button>
+            {!isSelf &&
+              (active ? (
+                <button
+                  type="button"
+                  onClick={() => openResignModal(r)}
+                  title="Tandai keluar / nonaktifkan akun (riwayat absensi tetap aman)"
+                  className="inline-flex items-center gap-1 min-h-[34px] px-2.5 rounded-lg border border-amber-200 dark:border-amber-800/70 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/50 text-xs font-semibold text-amber-800 dark:text-amber-300"
+                >
+                  <UserMinus className="w-3.5 h-3.5" />
+                  Keluar
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => void handleReactivateAccount(r)}
+                  title="Aktifkan kembali akun ini"
+                  className="inline-flex items-center gap-1 min-h-[34px] px-2.5 rounded-lg border border-emerald-200 dark:border-emerald-800/70 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 text-xs font-semibold text-emerald-800 dark:text-emerald-300 disabled:opacity-50"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Aktifkan
+                </button>
+              ))}
+            {!isSelf && (
+              <button
+                type="button"
+                onClick={() => openDeleteAccountModal(r)}
+                title="Hapus permanen akun dan seluruh data terkaitnya"
+                className="inline-flex items-center gap-1 min-h-[34px] px-2.5 rounded-lg border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/50 text-xs font-semibold text-red-700 dark:text-red-300"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Hapus
+              </button>
+            )}
+          </div>
+        );
+      },
+    },
+  ];
+
+  const employeeDirectoryCols: ColumnDef<ManagedAccount>[] = [
+    {
+      key: 'nik',
+      header: 'NIK',
+      sortValue: (r) => r.nik || '',
       render: (r) => (
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={() => openEditAccount(r)}
-            className="inline-flex items-center gap-1 min-h-[38px] px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-100"
-          >
-            <Edit3 className="w-3.5 h-3.5" />
-            Kelola
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setResetTarget(r);
-              setNewPassword('');
-              setModalErr(null);
-            }}
-            className="inline-flex items-center gap-1 min-h-[38px] px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-semibold text-amber-800 dark:text-amber-300"
-          >
-            <KeyRound className="w-3.5 h-3.5" />
-            Sandi
-          </button>
+        <span className="font-mono text-xs font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap">
+          {r.nik || '—'}
+        </span>
+      ),
+    },
+    {
+      key: 'nama',
+      header: 'Nama & Kontak',
+      sortValue: (r) => r.nama_lengkap,
+      render: (r) => (
+        <div className="flex items-center gap-3">
+          <UserAvatar
+            karyawanId={r.karyawan_id}
+            name={r.nama_lengkap}
+            role={r.role}
+            version={r.foto_profil_updated_at}
+            size="sm"
+          />
+          <div className="min-w-0">
+            <p className="font-semibold text-slate-900 dark:text-slate-100 truncate">
+              {r.nama_lengkap}
+            </p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+              @{r.username} · {r.no_hp || r.email}
+            </p>
+          </div>
         </div>
       ),
+    },
+    {
+      key: 'kantor',
+      header: 'Kantor & Bidang Kerja',
+      sortValue: (r) => `${r.kantor_nama || ''} ${r.bidang_nama || ''}`,
+      render: (r) => (
+        <div className="text-xs space-y-0.5">
+          <p className="font-medium text-slate-800 dark:text-slate-200">
+            {(r.kantor_nama || '').split('(')[0].trim()}
+          </p>
+          <p className="font-semibold text-emerald-800 dark:text-emerald-300">
+            Bidang: {r.bidang_nama}
+          </p>
+        </div>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status & Masa Kerja',
+      sortValue: (r) => `${isAccountActive(r) ? '1' : '0'}_${r.tanggal_masuk || ''}`,
+      render: (r) => {
+        const active = isAccountActive(r);
+        return (
+          <div className="text-xs space-y-0.5">
+            {active ? (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800">
+                AKTIF
+              </span>
+            ) : (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-red-100 text-red-900 border border-red-200 dark:bg-red-950/60 dark:text-red-300 dark:border-red-800">
+                KELUAR
+              </span>
+            )}
+            {r.tanggal_masuk && (
+              <p className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                Masuk: {r.tanggal_masuk}
+              </p>
+            )}
+            {!active && r.tanggal_keluar && (
+              <p className="text-[11px] font-mono text-red-700 dark:text-red-400">
+                Keluar: {r.tanggal_keluar}
+              </p>
+            )}
+            {!active && r.alasan_keluar && (
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-[180px] truncate" title={r.alasan_keluar}>
+                {r.alasan_keluar}
+              </p>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      key: 'aksi',
+      header: 'Aksi',
+      align: 'right',
+      render: (r) => {
+        const active = isAccountActive(r);
+        return (
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
+            <button
+              type="button"
+              onClick={() => openEditAccount(r)}
+              className="inline-flex items-center gap-1 min-h-[34px] px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-100"
+            >
+              <Edit3 className="w-3.5 h-3.5" />
+              Edit
+            </button>
+            {active ? (
+              <button
+                type="button"
+                onClick={() => openResignModal(r)}
+                title="Tandai karyawan keluar / resign (riwayat absensi tetap aman)"
+                className="inline-flex items-center gap-1 min-h-[34px] px-2.5 rounded-lg border border-amber-200 dark:border-amber-800/70 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/50 text-xs font-semibold text-amber-800 dark:text-amber-300"
+              >
+                <UserMinus className="w-3.5 h-3.5" />
+                Keluar
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => void handleReactivateAccount(r)}
+                title="Aktifkan kembali akun karyawan ini"
+                className="inline-flex items-center gap-1 min-h-[34px] px-2.5 rounded-lg border border-emerald-200 dark:border-emerald-800/70 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 text-xs font-semibold text-emerald-800 dark:text-emerald-300 disabled:opacity-50"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                Aktifkan
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => openDeleteAccountModal(r)}
+              title="Hapus permanen data karyawan beserta akunnya"
+              className="inline-flex items-center gap-1 min-h-[34px] px-2.5 rounded-lg border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/50 text-xs font-semibold text-red-700 dark:text-red-300"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Hapus
+            </button>
+          </div>
+        );
+      },
     },
   ];
 
@@ -595,20 +1004,46 @@ export function SuperadminAccountsTab({
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="font-display text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100">
-            Manajemen Akun & Persetujuan Pendaftaran (ACC)
+            Manajemen Akun, Daftar Karyawan & Persetujuan (ACC)
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Setujui pendaftaran baru dan kelola seluruh akun Karyawan (per Bidang Kerja) maupun Operator.
+            Setujui pendaftaran baru, kelola karyawan aktif/keluar, export daftar untuk Direktur, dan kelola seluruh akun sistem.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={openCreateAccount}
-          className="min-h-[44px] sm:min-h-[40px] px-4 bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5 w-full sm:w-auto"
-        >
-          <Plus className="w-4 h-4" />
-          Buat Akun Langsung
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {subtab === 'employees' && (
+            <>
+              <button
+                type="button"
+                disabled={loading || exportingDir || filteredEmployees.length === 0}
+                onClick={() => void handleExportEmployeePng()}
+                title="Unduh daftar karyawan sesuai filter aktif dalam format gambar PNG HD (siap kirim ke Direktur)"
+                className="min-h-[40px] px-3.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <ImageIcon className="w-4 h-4" />
+                {exportingDir ? 'Membuat PNG...' : 'Export PNG'}
+              </button>
+              <button
+                type="button"
+                disabled={loading || filteredEmployees.length === 0}
+                onClick={handleExportEmployeePdf}
+                title="Cetak atau simpan daftar karyawan sebagai dokumen PDF resmi untuk Direktur"
+                className="min-h-[40px] px-3.5 bg-[#c0392b] hover:bg-[#a93226] text-white text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <Printer className="w-4 h-4" />
+                Cetak / PDF
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={openCreateAccount}
+            className="min-h-[44px] sm:min-h-[40px] px-4 bg-navy-900 hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5 w-full sm:w-auto"
+          >
+            <Plus className="w-4 h-4" />
+            Buat Akun Langsung
+          </button>
+        </div>
       </div>
 
       {bannerMsg && (
@@ -636,13 +1071,13 @@ export function SuperadminAccountsTab({
         </div>
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
           <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 font-semibold">
-            KARYAWAN
+            KARYAWAN AKTIF
           </p>
           <p className="font-mono text-2xl font-bold text-emerald-700 dark:text-emerald-400 tabular-nums mt-1">
-            {accounts.filter((a) => a.role === 'KARYAWAN').length}
+            {activeEmployeeCount}
           </p>
           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-            Absensi harian · per Bidang Kerja
+            {resignedEmployeeCount > 0 ? `${resignedEmployeeCount} keluar / nonaktif` : 'Semua karyawan aktif'}
           </p>
         </div>
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
@@ -650,7 +1085,7 @@ export function SuperadminAccountsTab({
             OPERATOR
           </p>
           <p className="font-mono text-2xl font-bold text-indigo-700 dark:text-indigo-400 tabular-nums mt-1">
-            {accounts.filter((a) => a.role === 'ADMIN').length}
+            {accounts.filter((a) => a.role === 'ADMIN' && isAccountActive(a)).length}
           </p>
           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
             Pengelola approval & payroll
@@ -661,7 +1096,7 @@ export function SuperadminAccountsTab({
             TOTAL AKUN AKTIF
           </p>
           <p className="font-mono text-2xl font-bold text-slate-900 dark:text-slate-100 tabular-nums mt-1">
-            {accounts.filter((a) => a.user_aktif === 1).length}
+            {accounts.filter(isAccountActive).length}
           </p>
           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
             Dari {accounts.length} akun terdaftar
@@ -683,6 +1118,21 @@ export function SuperadminAccountsTab({
           >
             <UserPlus className="w-3.5 h-3.5" />
             <span>Antrean ACC Pendaftaran ({pendingRegsCount})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setSubtab('employees')}
+            className={`min-h-[38px] sm:min-h-0 px-3.5 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+              subtab === 'employees'
+                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" />
+            <span>
+              Daftar Karyawan ({activeEmployeeCount} Aktif
+              {resignedEmployeeCount > 0 ? ` · ${resignedEmployeeCount} Keluar` : ''})
+            </span>
           </button>
           <button
             type="button"
@@ -732,6 +1182,68 @@ export function SuperadminAccountsTab({
             </select>
           }
         />
+      ) : subtab === 'employees' ? (
+        <DataTable
+          data={filteredEmployees}
+          columns={employeeDirectoryCols}
+          getRowId={(r) => r.user_id}
+          loading={loading}
+          error={error}
+          onRetry={loadAll}
+          emptyTitle={
+            empStatusFilter === 'KELUAR'
+              ? 'Belum ada karyawan berstatus keluar / nonaktif'
+              : 'Tidak ada karyawan sesuai filter'
+          }
+          emptyDescription="Ubah filter status, kantor, atau bidang kerja untuk melihat data lainnya."
+          searchPlaceholder="Cari NIK, nama, no. HP, email, kantor, atau bidang kerja..."
+          searchFilter={(r, q) =>
+            r.nama_lengkap.toLowerCase().includes(q) ||
+            (r.nik || '').toLowerCase().includes(q) ||
+            r.username.toLowerCase().includes(q) ||
+            r.email.toLowerCase().includes(q) ||
+            (r.no_hp || '').toLowerCase().includes(q) ||
+            (r.kantor_nama || '').toLowerCase().includes(q) ||
+            (r.bidang_nama || '').toLowerCase().includes(q)
+          }
+          filterToolbar={
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+              <select
+                value={empStatusFilter}
+                onChange={(e) => setEmpStatusFilter(e.target.value as 'AKTIF' | 'KELUAR' | 'ALL')}
+                className="h-11 sm:h-9 px-2.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-lg flex-1 sm:flex-none"
+              >
+                <option value="AKTIF">Aktif ({activeEmployeeCount})</option>
+                <option value="KELUAR">Keluar / Nonaktif ({resignedEmployeeCount})</option>
+                <option value="ALL">Semua ({employeeAccounts.length})</option>
+              </select>
+              <select
+                value={empOfficeFilter}
+                onChange={(e) => setEmpOfficeFilter(e.target.value)}
+                className="h-11 sm:h-9 px-2.5 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-lg flex-1 sm:flex-none"
+              >
+                <option value="">Semua Kantor</option>
+                {offices.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.nama.split('(')[0].trim()}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={empBidangFilter}
+                onChange={(e) => setEmpBidangFilter(e.target.value)}
+                className="h-11 sm:h-9 px-2.5 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-lg flex-1 sm:flex-none"
+              >
+                <option value="">Semua Bidang Kerja</option>
+                {bidangList.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    Bidang: {b.nama}
+                  </option>
+                ))}
+              </select>
+            </div>
+          }
+        />
       ) : (
         <DataTable
           data={filteredAccounts}
@@ -752,6 +1264,15 @@ export function SuperadminAccountsTab({
           filterToolbar={
             <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
               <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as 'AKTIF' | 'KELUAR' | 'ALL')}
+                className="h-11 sm:h-9 px-2.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-lg flex-1 sm:flex-none"
+              >
+                <option value="AKTIF">Aktif ({accounts.filter(isAccountActive).length})</option>
+                <option value="KELUAR">Keluar / Nonaktif ({accounts.filter((a) => !isAccountActive(a)).length})</option>
+                <option value="ALL">Semua Status ({accounts.length})</option>
+              </select>
+              <select
                 value={roleFilter}
                 onChange={(e) => {
                   const next = e.target.value;
@@ -767,6 +1288,20 @@ export function SuperadminAccountsTab({
                 <option value="ADMIN">OPERATOR</option>
                 <option value="SUPERADMIN">SUPERADMIN</option>
               </select>
+              {roleFilter !== 'SUPERADMIN' && (
+                <select
+                  value={officeFilter}
+                  onChange={(e) => setOfficeFilter(e.target.value)}
+                  className="h-11 sm:h-9 px-2.5 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-lg flex-1 sm:flex-none"
+                >
+                  <option value="">Semua Kantor</option>
+                  {offices.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.nama.split('(')[0].trim()}
+                    </option>
+                  ))}
+                </select>
+              )}
               {roleFilter !== 'ADMIN' && roleFilter !== 'SUPERADMIN' && (
                 <select
                   value={bidangFilter}
@@ -1360,6 +1895,173 @@ export function SuperadminAccountsTab({
                   className="min-h-[44px] sm:min-h-[40px] px-5 text-xs font-semibold bg-navy-900 dark:bg-brand-600 text-white rounded-lg"
                 >
                   {saving ? 'Menyimpan...' : 'Simpan Sandi'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Tandai Keluar / Nonaktifkan Akun */}
+      {resignTarget && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[92vh] flex flex-col">
+            <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <h2 className="font-display text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <UserMinus className="w-4 h-4 text-amber-600" />
+                Tandai Keluar / Nonaktifkan Akun
+              </h2>
+              <button
+                type="button"
+                onClick={() => setResignTarget(null)}
+                className="min-w-[40px] min-h-[40px] flex items-center justify-center"
+              >
+                <X className="w-5 h-5 text-slate-500 dark:text-slate-400" />
+              </button>
+            </div>
+            <form onSubmit={submitResignAccount} className="p-5 space-y-4 overflow-y-auto">
+              {modalErr && (
+                <div className="p-3 rounded-lg bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800/70 text-xs text-red-800 dark:text-red-300">
+                  {modalErr}
+                </div>
+              )}
+              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200 leading-relaxed">
+                <strong>Arsip Aman (Direkomendasikan):</strong> Akun{' '}
+                <strong>{resignTarget.nama_lengkap}</strong> (@{resignTarget.username} ·{' '}
+                {getRoleDisplayLabel(resignTarget.role)}) akan langsung dinonaktifkan, sesi login diputus, dan dikeluarkan dari daftar aktif — sambil tetap menjaga riwayat absensi & payroll.
+              </div>
+              {resignTarget.karyawan_id !== null && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Tanggal Efektif Keluar
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={resignDate}
+                    onChange={(e) => setResignDate(e.target.value)}
+                    className="w-full h-11 sm:h-10 px-3 text-sm font-mono border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg"
+                  />
+                </div>
+              )}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Alasan Keluar / Nonaktif (Wajib)
+                </label>
+                <input
+                  type="text"
+                  required
+                  minLength={3}
+                  value={resignReason}
+                  onChange={(e) => setResignReason(e.target.value)}
+                  placeholder="Contoh: Mengundurkan diri (Resign) / Habis kontrak"
+                  className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg"
+                />
+              </div>
+              <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setResignTarget(null)}
+                  className="min-h-[44px] sm:min-h-[40px] px-4 text-xs font-semibold border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-lg"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="min-h-[44px] sm:min-h-[40px] px-5 text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white rounded-lg"
+                >
+                  {saving ? 'Menyimpan...' : 'Konfirmasi Keluar'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Hapus Permanen Akun */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full border border-red-200 dark:border-red-900/70 overflow-hidden max-h-[92vh] flex flex-col">
+            <div className="px-5 py-4 border-b border-red-200 dark:border-red-900/60 bg-red-50/70 dark:bg-red-950/40 flex items-center justify-between">
+              <h2 className="font-display text-base font-bold text-red-900 dark:text-red-200 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-red-600" />
+                Hapus Permanen Akun
+              </h2>
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                className="min-w-[40px] min-h-[40px] flex items-center justify-center"
+              >
+                <X className="w-5 h-5 text-red-700 dark:text-red-300" />
+              </button>
+            </div>
+            <form onSubmit={submitDeleteAccount} className="p-5 space-y-4 overflow-y-auto">
+              {modalErr && (
+                <div className="p-3 rounded-lg bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800/70 text-xs text-red-800 dark:text-red-300">
+                  {modalErr}
+                </div>
+              )}
+              <div className="p-3.5 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-xs text-red-900 dark:text-red-200 space-y-1.5 leading-relaxed">
+                <p>
+                  Anda akan menghapus permanen akun{' '}
+                  <strong>{deleteTarget.nama_lengkap}</strong> (@{deleteTarget.username} ·{' '}
+                  {getRoleDisplayLabel(deleteTarget.role)}).
+                </p>
+                {deleteTarget.karyawan_id !== null && (
+                  <p className="font-mono text-[11px]">
+                    Data terkait yang ikut terhapus:{' '}
+                    <strong>{deleteTarget.jumlah_absensi ?? 0} sesi absensi</strong> ·{' '}
+                    <strong>{deleteTarget.jumlah_pengajuan ?? 0} pengajuan</strong> · foto profil & bukti absensi.
+                  </p>
+                )}
+                {(deleteTarget.jumlah_absensi ?? 0) > 0 && isAccountActive(deleteTarget) && (
+                  <p className="pt-1 font-semibold text-amber-900 dark:text-amber-300">
+                    Tips: Jika hanya resign dan riwayat payroll masih dibutuhkan, gunakan tombol &ldquo;Keluar&rdquo; agar data absensi tetap tersimpan.
+                  </p>
+                )}
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Alasan Penghapusan (Wajib tercatat di Audit Trail)
+                </label>
+                <input
+                  type="text"
+                  required
+                  minLength={5}
+                  value={deleteReason}
+                  onChange={(e) => setDeleteReason(e.target.value)}
+                  placeholder="Contoh: Karyawan sudah keluar / akun duplikat salah daftar"
+                  className="w-full h-11 sm:h-10 px-3 text-sm border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Ketik <span className="font-mono text-red-700 dark:text-red-400">HAPUS</span> untuk konfirmasi
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  placeholder="HAPUS"
+                  className="w-full h-11 sm:h-10 px-3 text-sm font-mono uppercase border border-red-200 dark:border-red-800 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg"
+                />
+              </div>
+              <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setDeleteTarget(null)}
+                  className="min-h-[44px] sm:min-h-[40px] px-4 text-xs font-semibold border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-lg"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving || deleteConfirmText.trim().toUpperCase() !== 'HAPUS'}
+                  className="min-h-[44px] sm:min-h-[40px] px-5 text-xs font-semibold bg-red-700 hover:bg-red-800 text-white rounded-lg disabled:opacity-40"
+                >
+                  {saving ? 'Menghapus...' : 'Hapus Permanen'}
                 </button>
               </div>
             </form>
